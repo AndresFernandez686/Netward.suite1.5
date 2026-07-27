@@ -3,6 +3,10 @@ Datos iniciales del sistema Netward.
 Catalogo de productos, usuarios, tiendas y umbrales de stock.
 """
 
+CLIENTES_DEFAULT = [
+    {"id": "C001", "nombre": "Cliente Demo", "plan": "pro", "estado": "activo"},
+]
+
 # Estructura completa de productos por categoria (migrada de ui_empleado.py)
 PRODUCTOS_BASE = {
     "Impulsivo": [
@@ -49,18 +53,18 @@ ESTADOS_BALDE = ["Lleno", "Medio lleno", "Vacio"]
 
 # Tiendas iniciales
 TIENDAS_DEFAULT = [
-    {"id": "T001", "nombre": "Seminario", "es_default": True},
-    {"id": "T002", "nombre": "Mcal Lopez", "es_default": False},
+    {"id": "T001", "cliente_id": "C001", "nombre": "Seminario", "es_default": True},
+    {"id": "T002", "cliente_id": "C001", "nombre": "Mcal Lopez", "es_default": False},
 ]
 
 # Usuarios (MODO BETA: cualquier contrasena es valida)
 USUARIOS_DEFAULT = [
-    {"username": "empleado1", "rol": "empleado", "tienda_id": "T001"},
-    {"username": "empleado2", "rol": "empleado", "tienda_id": "T002"},
-    {"username": "empleado3", "rol": "empleado", "tienda_id": "T001"},
-    {"username": "admin1", "rol": "administrador", "tienda_id": "ALL"},
-    {"username": "admin", "rol": "administrador", "tienda_id": "ALL"},
-    {"username": "empleado", "rol": "empleado", "tienda_id": "T001"},
+    {"username": "empleado1", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T001"},
+    {"username": "empleado2", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T002"},
+    {"username": "empleado3", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T001"},
+    {"username": "admin1", "cliente_id": "C001", "rol": "administrador", "tienda_id": "ALL"},
+    {"username": "admin", "cliente_id": "C001", "rol": "administrador", "tienda_id": "ALL"},
+    {"username": "empleado", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T001"},
 ]
 
 # Umbrales del semaforo de stock (migrados de stock_alerts.py)

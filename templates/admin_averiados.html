@@ -4,9 +4,16 @@
 {% block subheading %}Registros reportados por empleados{% endblock %}
 
 {% block content %}
+<div id="averiados-filtros"></div>
+{% if local_notice %}
+<div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">
+  {{ local_notice.message }}
+</div>
+{% endif %}
+
 <section class="card card--skip-collapse">
   <h3 class="panel__title">Filtros</h3>
-  <form method="get" class="filters">
+  <form method="get" action="{{ url_for('admin_averiados') }}#averiados-filtros" class="filters">
     <label class="field">
       <span class="field__label">Tienda</span>
       <select name="tienda">
@@ -28,8 +35,19 @@
       <button type="submit" class="btn btn--primary">Filtrar</button>
     </div>
   </form>
+
+  <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+    <form method="post" action="{{ url_for('admin_averiados_revisar') }}"
+          onsubmit="return confirm('¿Marcar como revisados los registros filtrados actualmente?')">
+      <input type="hidden" name="tienda" value="{{ tienda_f }}" />
+      <input type="hidden" name="desde" value="{{ desde }}" />
+      <input type="hidden" name="hasta" value="{{ hasta }}" />
+      <button type="submit" class="btn btn--ghost">Marcar filtrados como revisados</button>
+    </form>
+  </div>
 </section>
 
+<div id="averiados-lista"></div>
 <section class="card card--skip-collapse">
   <h3 class="panel__title">
     Registros de averiados

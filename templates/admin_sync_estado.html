@@ -4,6 +4,13 @@
 {% block subheading %}Estado de sincronización de todas las tiendas{% endblock %}
 
 {% block content %}
+<div id="sync-estado"></div>
+{% if local_notice %}
+<div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">
+  {{ local_notice.message }}
+</div>
+{% endif %}
+
 <section class="panel">
   <div class="panel__head">
     <h3>Estado por tienda</h3>

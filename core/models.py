@@ -18,11 +18,26 @@ class BaseModel(db.Model):
             setattr(self, key, value)
 
 
+class Cliente(BaseModel):
+    """Empresa dueña de una o varias sucursales (multi-tenant)."""
+    __tablename__ = "clientes"
+
+    id = db.Column(db.String(10), primary_key=True)          # Ej: C001
+    nombre = db.Column(db.String(160), nullable=False, unique=True)
+    plan = db.Column(db.String(40), default="basico")
+    estado = db.Column(db.String(20), default="activo")     # activo | suspendido
+    fecha_creacion = db.Column(db.String(20), default=lambda: date.today().isoformat())
+
+    tiendas = db.relationship("Tienda", backref="cliente", lazy=True)
+    usuarios = db.relationship("Usuario", backref="cliente", lazy=True)
+
+
 class Tienda(BaseModel):
     """Sucursal / ubicacion del negocio (multi-tienda)."""
     __tablename__ = "tiendas"
 
     id = db.Column(db.String(10), primary_key=True)          # Ej: T001
+    cliente_id = db.Column(db.String(10), db.ForeignKey("clientes.id"), nullable=False, default="C001", index=True)
     nombre = db.Column(db.String(120), nullable=False)
     direccion = db.Column(db.String(255), default="Direccion no especificada")
     activa = db.Column(db.Boolean, default=True)
@@ -49,6 +64,7 @@ class Usuario(BaseModel):
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
+    cliente_id = db.Column(db.String(10), db.ForeignKey("clientes.id"), nullable=False, default="C001", index=True)
     rol = db.Column(db.String(20), nullable=False)           # empleado | administrador
     tienda_id = db.Column(db.String(10), nullable=True)      # ALL para administradores
 
@@ -69,6 +85,7 @@ class InventarioItem(BaseModel):
     __tablename__ = "inventario_items"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     tienda_id = db.Column(db.String(10), db.ForeignKey("tiendas.id"), nullable=False)
     categoria = db.Column(db.String(40), nullable=False)
     producto = db.Column(db.String(160), nullable=False)
@@ -89,6 +106,7 @@ class HistorialMovimiento(BaseModel):
     __tablename__ = "historial"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     fecha = db.Column(db.String(20), nullable=False)
     hora = db.Column(db.String(20), default="")
     usuario = db.Column(db.String(80), nullable=False)
@@ -107,6 +125,7 @@ class InventarioSnapshot(BaseModel):
     __tablename__ = "inventario_snapshots"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     fecha = db.Column(db.String(20), nullable=False)
     tienda_id = db.Column(db.String(10), nullable=False)
     usuario = db.Column(db.String(80), nullable=False)
@@ -124,6 +143,7 @@ class DeliveryProducto(BaseModel):
     __tablename__ = "delivery_productos"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     nombre = db.Column(db.String(160), nullable=False, unique=True)
     precio = db.Column(db.Float, default=0)
     es_promocion = db.Column(db.Boolean, default=False)
@@ -135,6 +155,7 @@ class DeliveryVenta(BaseModel):
     __tablename__ = "delivery_ventas"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     fecha = db.Column(db.String(20), nullable=False)
     hora = db.Column(db.String(20), default="")
     producto = db.Column(db.String(160), nullable=False)
@@ -150,6 +171,7 @@ class StockThreshold(BaseModel):
     __tablename__ = "stock_thresholds"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     producto = db.Column(db.String(160), unique=True, nullable=False)
     critico = db.Column(db.Float, default=0)
     medio = db.Column(db.Float, default=0)
@@ -160,6 +182,7 @@ class ProductoPrecio(BaseModel):
     __tablename__ = "producto_precios"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     producto_nombre = db.Column(db.String(160), unique=True, nullable=False)
     categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Extras
     precio = db.Column(db.Float, nullable=True)
@@ -172,6 +195,7 @@ class InventarioDescSnapshot(BaseModel):
     __tablename__ = "inventario_desc_snapshots"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     tienda_id = db.Column(db.String(10), nullable=False)
     mes = db.Column(db.String(7), nullable=False)           # YYYY-MM
     fecha_proceso = db.Column(db.String(20), nullable=False)
@@ -189,6 +213,7 @@ class RegistroAveriado(BaseModel):
     __tablename__ = "registros_averiados"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     tienda_id = db.Column(db.String(10), nullable=False)
     fecha = db.Column(db.String(20), nullable=False)
     hora = db.Column(db.String(20), default="")
@@ -200,6 +225,7 @@ class RegistroAveriado(BaseModel):
     ume = db.Column(db.String(30), default="Unidad")
     desc_conversion = db.Column(db.String(255), default="")
     detalle = db.Column(db.String(255), default="")
+    sinc_estado = db.Column(db.String(20), default="pendiente")  # pendiente | sincronizado
     revisado = db.Column(db.Boolean, default=False)
     creado = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -209,6 +235,7 @@ class RegistroVencimiento(BaseModel):
     __tablename__ = "registros_vencimiento"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     tienda_id = db.Column(db.String(10), nullable=False)
     fecha = db.Column(db.String(20), nullable=False)
     hora = db.Column(db.String(20), default="")
@@ -221,6 +248,7 @@ class RegistroVencimiento(BaseModel):
     desc_conversion = db.Column(db.String(255), default="")
     fecha_vencimiento = db.Column(db.String(20), nullable=False)
     detalle = db.Column(db.String(255), default="")
+    sinc_estado = db.Column(db.String(20), default="pendiente")  # pendiente | sincronizado
     revisado = db.Column(db.Boolean, default=False)
     creado = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -230,6 +258,7 @@ class SincronizacionLog(BaseModel):
     __tablename__ = "sincronizacion_log"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     tienda_id = db.Column(db.String(10), nullable=False)
     usuario = db.Column(db.String(80), nullable=False)
     tipo = db.Column(db.String(20), nullable=False)   # "envio" | "recepcion"

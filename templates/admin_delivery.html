@@ -4,9 +4,17 @@
 {% block subheading %}Catalogo y ventas registradas{% endblock %}
 
 {% block content %}
+<div id="delivery-form"></div>
+{% if local_notice %}
+<div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">
+  {{ local_notice.message }}
+</div>
+{% endif %}
+
 <section class="card card--skip-collapse">
   <h3 class="panel__title">Agregar producto al catalogo</h3>
   <form method="post" action="{{ url_for('admin_delivery') }}" class="form-row">
+    <input type="hidden" name="_section" value="delivery-form" />
     <label class="field field--grow">
       <span class="field__label">Nombre del producto</span>
       <input type="text" name="nombre" placeholder="Ej: Promo 2x1 Chocolate" required />
@@ -25,7 +33,7 @@
 </section>
 
 <div class="grid-2">
-  <section class="card card--skip-collapse">
+  <section class="card card--skip-collapse" id="delivery-catalogo">
     <h3 class="panel__title">Catalogo</h3>
     <div class="table-wrap">
       <table class="table">

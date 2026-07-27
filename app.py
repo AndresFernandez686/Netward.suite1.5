@@ -18,15 +18,16 @@ from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, send_file, jsonify, abort)
 from dotenv import load_dotenv
 
-from core.models import (db, Tienda, Usuario, Producto, InventarioItem,
+from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     HistorialMovimiento, InventarioSnapshot, DeliveryProducto,
                     DeliveryVenta, StockThreshold, ProductoPrecio,
                     InventarioDescSnapshot, RegistroAveriado, RegistroVencimiento,
                     SincronizacionLog)
 from core.seed_data import (PRODUCTOS_BASE, CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME,
-                       ESTADOS_BALDE, TIENDAS_DEFAULT, USUARIOS_DEFAULT,
+                       ESTADOS_BALDE, CLIENTES_DEFAULT, TIENDAS_DEFAULT, USUARIOS_DEFAULT,
                        STOCK_THRESHOLDS_DEFAULT, DELIVERY_DEFAULT, stock_status)
 from core.inventario import desc_bp
+from core.admin_feedback import set_view_notice, pop_view_notice
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=True)
@@ -94,7 +95,10 @@ def select_database_for_request():
     if session.get("rol") == "administrador":
         tienda_arg = request.args.get("tienda")
         if tienda_arg:
-            session["admin_tienda_id"] = tienda_arg
+            cliente_id = get_cliente_filtro()
+            tiendas_validas = {t.id for t in Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()}
+            if tienda_arg == "ALL" or tienda_arg in tiendas_validas:
+                session["admin_tienda_id"] = tienda_arg
 
 
 def get_tienda_filtro():
@@ -112,13 +116,66 @@ def _safe_config_tab(tab_value):
 
 def _set_admin_config_notice(section, message, category="info", tab=None):
     """Guarda un aviso local para /admin/configuracion sin usar flash global."""
-    session["admin_config_notice"] = {
-        "section": section,
-        "message": message,
-        "category": category,
-        "tab": _safe_config_tab(tab) if tab else None,
-    }
-    session.modified = True
+    set_view_notice(
+        session,
+        "admin_config_notice",
+        message,
+        category,
+        section=section,
+        tab=_safe_config_tab(tab) if tab else None,
+    )
+
+
+def _set_admin_precios_notice(message, category="info", tab=None):
+    """Guarda un aviso local para /admin/precios sin usar flash global."""
+    set_view_notice(session, "admin_precios_notice", message, category, tab=tab or "tab-0")
+
+
+def get_cliente_filtro() -> str:
+    """Cliente activo en sesión; usa C001 como fallback de compatibilidad."""
+    return session.get("cliente_id", "C001")
+
+
+def _add_column_if_missing(conn, table_name: str, column_sql: str, column_name: str):
+    """Agrega una columna en SQLite solo si no existe."""
+    cols = conn.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
+    existing = {c[1] for c in cols}
+    if column_name not in existing:
+        conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
+
+
+def ensure_multitenant_schema():
+    """Migración liviana para multi-tenant sin depender de Alembic."""
+    with db.engine.begin() as conn:
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS clientes (
+                id VARCHAR(10) PRIMARY KEY,
+                nombre VARCHAR(160) NOT NULL UNIQUE,
+                plan VARCHAR(40) DEFAULT 'basico',
+                estado VARCHAR(20) DEFAULT 'activo',
+                fecha_creacion VARCHAR(20)
+            )
+            """
+        )
+
+        tenant_targets = [
+            "tiendas", "usuarios", "inventario_items", "historial",
+            "inventario_snapshots", "delivery_productos", "delivery_ventas",
+            "stock_thresholds", "producto_precios", "inventario_desc_snapshots",
+            "registros_averiados", "registros_vencimiento", "sincronizacion_log",
+        ]
+        for table_name in tenant_targets:
+            _add_column_if_missing(conn, table_name,
+                                   "cliente_id VARCHAR(10) NOT NULL DEFAULT 'C001'", "cliente_id")
+
+        _add_column_if_missing(conn, "registros_averiados",
+                               "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
+        _add_column_if_missing(conn, "registros_vencimiento",
+                               "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
+
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tiendas_cliente_id ON tiendas(cliente_id)")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id)")
 
 
 # --------------------------------------------------------------------------- #
@@ -131,15 +188,32 @@ def init_db():
     with db.engine.begin() as conn:
         db.metadata.create_all(bind=conn, checkfirst=True)
 
+    ensure_multitenant_schema()
+
+    if Cliente.query.count() == 0:
+        for c in CLIENTES_DEFAULT:
+            db.session.add(Cliente(id=c["id"], nombre=c["nombre"],
+                                   plan=c.get("plan", "basico"),
+                                   estado=c.get("estado", "activo")))
+
     if Tienda.query.count() == 0:
         for t in TIENDAS_DEFAULT:
-            db.session.add(Tienda(id=t["id"], nombre=t["nombre"],
+            db.session.add(Tienda(id=t["id"], cliente_id=t.get("cliente_id", "C001"),
+                                  nombre=t["nombre"],
                                   es_default=t["es_default"], activa=True))
+    else:
+        for t in Tienda.query.filter((Tienda.cliente_id.is_(None)) | (Tienda.cliente_id == "")).all():
+            t.cliente_id = "C001"
 
     if Usuario.query.count() == 0:
         for u in USUARIOS_DEFAULT:
-            db.session.add(Usuario(username=u["username"], rol=u["rol"],
+            db.session.add(Usuario(username=u["username"],
+                                   cliente_id=u.get("cliente_id", "C001"),
+                                   rol=u["rol"],
                                    tienda_id=u["tienda_id"]))
+    else:
+        for u in Usuario.query.filter((Usuario.cliente_id.is_(None)) | (Usuario.cliente_id == "")).all():
+            u.cliente_id = "C001"
 
     if Producto.query.count() == 0:
         for categoria, productos in PRODUCTOS_BASE.items():
@@ -200,11 +274,12 @@ def inject_globals():
         "sync_pendientes": 0,
     }
     if session.get("rol") == "empleado" and session.get("usuario"):
+        cliente_id = get_cliente_filtro()
         u = session["usuario"]
         t = session.get("tienda_id", "")
         def _last(tipo):
             r = (SincronizacionLog.query
-                 .filter_by(usuario=u, tienda_id=t, tipo=tipo)
+                 .filter_by(cliente_id=cliente_id, usuario=u, tienda_id=t, tipo=tipo)
                  .order_by(SincronizacionLog.timestamp.desc())
                  .first())
             if r:
@@ -214,19 +289,20 @@ def inject_globals():
             ctx["sync_ultimo_envio"]      = _last("envio")
             ctx["sync_ultima_recepcion"]  = _last("recepcion")
             ctx["sync_pendientes"] = InventarioItem.query.filter_by(
-                tienda_id=t, sinc_estado="pendiente").count()
+                cliente_id=cliente_id, tienda_id=t, sinc_estado="pendiente").count()
         except Exception:
             pass
     # Solo consultar notificaciones si hay sesion activa de administrador
     if session.get("rol") == "administrador" and session.get("usuario"):
+        cliente_id = get_cliente_filtro()
         try:
-            ctx["notif_averiados"]    = RegistroAveriado.query.filter_by(revisado=False).count()
-            ctx["notif_vencimientos"] = RegistroVencimiento.query.filter_by(revisado=False).count()
+            ctx["notif_averiados"]    = RegistroAveriado.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False).count()
+            ctx["notif_vencimientos"] = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False).count()
         except Exception:
             ctx["notif_averiados"]    = 0
             ctx["notif_vencimientos"] = 0
         try:
-            ctx["tiendas_topbar"] = Tienda.query.filter_by(activa=True).all()
+            ctx["tiendas_topbar"] = Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()
         except Exception:
             ctx["tiendas_topbar"] = []
         ctx["tienda_filtro"] = session.get("admin_tienda_id", "ALL")
@@ -260,10 +336,12 @@ def login():
 
         # MODO BETA: cualquier contrasena es valida
         session["usuario"] = usuario.username
+        session["cliente_id"] = usuario.cliente_id or "C001"
         session["rol"] = usuario.rol
         session["tienda_id"] = usuario.tienda_id
+        session["admin_tienda_id"] = "ALL"
         if usuario.rol == "empleado":
-            tienda = Tienda.query.get(usuario.tienda_id)
+            tienda = Tienda.query.filter_by(id=usuario.tienda_id, cliente_id=session["cliente_id"]).first()
             session["tienda_nombre"] = tienda.nombre if tienda else usuario.tienda_id
         else:
             session["tienda_nombre"] = "Todas las tiendas"
@@ -271,7 +349,7 @@ def login():
         flash(f"Bienvenido, {usuario.username}.", "success")
         return redirect(url_for("index"))
 
-    usuarios = Usuario.query.all()
+    usuarios = Usuario.query.order_by(Usuario.username).all()
     return render_template("login.html", usuarios=usuarios)
 
 
@@ -294,14 +372,26 @@ def set_carrito(carrito):
     session.modified = True
 
 
+def _safe_inv_tab(tab_value):
+    return tab_value if tab_value in CATEGORIAS else CATEGORIAS[0]
+
+
+def _redirect_inventario_context(default_anchor="sec-carga"):
+    active_tab = _safe_inv_tab(request.form.get("active_tab"))
+    anchor = (request.form.get("anchor") or default_anchor).strip() or default_anchor
+    return redirect(url_for("empleado_inventario", tab=active_tab) + f"#{anchor}")
+
+
 @app.route("/empleado/inventario")
 @login_required(rol="empleado")
 def empleado_inventario():
     tienda_id = session["tienda_id"]
+    active_tab = _safe_inv_tab(request.args.get("tab"))
     productos = get_productos_db()
     return render_template(
         "empleado_inventario.html",
         productos=productos,
+        active_tab=active_tab,
         categorias=CATEGORIAS,
         tipos_inventario=TIPOS_INVENTARIO,
         opciones_ume=OPCIONES_UME,
@@ -325,11 +415,11 @@ def carrito_agregar():
 
     if not producto:
         flash("Selecciona un producto antes de agregar.", "warning")
-        return redirect(url_for("empleado_inventario"))
+        return _redirect_inventario_context("sec-carga")
 
     if cantidad <= 0:
         flash("Ingresa una cantidad valida.", "warning")
-        return redirect(url_for("empleado_inventario"))
+        return _redirect_inventario_context("sec-carga")
 
     # Conversion a unidades individuales segun config del admin
     cantidad_unidades = cantidad
@@ -378,7 +468,7 @@ def carrito_agregar():
     if desc_conversion:
         msg += f" → {desc_conversion}"
     flash(msg, "success")
-    return redirect(url_for("empleado_inventario"))
+    return _redirect_inventario_context("sec-carga")
 
 
 @app.route("/empleado/carrito/eliminar/<int:idx>", methods=["POST"])
@@ -389,7 +479,7 @@ def carrito_eliminar(idx):
         eliminado = carrito.pop(idx)
         set_carrito(carrito)
         flash(f"{eliminado['producto']} eliminado del carrito.", "info")
-    return redirect(url_for("empleado_inventario"))
+    return _redirect_inventario_context("sec-carrito")
 
 
 @app.route("/empleado/carrito/limpiar", methods=["POST"])
@@ -397,7 +487,7 @@ def carrito_eliminar(idx):
 def carrito_limpiar():
     set_carrito([])
     flash("Carrito limpiado.", "info")
-    return redirect(url_for("empleado_inventario"))
+    return _redirect_inventario_context("sec-carrito")
 
 
 @app.route("/empleado/carrito/guardar", methods=["POST"])
@@ -406,7 +496,7 @@ def carrito_guardar():
     carrito = get_carrito()
     if not carrito:
         flash("No hay productos en el carrito para guardar.", "warning")
-        return redirect(url_for("empleado_inventario"))
+        return _redirect_inventario_context("sec-carrito")
 
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
@@ -485,7 +575,7 @@ def carrito_guardar():
     db.session.commit()
     set_carrito([])
     flash(f"{guardados} producto(s) guardado(s) exitosamente.", "success")
-    return redirect(url_for("empleado_inventario"))
+    return _redirect_inventario_context("sec-carrito")
 
 
 # --------------------------------------------------------------------------- #
@@ -525,13 +615,23 @@ def empleado_averiado():
     if request.method == "POST":
         categoria = request.form.get("categoria", "")
         producto  = (request.form.get("producto") or "").strip()
-        cantidad  = request.form.get("cantidad", type=float) or 0
+        cantidad_raw = (request.form.get("cantidad") or "").strip()
+        cantidad_es_invalida = False
+        try:
+            cantidad = int(cantidad_raw)
+            if str(cantidad) != cantidad_raw:
+                cantidad_es_invalida = True
+        except (TypeError, ValueError):
+            cantidad = 0
+            cantidad_es_invalida = True
         ume       = request.form.get("ume", "Unidad")
         detalle   = (request.form.get("detalle") or "").strip()
         fecha     = request.form.get("fecha", date.today().isoformat())
 
         if not producto:
             flash("Selecciona un producto.", "warning")
+        elif cantidad_es_invalida:
+            flash("La cantidad debe ser un número entero.", "warning")
         elif cantidad <= 0:
             flash("Ingresa una cantidad válida.", "warning")
         else:
@@ -543,12 +643,14 @@ def empleado_averiado():
                 producto=producto, cantidad=cantidad,
                 cantidad_unidades=cu, ume=ume,
                 desc_conversion=desc, detalle=detalle,
+                sinc_estado="pendiente",
             ))
             db.session.commit()
             nombre_d = _re.sub(r"\s+x\s+un(?:idad|\.?)\s*$", "", producto, flags=_re.IGNORECASE)
             msg = f"Averiado registrado: {nombre_d} — {cantidad:g} {ume}"
             if desc:
                 msg += f" → {desc}"
+            msg += " (pendiente de sincronización)"
             flash(msg, "success")
             return redirect(url_for("empleado_averiado"))
 
@@ -585,7 +687,15 @@ def empleado_vencimiento():
     if request.method == "POST":
         categoria        = request.form.get("categoria", "")
         producto         = (request.form.get("producto") or "").strip()
-        cantidad         = request.form.get("cantidad", type=float) or 0
+        cantidad_raw     = (request.form.get("cantidad") or "").strip()
+        cantidad_es_invalida = False
+        try:
+            cantidad = int(cantidad_raw)
+            if str(cantidad) != cantidad_raw:
+                cantidad_es_invalida = True
+        except (TypeError, ValueError):
+            cantidad = 0
+            cantidad_es_invalida = True
         ume              = request.form.get("ume", "Unidad")
         fecha_venc       = (request.form.get("fecha_vencimiento") or "").strip()
         detalle          = (request.form.get("detalle") or "").strip()
@@ -593,6 +703,8 @@ def empleado_vencimiento():
 
         if not producto:
             flash("Selecciona un producto.", "warning")
+        elif cantidad_es_invalida:
+            flash("La cantidad debe ser un número entero.", "warning")
         elif cantidad <= 0:
             flash("Ingresa una cantidad válida.", "warning")
         elif not fecha_venc:
@@ -607,10 +719,11 @@ def empleado_vencimiento():
                 cantidad_unidades=cu, ume=ume,
                 desc_conversion=desc, fecha_vencimiento=fecha_venc,
                 detalle=detalle,
+                sinc_estado="pendiente",
             ))
             db.session.commit()
             nombre_d = _re.sub(r"\s+x\s+un(?:idad|\.?)\s*$", "", producto, flags=_re.IGNORECASE)
-            flash(f"Vencimiento registrado: {nombre_d} — vence {fecha_venc}", "success")
+            flash(f"Vencimiento registrado: {nombre_d} — vence {fecha_venc} (pendiente de sincronización)", "success")
             return redirect(url_for("empleado_vencimiento"))
 
     recientes = (RegistroVencimiento.query
@@ -639,11 +752,20 @@ def vencimiento_eliminar(reg_id):
 @app.route("/empleado/sincronizar-page")
 @login_required(rol="empleado")
 def empleado_sincronizar_page():
+    cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
-    pendientes = InventarioItem.query.filter_by(
-        tienda_id=tienda_id, sinc_estado="pendiente").count()
+    pend_inv = InventarioItem.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").count()
+    pend_aver = RegistroAveriado.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").count()
+    pend_venc = RegistroVencimiento.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").count()
+    pendientes = pend_inv + pend_aver + pend_venc
     return render_template("empleado_sincronizar.html",
                            pendientes=pendientes,
+                           pend_inv=pend_inv,
+                           pend_aver=pend_aver,
+                           pend_venc=pend_venc,
                            sync_ultimo_envio=sync_ultimo_envio_empleado(),
                            sync_ultima_recepcion=sync_ultima_recepcion_empleado())
 
@@ -672,30 +794,53 @@ def sync_ultima_recepcion_empleado():
 def empleado_sincronizar():
     accion    = request.form.get("accion", "solo_enviar")
     next_url  = request.form.get("_next", url_for("empleado_inventario"))
+    cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
 
     # Registrar envío + marcar todos los pendientes como sincronizados
     db.session.add(SincronizacionLog(
+        cliente_id=cliente_id,
         tienda_id=tienda_id, usuario=usuario,
         tipo="envio", accion=accion,
     ))
 
     # Marcar InventarioItems pendientes de esta tienda como sincronizados
     pendientes = InventarioItem.query.filter_by(
-        tienda_id=tienda_id, sinc_estado="pendiente").all()
+        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").all()
     for item in pendientes:
         item.sinc_estado = "sincronizado"
-    n_items = len(pendientes)
+    n_inv = len(pendientes)
+
+    pend_aver = RegistroAveriado.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").all()
+    for reg in pend_aver:
+        reg.sinc_estado = "sincronizado"
+    n_aver = len(pend_aver)
+
+    pend_venc = RegistroVencimiento.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").all()
+    for reg in pend_venc:
+        reg.sinc_estado = "sincronizado"
+    n_venc = len(pend_venc)
+
+    n_total = n_inv + n_aver + n_venc
 
     if accion == "enviar_recibir":
         db.session.add(SincronizacionLog(
+            cliente_id=cliente_id,
             tienda_id=tienda_id, usuario=usuario,
             tipo="recepcion", accion=accion,
         ))
-        flash(f"Sincronización completada: {n_items} producto(s) enviado(s) y catálogo actualizado.", "success")
+        flash((
+            f"Sincronización completada: {n_total} registro(s) enviado(s) "
+            f"(Inventario: {n_inv}, Averiados: {n_aver}, Vencimientos: {n_venc}) y catálogo actualizado."
+        ), "success")
     else:
-        flash(f"Datos enviados: {n_items} producto(s) sincronizado(s).", "success")
+        flash(
+            f"Datos enviados: {n_total} registro(s) (Inventario: {n_inv}, Averiados: {n_aver}, Vencimientos: {n_venc}).",
+            "success",
+        )
 
     db.session.commit()
     return redirect(url_for("empleado_sincronizar_page"))
@@ -819,7 +964,8 @@ def _hace_texto(dt):
 @app.route("/admin/dashboard")
 @login_required(rol="administrador")
 def admin_dashboard():
-    tiendas = Tienda.query.filter_by(activa=True).all()
+    cliente_id = get_cliente_filtro()
+    tiendas = Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()
     tienda_sel = get_tienda_filtro()
 
     items = _items_sincronizados(tienda_sel)
@@ -877,7 +1023,7 @@ def admin_dashboard():
     top_valor = sorted(valores_producto, key=lambda x: -x["valor"])[:5]
 
     # --- Productos proximos a vencer (30 dias) ---
-    q_venc = RegistroVencimiento.query
+    q_venc = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado")
     if tienda_sel != "ALL":
         q_venc = q_venc.filter_by(tienda_id=tienda_sel)
     tiendas_map = {t.id: t.nombre for t in Tienda.query.all()}
@@ -894,7 +1040,7 @@ def admin_dashboard():
     proximos_vencer.sort(key=lambda x: x["dias"])
 
     # --- Actividad reciente ---
-    q_hist = HistorialMovimiento.query
+    q_hist = HistorialMovimiento.query.filter_by(cliente_id=cliente_id)
     if tienda_sel != "ALL":
         q_hist = q_hist.filter_by(tienda_id=tienda_sel)
     actividad = [
@@ -936,7 +1082,9 @@ def admin_dashboard():
 @app.route("/admin/precios", methods=["GET", "POST"])
 @login_required(rol="administrador")
 def admin_precios():
+    active_tab = request.args.get("tab") or "tab-0"
     if request.method == "POST":
+        active_tab = request.form.get("active_tab") or "tab-0"
         ids = request.form.getlist("ids")
         for pid in ids:
             try:
@@ -964,8 +1112,12 @@ def admin_precios():
                 rec.unidades_por_caja = caja_val
                 rec.unidades_por_bulto = bulto_val
         db.session.commit()
-        flash("Precios actualizados correctamente.", "success")
-        return redirect(url_for("admin_precios"))
+        _set_admin_precios_notice("Precios actualizados correctamente.", "success", active_tab)
+        return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
+
+    local_notice = pop_view_notice(session, "admin_precios_notice")
+    if local_notice and local_notice.get("tab"):
+        active_tab = local_notice["tab"]
 
     productos_por_cat = {
         c: Producto.query.filter_by(categoria=c).order_by(Producto.nombre).all()
@@ -993,7 +1145,10 @@ def admin_precios():
                            categorias=CATEGORIAS,
                            precios_map=precios_map,
                            con_precio=con_precio, total_prod=total_prod,
-                           porcentaje=porcentaje, valor_estimado=valor_estimado)
+                           porcentaje=porcentaje, valor_estimado=valor_estimado,
+                           active_tab=active_tab,
+                           local_notice=local_notice,
+                           hide_global_flash=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -1002,55 +1157,63 @@ def admin_precios():
 @app.route("/admin/usuarios")
 @login_required(rol="administrador")
 def admin_usuarios():
-    usuarios = Usuario.query.order_by(Usuario.rol, Usuario.username).all()
-    tiendas = Tienda.query.filter_by(activa=True).all()
-    tiendas_map = {t.id: t.nombre for t in Tienda.query.all()}
+    cliente_id = get_cliente_filtro()
+    usuarios = Usuario.query.filter_by(cliente_id=cliente_id).order_by(Usuario.rol, Usuario.username).all()
+    tiendas = Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()
+    tiendas_map = {t.id: t.nombre for t in Tienda.query.filter_by(cliente_id=cliente_id).all()}
+    local_notice = pop_view_notice(session, "admin_usuarios_notice")
     return render_template("admin_usuarios.html", usuarios=usuarios,
-                           tiendas=tiendas, tiendas_map=tiendas_map)
+                           tiendas=tiendas, tiendas_map=tiendas_map,
+                           local_notice=local_notice,
+                           hide_global_flash=True)
 
 
 @app.route("/admin/usuarios/crear", methods=["POST"])
 @login_required(rol="administrador")
 def usuario_crear():
+    cliente_id = get_cliente_filtro()
     username = (request.form.get("username") or "").strip()
     rol = (request.form.get("rol") or "empleado").strip()
     tienda_id = (request.form.get("tienda_id") or "").strip()
 
     if not username:
-        flash("El nombre de usuario es obligatorio.", "error")
-        return redirect(url_for("admin_usuarios"))
+        set_view_notice(session, "admin_usuarios_notice", "El nombre de usuario es obligatorio.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-crear")
     if rol not in ("empleado", "administrador"):
-        flash("Rol no valido.", "error")
-        return redirect(url_for("admin_usuarios"))
-    if Usuario.query.filter_by(username=username).first():
-        flash(f"Ya existe el usuario '{username}'.", "warning")
-        return redirect(url_for("admin_usuarios"))
+        set_view_notice(session, "admin_usuarios_notice", "Rol no valido.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-crear")
+    if Usuario.query.filter_by(username=username, cliente_id=cliente_id).first():
+        set_view_notice(session, "admin_usuarios_notice", f"Ya existe el usuario '{username}'.", "warning")
+        return redirect(url_for("admin_usuarios") + "#usuarios-crear")
 
     if rol == "administrador":
         tienda_id = "ALL"
     elif not tienda_id:
-        flash("Selecciona una tienda para el empleado.", "error")
-        return redirect(url_for("admin_usuarios"))
+        set_view_notice(session, "admin_usuarios_notice", "Selecciona una tienda para el empleado.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-crear")
 
-    db.session.add(Usuario(username=username, rol=rol, tienda_id=tienda_id))
+    db.session.add(Usuario(username=username, cliente_id=cliente_id, rol=rol, tienda_id=tienda_id))
     db.session.commit()
-    flash(f"Usuario '{username}' creado correctamente.", "success")
-    return redirect(url_for("admin_usuarios"))
+    set_view_notice(session, "admin_usuarios_notice", f"Usuario '{username}' creado correctamente.", "success")
+    return redirect(url_for("admin_usuarios") + "#usuarios-list")
 
 
 @app.route("/admin/usuarios/<int:usuario_id>/eliminar", methods=["POST"])
 @login_required(rol="administrador")
 def usuario_eliminar(usuario_id):
+    cliente_id = get_cliente_filtro()
     usuario = db.session.get(Usuario, usuario_id)
     if usuario is None:
         abort(404)
+    if usuario.cliente_id != cliente_id:
+        abort(403)
     if usuario.username == session.get("usuario"):
-        flash("No puedes eliminar tu propio usuario activo.", "error")
-        return redirect(url_for("admin_usuarios"))
+        set_view_notice(session, "admin_usuarios_notice", "No puedes eliminar tu propio usuario activo.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-list")
     db.session.delete(usuario)
     db.session.commit()
-    flash(f"Usuario '{usuario.username}' eliminado.", "info")
-    return redirect(url_for("admin_usuarios"))
+    set_view_notice(session, "admin_usuarios_notice", f"Usuario '{usuario.username}' eliminado.", "info")
+    return redirect(url_for("admin_usuarios") + "#usuarios-list")
 
 
 # --------------------------------------------------------------------------- #
@@ -1059,8 +1222,9 @@ def usuario_eliminar(usuario_id):
 @app.route("/admin/alertas")
 @login_required(rol="administrador")
 def admin_alertas():
+    cliente_id = get_cliente_filtro()
     tienda_sel = get_tienda_filtro()
-    tiendas_map = {t.id: t.nombre for t in Tienda.query.all()}
+    tiendas_map = {t.id: t.nombre for t in Tienda.query.filter_by(cliente_id=cliente_id).all()}
     thresholds = get_thresholds()
 
     # Stock bajo (nivel critico segun StockThreshold)
@@ -1075,7 +1239,7 @@ def admin_alertas():
             })
 
     # Proximos a vencer (<= 15 dias)
-    q_venc = RegistroVencimiento.query
+    q_venc = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado")
     if tienda_sel != "ALL":
         q_venc = q_venc.filter_by(tienda_id=tienda_sel)
     por_vencer = []
@@ -1092,7 +1256,7 @@ def admin_alertas():
     por_vencer.sort(key=lambda x: x["dias"])
 
     # Averiados no revisados
-    q_aver = RegistroAveriado.query.filter_by(revisado=False)
+    q_aver = RegistroAveriado.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False)
     if tienda_sel != "ALL":
         q_aver = q_aver.filter_by(tienda_id=tienda_sel)
     averiados = [{
@@ -1113,18 +1277,20 @@ def admin_alertas():
 @app.route("/admin/sincronizar")
 @login_required(rol="administrador")
 def admin_sincronizacion():
-    tiendas = Tienda.query.all()
+    cliente_id = get_cliente_filtro()
+    tiendas = Tienda.query.filter_by(cliente_id=cliente_id).all()
+    local_notice = pop_view_notice(session, "admin_sync_notice")
     filas = []
     total_pendientes = 0
     for t in tiendas:
         ultimo_envio = (SincronizacionLog.query
-                        .filter_by(tienda_id=t.id, tipo="envio")
+                        .filter_by(cliente_id=cliente_id, tienda_id=t.id, tipo="envio")
                         .order_by(SincronizacionLog.timestamp.desc()).first())
         ultima_recepcion = (SincronizacionLog.query
-                            .filter_by(tienda_id=t.id, tipo="recepcion")
+                            .filter_by(cliente_id=cliente_id, tienda_id=t.id, tipo="recepcion")
                             .order_by(SincronizacionLog.timestamp.desc()).first())
         pendientes = InventarioItem.query.filter_by(
-            tienda_id=t.id, sinc_estado="pendiente").count()
+            cliente_id=cliente_id, tienda_id=t.id, sinc_estado="pendiente").count()
         total_pendientes += pendientes
         filas.append({
             "tienda": t.nombre, "tienda_id": t.id, "activa": t.activa,
@@ -1133,27 +1299,31 @@ def admin_sincronizacion():
             "pendientes": pendientes,
         })
     return render_template("admin_sync_estado.html", filas=filas,
-                           total_pendientes=total_pendientes)
+                           total_pendientes=total_pendientes,
+                           local_notice=local_notice,
+                           hide_global_flash=True)
 
 
 @app.route("/admin/sincronizar/forzar", methods=["POST"])
 @login_required(rol="administrador")
 def admin_sincronizar_forzar():
-    pendientes = InventarioItem.query.filter_by(sinc_estado="pendiente").all()
+    cliente_id = get_cliente_filtro()
+    pendientes = InventarioItem.query.filter_by(cliente_id=cliente_id, sinc_estado="pendiente").all()
     tiendas_afectadas = set()
     for item in pendientes:
         item.sinc_estado = "sincronizado"
         tiendas_afectadas.add(item.tienda_id)
     for tid in tiendas_afectadas:
         db.session.add(SincronizacionLog(
-            tienda_id=tid, usuario=session["usuario"],
+            cliente_id=cliente_id, tienda_id=tid, usuario=session["usuario"],
             tipo="envio", accion="forzada_admin"))
         db.session.add(SincronizacionLog(
-            tienda_id=tid, usuario=session["usuario"],
+            cliente_id=cliente_id, tienda_id=tid, usuario=session["usuario"],
             tipo="recepcion", accion="forzada_admin"))
     db.session.commit()
-    flash(f"Sincronizacion forzada: {len(pendientes)} item(s) sincronizado(s).", "success")
-    return redirect(url_for("admin_sincronizacion"))
+    set_view_notice(session, "admin_sync_notice",
+                    f"Sincronizacion forzada: {len(pendientes)} item(s) sincronizado(s).", "success")
+    return redirect(url_for("admin_sincronizacion") + "#sync-estado")
 
 
 # --------------------------------------------------------------------------- #
@@ -1256,7 +1426,8 @@ def admin_historial():
 @app.route("/admin/configuracion")
 @login_required(rol="administrador")
 def admin_configuracion():
-    tiendas = Tienda.query.all()
+    cliente_id = get_cliente_filtro()
+    tiendas = Tienda.query.filter_by(cliente_id=cliente_id).all()
     default = next((t.id for t in tiendas if t.es_default), None)
     local_notice = session.pop("admin_config_notice", None)
     active_tab = _safe_config_tab(
@@ -1362,15 +1533,16 @@ def producto_eliminar(producto_id):
 @app.route("/admin/tienda/crear", methods=["POST"])
 @login_required(rol="administrador")
 def tienda_crear():
+    cliente_id = get_cliente_filtro()
     nombre = (request.form.get("nombre") or "").strip()
     direccion = (request.form.get("direccion") or "").strip() or "Direccion no especificada"
     if not nombre:
         _set_admin_config_notice("tiendas", "El nombre de la tienda es obligatorio.", "error")
         return redirect(url_for("admin_configuracion") + "#sec-tiendas")
 
-    ids = [int(t.id[1:]) for t in Tienda.query.all() if t.id.startswith("T") and t.id[1:].isdigit()]
+    ids = [int(t.id[1:]) for t in Tienda.query.filter_by(cliente_id=cliente_id).all() if t.id.startswith("T") and t.id[1:].isdigit()]
     nuevo_id = f"T{(max(ids) + 1) if ids else 1:03d}"
-    db.session.add(Tienda(id=nuevo_id, nombre=nombre, direccion=direccion, activa=True))
+    db.session.add(Tienda(id=nuevo_id, cliente_id=cliente_id, nombre=nombre, direccion=direccion, activa=True))
     db.session.commit()
     _set_admin_config_notice("tiendas", f"Tienda creada con ID {nuevo_id}.", "success")
     return redirect(url_for("admin_configuracion") + "#sec-tiendas")
@@ -1379,7 +1551,10 @@ def tienda_crear():
 @app.route("/admin/tienda/<tienda_id>/toggle", methods=["POST"])
 @login_required(rol="administrador")
 def tienda_toggle(tienda_id):
+    cliente_id = get_cliente_filtro()
     tienda = Tienda.query.get_or_404(tienda_id)
+    if tienda.cliente_id != cliente_id:
+        abort(403)
     tienda.activa = not tienda.activa
     db.session.commit()
     _set_admin_config_notice("tiendas", f"Tienda {tienda.nombre} {'activada' if tienda.activa else 'desactivada'}.", "info")
@@ -1389,7 +1564,9 @@ def tienda_toggle(tienda_id):
 @app.route("/admin/tienda/<tienda_id>/default", methods=["POST"])
 @login_required(rol="administrador")
 def tienda_default(tienda_id):
-    for t in Tienda.query.all():
+    cliente_id = get_cliente_filtro()
+    tiendas = Tienda.query.filter_by(cliente_id=cliente_id).all()
+    for t in tiendas:
         t.es_default = (t.id == tienda_id)
     db.session.commit()
     _set_admin_config_notice("tiendas", "Tienda predeterminada actualizada.", "success")
@@ -1402,35 +1579,46 @@ def tienda_default(tienda_id):
 @app.route("/admin/delivery", methods=["GET", "POST"])
 @login_required(rol="administrador")
 def admin_delivery():
+    cliente_id = get_cliente_filtro()
     if request.method == "POST":
+        section = request.form.get("_section") or "delivery-form"
         nombre = (request.form.get("nombre") or "").strip()
         precio = request.form.get("precio", type=float) or 0
         es_promocion = bool(request.form.get("es_promocion"))
         if not nombre:
-            flash("El nombre no puede estar vacio.", "error")
-        elif DeliveryProducto.query.filter_by(nombre=nombre).first():
-            flash("Ya existe un producto con ese nombre.", "warning")
+            set_view_notice(session, "admin_delivery_notice", "El nombre no puede estar vacio.", "error")
+        elif DeliveryProducto.query.filter_by(cliente_id=cliente_id, nombre=nombre).first():
+            set_view_notice(session, "admin_delivery_notice", "Ya existe un producto con ese nombre.", "warning")
         else:
-            db.session.add(DeliveryProducto(nombre=nombre, precio=precio,
+            db.session.add(DeliveryProducto(cliente_id=cliente_id, nombre=nombre, precio=precio,
                                             es_promocion=es_promocion, activo=True))
             db.session.commit()
-            flash("Producto agregado al catalogo.", "success")
-        return redirect(url_for("admin_delivery"))
+            set_view_notice(session, "admin_delivery_notice", "Producto agregado al catalogo.", "success")
+            section = "delivery-catalogo"
+        return redirect(url_for("admin_delivery") + f"#{section}")
 
-    catalogo = DeliveryProducto.query.order_by(DeliveryProducto.nombre).all()
-    ventas = DeliveryVenta.query.order_by(DeliveryVenta.id.desc()).limit(50).all()
-    total_ventas = sum(v.total for v in DeliveryVenta.query.all())
+    local_notice = pop_view_notice(session, "admin_delivery_notice")
+    catalogo = DeliveryProducto.query.filter_by(cliente_id=cliente_id).order_by(DeliveryProducto.nombre).all()
+    ventas = DeliveryVenta.query.filter_by(cliente_id=cliente_id).order_by(DeliveryVenta.id.desc()).limit(50).all()
+    total_ventas = sum(v.total for v in DeliveryVenta.query.filter_by(cliente_id=cliente_id).all())
     return render_template("admin_delivery.html", catalogo=catalogo,
-                           ventas=ventas, total_ventas=total_ventas)
+                           ventas=ventas, total_ventas=total_ventas,
+                           local_notice=local_notice,
+                           hide_global_flash=True)
 
 
 @app.route("/admin/delivery/<int:prod_id>/toggle", methods=["POST"])
 @login_required(rol="administrador")
 def delivery_toggle(prod_id):
+    cliente_id = get_cliente_filtro()
     producto = DeliveryProducto.query.get_or_404(prod_id)
+    if producto.cliente_id != cliente_id:
+        abort(403)
     producto.activo = not producto.activo
     db.session.commit()
-    return redirect(url_for("admin_delivery"))
+    accion = "activado" if producto.activo else "desactivado"
+    set_view_notice(session, "admin_delivery_notice", f"Producto {accion} en el catalogo.", "info")
+    return redirect(url_for("admin_delivery") + "#delivery-catalogo")
 
 
 # --------------------------------------------------------------------------- #
@@ -1439,12 +1627,24 @@ def delivery_toggle(prod_id):
 @app.route("/admin/averiados")
 @login_required(rol="administrador")
 def admin_averiados():
+    cliente_id = get_cliente_filtro()
     tienda_f  = request.args.get("tienda", "Todas")
     desde     = request.args.get("desde", date.today().replace(day=1).isoformat())
     hasta     = request.args.get("hasta", date.today().isoformat())
-    tiendas   = Tienda.query.all()
+    tiendas   = Tienda.query.filter_by(cliente_id=cliente_id).all()
+    local_notice = pop_view_notice(session, "admin_averiados_notice")
+
+    # Al abrir la vista, se consideran vistas las notificaciones sincronizadas.
+    RegistroAveriado.query.filter_by(
+        cliente_id=cliente_id,
+        sinc_estado="sincronizado",
+        revisado=False,
+    ).update({"revisado": True}, synchronize_session=False)
+    db.session.commit()
 
     q = RegistroAveriado.query.filter(
+        RegistroAveriado.cliente_id == cliente_id,
+        RegistroAveriado.sinc_estado == "sincronizado",
         RegistroAveriado.fecha >= desde,
         RegistroAveriado.fecha <= hasta,
     )
@@ -1452,13 +1652,37 @@ def admin_averiados():
         q = q.filter_by(tienda_id=tienda_f)
     registros = q.order_by(RegistroAveriado.creado.desc()).all()
 
-    # Marcar como revisados
-    RegistroAveriado.query.filter_by(revisado=False).update({"revisado": True})
-    db.session.commit()
-
     return render_template("admin_averiados.html",
                            registros=registros, tiendas=tiendas,
-                           tienda_f=tienda_f, desde=desde, hasta=hasta)
+                           tienda_f=tienda_f, desde=desde, hasta=hasta,
+                           local_notice=local_notice,
+                           notif_averiados=0,
+                           hide_global_flash=True)
+
+
+@app.route("/admin/averiados/revisar", methods=["POST"])
+@login_required(rol="administrador")
+def admin_averiados_revisar():
+    cliente_id = get_cliente_filtro()
+    tienda_f  = request.form.get("tienda", "Todas")
+    desde     = request.form.get("desde", date.today().replace(day=1).isoformat())
+    hasta     = request.form.get("hasta", date.today().isoformat())
+
+    q = RegistroAveriado.query.filter(
+        RegistroAveriado.cliente_id == cliente_id,
+        RegistroAveriado.sinc_estado == "sincronizado",
+        RegistroAveriado.revisado.is_(False),
+        RegistroAveriado.fecha >= desde,
+        RegistroAveriado.fecha <= hasta,
+    )
+    if tienda_f != "Todas":
+        q = q.filter(RegistroAveriado.tienda_id == tienda_f)
+
+    revisados = q.update({"revisado": True}, synchronize_session=False)
+    db.session.commit()
+    set_view_notice(session, "admin_averiados_notice",
+                    f"Registros marcados como revisados: {revisados}.", "success")
+    return redirect(url_for("admin_averiados", tienda=tienda_f, desde=desde, hasta=hasta) + "#averiados-lista")
 
 
 # --------------------------------------------------------------------------- #
@@ -1467,12 +1691,24 @@ def admin_averiados():
 @app.route("/admin/vencimientos")
 @login_required(rol="administrador")
 def admin_vencimientos():
+    cliente_id = get_cliente_filtro()
     tienda_f  = request.args.get("tienda", "Todas")
     desde     = request.args.get("desde", date.today().replace(day=1).isoformat())
     hasta     = request.args.get("hasta", date.today().isoformat())
-    tiendas   = Tienda.query.all()
+    tiendas   = Tienda.query.filter_by(cliente_id=cliente_id).all()
+    local_notice = pop_view_notice(session, "admin_vencimientos_notice")
+
+    # Al abrir la vista, se consideran vistas las notificaciones sincronizadas.
+    RegistroVencimiento.query.filter_by(
+        cliente_id=cliente_id,
+        sinc_estado="sincronizado",
+        revisado=False,
+    ).update({"revisado": True}, synchronize_session=False)
+    db.session.commit()
 
     q = RegistroVencimiento.query.filter(
+        RegistroVencimiento.cliente_id == cliente_id,
+        RegistroVencimiento.sinc_estado == "sincronizado",
         RegistroVencimiento.fecha >= desde,
         RegistroVencimiento.fecha <= hasta,
     )
@@ -1480,14 +1716,38 @@ def admin_vencimientos():
         q = q.filter_by(tienda_id=tienda_f)
     registros = q.order_by(RegistroVencimiento.creado.desc()).all()
 
-    # Marcar como revisados
-    RegistroVencimiento.query.filter_by(revisado=False).update({"revisado": True})
-    db.session.commit()
-
     return render_template("admin_vencimientos.html",
                            registros=registros, tiendas=tiendas,
                            tienda_f=tienda_f, desde=desde, hasta=hasta,
-                           hoy=date.today().isoformat())
+                           hoy=date.today().isoformat(),
+                           local_notice=local_notice,
+                           notif_vencimientos=0,
+                           hide_global_flash=True)
+
+
+@app.route("/admin/vencimientos/revisar", methods=["POST"])
+@login_required(rol="administrador")
+def admin_vencimientos_revisar():
+    cliente_id = get_cliente_filtro()
+    tienda_f  = request.form.get("tienda", "Todas")
+    desde     = request.form.get("desde", date.today().replace(day=1).isoformat())
+    hasta     = request.form.get("hasta", date.today().isoformat())
+
+    q = RegistroVencimiento.query.filter(
+        RegistroVencimiento.cliente_id == cliente_id,
+        RegistroVencimiento.sinc_estado == "sincronizado",
+        RegistroVencimiento.revisado.is_(False),
+        RegistroVencimiento.fecha >= desde,
+        RegistroVencimiento.fecha <= hasta,
+    )
+    if tienda_f != "Todas":
+        q = q.filter(RegistroVencimiento.tienda_id == tienda_f)
+
+    revisados = q.update({"revisado": True}, synchronize_session=False)
+    db.session.commit()
+    set_view_notice(session, "admin_vencimientos_notice",
+                    f"Registros marcados como revisados: {revisados}.", "success")
+    return redirect(url_for("admin_vencimientos", tienda=tienda_f, desde=desde, hasta=hasta) + "#vencimientos-lista")
 
 
 # --------------------------------------------------------------------------- #

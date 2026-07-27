@@ -4,7 +4,7 @@
 {% block subheading %}Carga de productos por categoria{% endblock %}
 
 {% block content %}
-<div class="toolbar card card--skip-collapse">
+<div class="toolbar card card--skip-collapse" id="sec-carga">
   <label class="field field--inline">
     <span class="field__label">Fecha de carga</span>
     <input type="date" id="fechaCarga" value="{{ hoy }}" />
@@ -32,15 +32,17 @@
 
 <div class="tabs" id="invTabs">
   {% for cat in categorias %}
-    <button type="button" class="tab {{ 'is-active' if loop.first }}" data-tab="{{ cat }}">{{ cat }}</button>
+    <button type="button" class="tab {{ 'is-active' if cat == active_tab else '' }}" data-tab="{{ cat }}">{{ cat }}</button>
   {% endfor %}
 </div>
 
 {% for cat in categorias %}
-<section class="tab-panel card {{ 'is-active' if loop.first }}" data-panel="{{ cat }}">
+<section class="tab-panel card {{ 'is-active' if cat == active_tab else '' }}" data-panel="{{ cat }}">
   <h3 class="panel__title">Producto de {{ cat }}</h3>
   <form method="post" action="{{ url_for('carrito_agregar') }}" class="inv-form">
     <input type="hidden" name="categoria" value="{{ cat }}" />
+    <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
+    <input type="hidden" name="anchor" value="sec-carga" />
     <input type="hidden" name="fecha" class="form-fecha" value="{{ hoy }}" />
     <input type="hidden" name="tipo_inventario" class="form-tipo" value="Diario" />
 
@@ -105,7 +107,7 @@
 </section>
 {% endfor %}
 
-<section class="cart card card--skip-collapse">
+<section class="cart card card--skip-collapse" id="sec-carrito">
   <div class="cart__head">
     <h3>Productos cargados</h3>
     {% if carrito %}<span class="badge badge--blue">{{ carrito|length }} producto(s)</span>{% endif %}
@@ -154,6 +156,8 @@
               <td class="muted">{{ item.hora }}</td>
               <td>
                 <form method="post" action="{{ url_for('carrito_eliminar', idx=loop.index0) }}">
+                  <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
+                  <input type="hidden" name="anchor" value="sec-carrito" />
                   <button class="btn btn--icon btn--ghost" title="Eliminar">&times;</button>
                 </form>
               </td>
@@ -178,9 +182,13 @@
 
     <div class="cart__actions action-group">
       <form method="post" action="{{ url_for('carrito_guardar') }}">
+        <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
+        <input type="hidden" name="anchor" value="sec-carrito" />
         <button class="btn btn--success">Guardar inventario</button>
       </form>
       <form method="post" action="{{ url_for('carrito_limpiar') }}">
+        <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
+        <input type="hidden" name="anchor" value="sec-carrito" />
         <button class="btn btn--ghost">Limpiar carrito</button>
       </form>
     </div>
@@ -196,18 +204,27 @@
 {% block scripts %}
 <script>
   (function () {
+    function setActiveTab(tabName) {
+      document.querySelectorAll('#invTabs .tab').forEach(function (t) {
+        t.classList.toggle('is-active', t.dataset.tab === tabName);
+      });
+      document.querySelectorAll('.tab-panel').forEach(function (p) {
+        p.classList.toggle('is-active', p.dataset.panel === tabName);
+      });
+      document.querySelectorAll('input.js-active-tab').forEach(function (input) {
+        input.value = tabName;
+      });
+    }
+
     // Tabs de categorias
     document.querySelectorAll('#invTabs .tab').forEach(function (tab) {
       tab.addEventListener('click', function () {
-        document.querySelectorAll('#invTabs .tab').forEach(function (t) { t.classList.remove('is-active'); });
-        document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('is-active'); });
-        tab.classList.add('is-active');
-        var panel = document.querySelector('[data-panel="' + tab.dataset.tab + '"]');
-        if (panel) {
-          panel.classList.add('is-active');
-        }
+        setActiveTab(tab.dataset.tab);
       });
     });
+
+    var activeFromServer = '{{ active_tab }}';
+    setActiveTab(activeFromServer);
 
     // Sincronizar fecha y tipo de inventario con cada formulario
     var fecha = document.getElementById('fechaCarga');

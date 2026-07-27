@@ -4,11 +4,18 @@
 {% block subheading %}Gestión de usuarios del sistema{% endblock %}
 
 {% block content %}
+<div id="usuarios-list"></div>
 <div class="banner banner--warning">
   <div>
     <strong>Modo Beta</strong> — cualquier contraseña es válida para todos los usuarios.
   </div>
 </div>
+
+{% if local_notice %}
+<div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">
+  {{ local_notice.message }}
+</div>
+{% endif %}
 
 <div class="dash-grid" style="grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);">
   <section class="panel">
@@ -53,7 +60,7 @@
     </table>
   </section>
 
-  <section class="panel">
+  <section class="panel" id="usuarios-crear">
     <div class="panel__head"><h3>Crear nuevo usuario</h3></div>
     <form method="post" action="{{ url_for('usuario_crear') }}" style="display:flex;flex-direction:column;gap:14px;">
       <label class="field">

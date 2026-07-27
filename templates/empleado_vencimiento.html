@@ -1,6 +1,6 @@
 ﻿{% extends 'base.html' %}
 {% block title %}Stock de Venc. - {{ app_nombre }}{% endblock %}
-{% block heading %}Stock prÃ³ximo a vencer{% endblock %}
+{% block heading %}Stock próximo a vencer{% endblock %}
 {% block subheading %}Registra productos con fecha de vencimiento cercana{% endblock %}
 
 {% block content %}
@@ -36,7 +36,7 @@
       {# Cantidad #}
       <label class="field">
         <span class="field__label">Cantidad</span>
-        <input type="number" name="cantidad" min="0.01" step="0.01" value="0" required />
+        <input type="number" name="cantidad" min="1" step="1" value="1" required />
       </label>
 
       {# UME #}
@@ -61,9 +61,9 @@
         <input type="date" name="fecha" value="{{ hoy }}" />
       </label>
 
-      {# BotÃ³n #}
+      {# Botón #}
       <div class="inv-form__action">
-        <button type="submit" class="btn btn--primary btn--block">Registrar</button>
+        <button type="submit" class="btn btn--primary btn--block">Guardar</button>
       </div>
     </div>
 
@@ -84,7 +84,7 @@
   <div class="table-wrap">
     <table class="table">
       <thead>
-        <tr><th>Reg.</th><th>Producto</th><th>CategorÃ­a</th><th>Cantidad</th><th>Unidades</th><th>Vence</th><th>DÃ­as</th><th>Obs.</th><th></th></tr>
+        <tr><th>Reg.</th><th>Producto</th><th>Categoría</th><th>Cantidad</th><th>Unidades</th><th>Vence</th><th>Días</th><th>Obs.</th><th></th></tr>
       </thead>
       <tbody>
         {% for r in recientes %}
@@ -106,13 +106,13 @@
           </td>
           <td>
             {# Dias restantes calculados en JS #}
-            <span class="dias-restantes muted" data-fecha="{{ r.fecha_vencimiento }}">â€”</span>
+            <span class="dias-restantes muted" data-fecha="{{ r.fecha_vencimiento }}">—</span>
           </td>
           <td class="muted">{{ r.detalle }}</td>
           <td>
             <form method="post" action="{{ url_for('vencimiento_eliminar', reg_id=r.id) }}"
-                  onsubmit="return confirm('Â¿Eliminar este registro?')">
-              <button class="btn btn--sm btn--danger">Ã—</button>
+                  onsubmit="return confirm('¿Eliminar este registro?')">
+              <button class="btn btn--sm btn--danger">×</button>
             </form>
           </td>
         </tr>
@@ -124,8 +124,8 @@
 {% else %}
 <section class="card card--skip-collapse">
   <div class="empty">
-    <p>No hay registros de vencimiento aÃºn.</p>
-    <span class="muted">Usa el formulario de arriba para registrar productos prÃ³ximos a vencer.</span>
+    <p>No hay registros de vencimiento aún.</p>
+    <span class="muted">Usa el formulario de arriba para registrar productos próximos a vencer.</span>
   </div>
 </section>
 {% endif %}
@@ -133,16 +133,16 @@
 
 {% block scripts %}
 <script>
-// Calcular dÃ­as restantes â€” lÃ³gica especÃ­fica de esta pÃ¡gina
+// Calcular días restantes — lógica específica de esta página
 document.querySelectorAll('.dias-restantes').forEach(function(el) {
   var hoy   = new Date(); hoy.setHours(0,0,0,0);
   var vence = new Date(el.dataset.fecha + 'T00:00:00');
   var dias  = Math.round((vence - hoy) / 86400000);
   if (dias < 0)       { el.textContent = 'Vencido'; el.style.color = 'var(--danger)'; el.style.fontWeight = '700'; }
   else if (dias === 0){ el.textContent = 'Hoy';     el.style.color = 'var(--danger)'; el.style.fontWeight = '700'; }
-  else if (dias <= 3) { el.textContent = dias + ' dÃ­a' + (dias > 1 ? 's' : ''); el.style.color = 'var(--warning)'; el.style.fontWeight = '600'; }
-  else                { el.textContent = dias + ' dÃ­as'; }
+  else if (dias <= 3) { el.textContent = dias + ' día' + (dias > 1 ? 's' : ''); el.style.color = 'var(--warning)'; el.style.fontWeight = '600'; }
+  else                { el.textContent = dias + ' días'; }
 });
-// El combobox estÃ¡ inicializado por main.js automÃ¡ticamente
+// El combobox está inicializado por main.js automáticamente
 </script>
 {% endblock %}

@@ -4,6 +4,7 @@
 {% block subheading %}Carga manual de precios por producto (opcional){% endblock %}
 
 {% block content %}
+<div id="precios-tabs"></div>
 <div class="banner banner--info">
   <div>
     <strong>Los precios son opcionales.</strong> Sin precios cargados, el sistema funciona igual
@@ -12,18 +13,27 @@
   </div>
 </div>
 
+{% if local_notice %}
+<div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">
+  {{ local_notice.message }}
+</div>
+{% endif %}
+
 <div class="admin-tabs" role="tablist">
   {% for cat in categorias %}
-  <button type="button" role="tab" class="admin-tab {{ 'is-active' if loop.first }}"
-          data-tabtarget="tab-{{ loop.index0 }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+  {% set tab_id = 'tab-' ~ loop.index0 %}
+  <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_tab == tab_id else '' }}"
+          data-tabtarget="{{ tab_id }}" aria-selected="{{ 'true' if active_tab == tab_id else 'false' }}">
     {{ cat }}
   </button>
   {% endfor %}
 </div>
 
 {% for cat in categorias %}
-<section class="panel admin-tabpanel" id="tab-{{ loop.index0 }}" {{ '' if loop.first else 'hidden' }}>
+{% set tab_id = 'tab-' ~ loop.index0 %}
+<section class="panel admin-tabpanel" id="{{ tab_id }}" {{ '' if active_tab == tab_id else 'hidden' }}>
   <form method="post" action="{{ url_for('admin_precios') }}">
+    <input type="hidden" name="active_tab" value="{{ active_tab }}" class="js-admin-precios-tab" />
     <div class="table-wrap">
       <table class="mini-table">
         <thead>
@@ -98,18 +108,35 @@
 
 {% block scripts %}
 <script>
-  document.querySelectorAll('.admin-tab').forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      document.querySelectorAll('.admin-tab').forEach(function (t) {
-        t.classList.remove('is-active');
-        t.setAttribute('aria-selected', 'false');
+  (function () {
+    var activeTab = '{{ active_tab|default("tab-0") }}';
+
+    function syncTabInForms() {
+      document.querySelectorAll('input.js-admin-precios-tab').forEach(function (input) {
+        input.value = activeTab;
       });
-      document.querySelectorAll('.admin-tabpanel').forEach(function (p) { p.hidden = true; });
-      tab.classList.add('is-active');
-      tab.setAttribute('aria-selected', 'true');
-      var panel = document.getElementById(tab.dataset.tabtarget);
-      if (panel) panel.hidden = false;
+    }
+
+    function setActiveTab(tabId) {
+      document.querySelectorAll('.admin-tab').forEach(function (t) {
+        var isCurrent = t.dataset.tabtarget === tabId;
+        t.classList.toggle('is-active', isCurrent);
+        t.setAttribute('aria-selected', isCurrent ? 'true' : 'false');
+      });
+      document.querySelectorAll('.admin-tabpanel').forEach(function (p) {
+        p.hidden = p.id !== tabId;
+      });
+      activeTab = tabId;
+      syncTabInForms();
+    }
+
+    document.querySelectorAll('.admin-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        setActiveTab(tab.dataset.tabtarget);
+      });
     });
-  });
+
+    setActiveTab(activeTab);
+  })();
 </script>
 {% endblock %}
