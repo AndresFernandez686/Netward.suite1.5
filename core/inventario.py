@@ -15,8 +15,9 @@ Flujo completo:
 """
 import io
 import json
+import unicodedata
 from datetime import date, datetime
-from typing import Optional
+from typing import Optional, Tuple
 
 import openpyxl
 import openpyxl.utils
@@ -64,6 +65,19 @@ I_VT        = 9
 I_VR        = 10
 I_DIF       = 11
 
+DEFAULT_LAYOUT = {
+    "grupo": I_GRUPO,
+    "nombre": I_NOMBRE,
+    "si": I_SI,
+    "compras": I_COMPRAS,
+    "otros_ing": I_OTROS_ING,
+    "otras_sal": I_OTRAS_SAL,
+    "sf": I_SF,
+    "vt": I_VT,
+    "vr": I_VR,
+    "dif": I_DIF,
+}
+
 # Índices en la fila YA FILTRADA
 FI_NOMBRE    = 0
 FI_SI        = 1
@@ -106,6 +120,59 @@ def _f(v):
 def _norm(nombre: str) -> str:
     """Normaliza para comparación: minúsculas + strip."""
     return str(nombre).strip().lower()
+
+
+def _norm_header(value) -> str:
+    """Normaliza encabezados para detectar columnas por nombre."""
+    text = str(value or "").strip().lower()
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = text.replace("_", " ")
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+def _detectar_layout(filas_raw: list) -> Tuple[dict, int]:
+    """Detecta índices de columnas y la fila de encabezado real."""
+    if not filas_raw:
+        return dict(DEFAULT_LAYOUT), 0
+
+    max_scan = min(len(filas_raw), 12)
+    for header_idx in range(max_scan):
+        header = [_norm_header(v) for v in filas_raw[header_idx]]
+        idx = {h: i for i, h in enumerate(header) if h and h not in ("none",)}
+
+        # Formato original esperado desde el sistema de inventario.
+        if "grudescrip" in idx and "artdescrip" in idx and "stockinicial" in idx:
+            return {
+                "grupo": idx.get("grudescrip"),
+                "nombre": idx.get("artdescrip"),
+                "si": idx.get("stockinicial"),
+                "compras": idx.get("compras"),
+                "otros_ing": idx.get("otrosingresos"),
+                "otras_sal": idx.get("otrassalidas"),
+                "sf": idx.get("stockfinal"),
+                "vt": idx.get("ventateorica"),
+                "vr": idx.get("ventareal"),
+                "dif": idx.get("diferencia"),
+            }, header_idx
+
+        # Formato ya procesado/exportado (Producto, Stock Inicial, ...).
+        nombre_idx = idx.get("producto", idx.get("artdescrip"))
+        procesado = {
+            "grupo": None,
+            "nombre": nombre_idx,
+            "si": idx.get("stockinicial"),
+            "compras": idx.get("compras"),
+            "otros_ing": idx.get("otrosingresos"),
+            "otras_sal": idx.get("otrassalidas"),
+            "sf": idx.get("stockfinal"),
+            "vt": idx.get("ventateorica"),
+            "vr": idx.get("ventareal"),
+            "dif": idx.get("diferencia"),
+        }
+        if all(procesado[k] is not None for k in ("nombre", "si", "compras", "otros_ing", "otras_sal", "sf", "vt", "vr", "dif")):
+            return procesado, header_idx
+
+    return dict(DEFAULT_LAYOUT), 0
 
 
 def _leer_excel(contenido: bytes, filename: str) -> list:
@@ -210,7 +277,8 @@ def _procesar_filas(filas_raw: list, stock_map: dict, ventas_map: dict,
     if not filas_raw:
         return [], {}, {}
 
-    datos = filas_raw[1:]   # omitir encabezado original
+    layout, header_idx = _detectar_layout(filas_raw)
+    datos = filas_raw[header_idx + 1:]   # omitir encabezado detectado
     filas_out  = []
     sf_out     = {}         # {nombre_norm: sf} para guardar snapshot
     n_si_snap  = 0          # productos con SI del snapshot anterior
@@ -219,11 +287,15 @@ def _procesar_filas(filas_raw: list, stock_map: dict, ventas_map: dict,
     n_excl     = 0          # productos excluidos por grupo
 
     for fila in datos:
-        while len(fila) < 22:
+        indices_utiles = [v for v in layout.values() if v is not None]
+        max_idx = max(indices_utiles) if indices_utiles else 0
+        while len(fila) <= max_idx:
             fila.append(0.0)
 
-        nombre = str(fila[I_NOMBRE]).strip()
-        grupo  = str(fila[I_GRUPO]).strip().lower()
+        nombre = str(fila[layout["nombre"]]).strip()
+        grupo = ""
+        if layout["grupo"] is not None:
+            grupo = str(fila[layout["grupo"]]).strip().lower()
 
         if not nombre:
             continue  # fila sin producto (totales, etc.)
@@ -236,31 +308,31 @@ def _procesar_filas(filas_raw: list, stock_map: dict, ventas_map: dict,
 
         # ── Stock inicial: snapshot > sistema > Excel original ─────────────
         if prev_snapshot and key in prev_snapshot:
-            fila[I_SI] = prev_snapshot[key]
+            fila[layout["si"]] = prev_snapshot[key]
             n_si_snap += 1
         elif key in stock_map:
-            fila[I_SI] = stock_map[key]
+            fila[layout["si"]] = stock_map[key]
             n_si_sys += 1
         # else: se conserva el valor del Excel
 
         # ── Ventas reales ──────────────────────────────────────────────────
         if key in ventas_map:
-            fila[I_VR] = ventas_map[key]
+            fila[layout["vr"]] = ventas_map[key]
             n_vr += 1
 
         # ── Venta teórica ──────────────────────────────────────────────────
-        si   = _f(fila[I_SI])
-        comp = _f(fila[I_COMPRAS])
-        oi   = _f(fila[I_OTROS_ING])
-        os_  = _f(fila[I_OTRAS_SAL])
-        sf   = _f(fila[I_SF])
+        si   = _f(fila[layout["si"]])
+        comp = _f(fila[layout["compras"]])
+        oi   = _f(fila[layout["otros_ing"]])
+        os_  = _f(fila[layout["otras_sal"]])
+        sf   = _f(fila[layout["sf"]])
         vt   = round(si + comp + oi - sf - os_, 3)
-        fila[I_VT] = vt
+        fila[layout["vt"]] = vt
 
         # ── Diferencia ────────────────────────────────────────────────────
-        vr  = _f(fila[I_VR])
+        vr  = _f(fila[layout["vr"]])
         dif = round(vt - vr, 3)
-        fila[I_DIF] = dif
+        fila[layout["dif"]] = dif
 
         # ── Guardar SF para snapshot ───────────────────────────────────────
         sf_out[key] = sf
@@ -269,7 +341,17 @@ def _procesar_filas(filas_raw: list, stock_map: dict, ventas_map: dict,
         ucaja, ubulto = precios_map.get(key, (None, None))
 
         # ── Filtrar columnas de salida ─────────────────────────────────────
-        fila_filtrada = [fila[i] if i < len(fila) else "" for i in COLS_MANTENER]
+        fila_filtrada = [
+            fila[layout["nombre"]],
+            fila[layout["si"]],
+            fila[layout["compras"]],
+            fila[layout["otros_ing"]],
+            fila[layout["otras_sal"]],
+            fila[layout["sf"]],
+            fila[layout["vt"]],
+            fila[layout["vr"]],
+            fila[layout["dif"]],
+        ]
         # añadir separador + unidades
         fila_filtrada.append("")                                    # col 10 separador
         fila_filtrada.append(int(ucaja) if ucaja else "")           # col 11 unid_caja

@@ -127,16 +127,30 @@
 
 {% block scripts %}
 <script>
-  document.getElementById('file-input').addEventListener('change', function() {
-    if (this.files.length > 0) {
-      document.getElementById('btn-proc').textContent = 'Procesar: ' + this.files[0].name;
-    }
-  });
-  document.getElementById('proc-form').addEventListener('submit', function() {
+  (function () {
+    var form = document.getElementById('proc-form');
+    var fileInput = document.getElementById('file-input');
     var btn = document.getElementById('btn-proc');
-    btn.disabled    = true;
-    btn.textContent = 'Procesando... por favor espere';
-  });
+    var defaultLabel = 'Procesar y descargar';
+
+    fileInput.addEventListener('change', function() {
+      if (this.files.length > 0) {
+        btn.textContent = 'Procesar: ' + this.files[0].name;
+      } else {
+        btn.textContent = defaultLabel;
+      }
+    });
+
+    form.addEventListener('submit', function() {
+      btn.textContent = 'Procesando... por favor espere';
+
+      // Cuando la respuesta es una descarga, la página puede no recargarse.
+      // Evitamos deshabilitar el botón para que la UI nunca quede bloqueada.
+      window.setTimeout(function () {
+        btn.textContent = 'Procesar y descargar';
+      }, 12000);
+    });
+  })();
 </script>
 {% endblock %}
 
