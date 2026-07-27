@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Delivery - {{ app_nombre }}{% endblock %}
+{% block heading %}Delivery{% endblock %}
+{% block subheading %}Registro de ventas del dia{% endblock %}
+
+{% block content %}
+<div class="grid-2">
+  <section class="card card--skip-collapse">
+    <h3 class="panel__title">Registrar nueva venta</h3>
+    {% if activos %}
+      <form method="post" action="{{ url_for('empleado_delivery') }}" class="form">
+        <input type="hidden" name="fecha" value="{{ hoy }}" />
+        <label class="field">
+          <span class="field__label">Producto</span>
+          <select name="producto_id" required>
+            {% for p in activos %}
+              <option value="{{ p.id }}">{{ p.nombre }} - ${{ '%g'|format(p.precio) }}{% if p.es_promocion %} (Promo){% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span class="field__label">Cantidad</span>
+          <input type="number" name="cantidad" min="1" value="1" required />
+        </label>
+        <button class="btn btn--primary btn--block">Registrar venta</button>
+      </form>
+    {% else %}
+      <div class="empty">
+        <p>No hay productos de delivery activos.</p>
+        <span class="muted">Pide al administrador que agregue opciones.</span>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card card--skip-collapse">
+    <div class="cart__head">
+      <h3 class="panel__title">Ventas de hoy</h3>
+      <span class="badge badge--green">Total: ${{ '%g'|format(total_dia) }}</span>
+    </div>
+    {% if ventas_hoy %}
+      <ul class="sale-list">
+        {% for v in ventas_hoy %}
+          <li>
+            <span class="sale__time">{{ v.hora }}</span>
+            <span class="sale__name">{{ v.cantidad }}x {{ v.producto }}</span>
+            <span class="sale__total">${{ '%g'|format(v.total) }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty"><p>No hay ventas registradas hoy.</p></div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

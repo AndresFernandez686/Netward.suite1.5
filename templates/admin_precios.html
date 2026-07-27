@@ -1,0 +1,115 @@
+{% extends 'admin_base.html' %}
+{% block title %}Precios - {{ app_nombre }}{% endblock %}
+{% block heading %}Precios{% endblock %}
+{% block subheading %}Carga manual de precios por producto (opcional){% endblock %}
+
+{% block content %}
+<div class="banner banner--info">
+  <div>
+    <strong>Los precios son opcionales.</strong> Sin precios cargados, el sistema funciona igual
+    pero no podrá calcular el valor estimado del inventario ni la conversión de
+    Caja/Bulto en algunos productos.
+  </div>
+</div>
+
+<div class="admin-tabs" role="tablist">
+  {% for cat in categorias %}
+  <button type="button" role="tab" class="admin-tab {{ 'is-active' if loop.first }}"
+          data-tabtarget="tab-{{ loop.index0 }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+    {{ cat }}
+  </button>
+  {% endfor %}
+</div>
+
+{% for cat in categorias %}
+<section class="panel admin-tabpanel" id="tab-{{ loop.index0 }}" {{ '' if loop.first else 'hidden' }}>
+  <form method="post" action="{{ url_for('admin_precios') }}">
+    <div class="table-wrap">
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Estado</th>
+            <th>{{ 'Precio por kg ($)' if cat == 'Por Kilos' else 'Precio unitario ($)' }}</th>
+            {% if cat != 'Por Kilos' %}
+            <th>Unidades/Caja</th>
+            <th>Cajas/Bulto</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in productos_por_cat[cat] %}
+          {% set pr = precios_map.get(p.nombre) %}
+          <tr>
+            <td><strong>{{ p.nombre }}</strong>
+              <input type="hidden" name="ids" value="{{ p.id }}" />
+            </td>
+            <td>
+              {% if pr and pr.precio %}
+              <span class="badge-soft badge-soft--success">Con precio</span>
+              {% else %}
+              <span class="badge-soft badge-soft--muted">Sin precio</span>
+              {% endif %}
+            </td>
+            <td>
+              <input class="price-input" type="text" inputmode="numeric" name="precio_{{ p.id }}"
+                     value="{{ '%g'|format(pr.precio) if pr and pr.precio else '' }}" placeholder="Sin precio" />
+            </td>
+            {% if cat != 'Por Kilos' %}
+            <td>
+              <input class="price-input price-input--sm" type="number" step="any" min="0" name="caja_{{ p.id }}"
+                     value="{{ '%g'|format(pr.unidades_por_caja) if pr and pr.unidades_por_caja else '' }}" placeholder="—" />
+            </td>
+            <td>
+              <input class="price-input price-input--sm" type="number" step="any" min="0" name="bulto_{{ p.id }}"
+                     value="{{ '%g'|format(pr.unidades_por_bulto) if pr and pr.unidades_por_bulto else '' }}" placeholder="—" />
+            </td>
+            {% endif %}
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="muted">No hay productos en esta categoría.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+      <button type="submit" class="btn btn--primary">Guardar cambios de {{ cat }}</button>
+    </div>
+  </form>
+</section>
+{% endfor %}
+
+<section class="panel" style="margin-top:16px;">
+  <div class="panel__head"><h3>Resumen de precios</h3></div>
+  <div style="display:flex;gap:24px;flex-wrap:wrap;">
+    <div>
+      <p class="kpi-card__label">Productos con precio</p>
+      <p class="kpi-card__value">{{ con_precio }} de {{ total_prod }}</p>
+      <p class="kpi-card__sub">{{ porcentaje }}% del catálogo</p>
+    </div>
+    <div>
+      <p class="kpi-card__label">Valor estimado calculable</p>
+      <p class="kpi-card__value">$ {{ '{:,.0f}'.format(valor_estimado).replace(',', '.') }}</p>
+      <p class="kpi-card__sub">Con los precios actuales</p>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('.admin-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('.admin-tab').forEach(function (t) {
+        t.classList.remove('is-active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      document.querySelectorAll('.admin-tabpanel').forEach(function (p) { p.hidden = true; });
+      tab.classList.add('is-active');
+      tab.setAttribute('aria-selected', 'true');
+      var panel = document.getElementById(tab.dataset.tabtarget);
+      if (panel) panel.hidden = false;
+    });
+  });
+</script>
+{% endblock %}

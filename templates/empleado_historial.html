@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}Historial - {{ app_nombre }}{% endblock %}
+{% block heading %}Historial de inventarios{% endblock %}
+{% block subheading %}Selecciona una fecha para ver la carga guardada{% endblock %}
+
+{% block content %}
+<div class="card card--skip-collapse">
+  <div class="card__header">
+    <h3>Fechas guardadas</h3>
+    <span class="badge badge--blue">{{ snapshots|length }} carga(s)</span>
+  </div>
+
+  {% if snapshots %}
+  <div class="history-grid">
+    {% for snap in snapshots %}
+    <a class="history-card {{ 'is-selected' if selected_snapshot and selected_snapshot.id == snap.id }}" href="{{ url_for('empleado_historial', fecha=snap.fecha) }}">
+      <div class="history-card__top">
+        <strong>{{ snap.fecha }}</strong>
+        <span class="tag">{{ snap.tipo_inventario }}</span>
+      </div>
+      <div class="history-card__meta">
+        <span>{{ snap.total_items }} producto(s)</span>
+        <span>{{ snap.usuario }}</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <p>No hay historiales guardados todavía.</p>
+    <span class="muted">Cuando guardes un inventario, aparecerá aquí.</span>
+  </div>
+  {% endif %}
+</div>
+
+{% if selected_snapshot %}
+<div class="card card--skip-collapse">
+  <div class="card__header">
+    <h3>Detalle del inventario del {{ selected_snapshot.fecha }}</h3>
+    <span class="badge badge--green">{{ detalle|length }} registros</span>
+  </div>
+
+  {% if detalle %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Categoría</th>
+          <th>Cantidad</th>
+          <th>Modo</th>
+          <th>Detalle</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in detalle %}
+        <tr>
+          <td><strong>{{ item.producto }}</strong></td>
+          <td><span class="tag">{{ item.categoria }}</span></td>
+          <td>{{ '%g'|format(item.cantidad) }}</td>
+          <td>{{ item.modo }}</td>
+          <td>{{ item.detalle or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <p>No hay productos guardados en esta fecha.</p>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

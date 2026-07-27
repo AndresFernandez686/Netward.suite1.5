@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block title %}Iniciar Sesion - {{ app_nombre }}{% endblock %}
+
+{% block auth_content %}
+<div class="auth">
+  <div class="auth__panel">
+    <div class="auth__brand">
+      <span class="brand__mark brand__mark--lg">N</span>
+      <div>
+        <h1>Netward</h1>
+        <p>Sistema de Gestion de Inventarios Multi-Tienda</p>
+      </div>
+    </div>
+
+    <ul class="auth__features">
+      <li><span class="feature__dot feature__dot--blue"></span> Control de inventario en tiempo real</li>
+      <li><span class="feature__dot feature__dot--green"></span> Semaforo de stock por producto</li>
+      <li><span class="feature__dot feature__dot--amber"></span> Gestion independiente por sucursal</li>
+    </ul>
+
+    <div class="auth__note">
+      <strong>Modo Beta</strong>
+      <span>Cualquier contrasena es valida para pruebas.</span>
+    </div>
+  </div>
+
+  <div class="auth__form-wrap">
+    <div class="auth__card">
+      <h2>Iniciar Sesion</h2>
+      <p class="auth__subtitle">Ingresa tus credenciales para continuar</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash flash--{{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="post" action="{{ url_for('login') }}" class="form">
+        <label class="field">
+          <span class="field__label">Usuario</span>
+          <input type="text" name="usuario" list="usuarios-list" placeholder="Ej: admin" required autofocus />
+        </label>
+        <datalist id="usuarios-list">
+          {% for u in usuarios %}<option value="{{ u.username }}">{% endfor %}
+        </datalist>
+
+        <label class="field">
+          <span class="field__label">Contrasena</span>
+          <input type="password" name="contrasena" placeholder="Cualquier contrasena (modo beta)" required />
+        </label>
+
+        <button type="submit" class="btn btn--primary btn--block">Ingresar</button>
+      </form>
+
+      <div class="auth__users">
+        <span class="auth__users-title">Usuarios disponibles</span>
+        <div class="chips">
+          {% for u in usuarios %}
+            <button type="button" class="chip" data-user="{{ u.username }}">
+              {{ u.username }}<small>{{ 'Admin' if u.rol == 'administrador' else 'Empleado' }}</small>
+            </button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.chip').forEach(function (c) {
+    c.addEventListener('click', function () {
+      document.querySelector('input[name="usuario"]').value = c.dataset.user;
+      document.querySelector('input[name="contrasena"]').focus();
+    });
+  });
+</script>
+{% endblock %}

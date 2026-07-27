@@ -1,0 +1,90 @@
+{% extends 'admin_base.html' %}
+{% block title %}Usuarios - {{ app_nombre }}{% endblock %}
+{% block heading %}Usuarios{% endblock %}
+{% block subheading %}Gestión de usuarios del sistema{% endblock %}
+
+{% block content %}
+<div class="banner banner--warning">
+  <div>
+    <strong>Modo Beta</strong> — cualquier contraseña es válida para todos los usuarios.
+  </div>
+</div>
+
+<div class="dash-grid" style="grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);">
+  <section class="panel">
+    <div class="panel__head"><h3>Usuarios registrados</h3></div>
+    <table class="mini-table">
+      <thead>
+        <tr><th>Usuario</th><th>Rol</th><th>Tienda asignada</th><th style="text-align:right;">Acciones</th></tr>
+      </thead>
+      <tbody>
+        {% for u in usuarios %}
+        <tr>
+          <td>
+            <strong>{{ u.username }}</strong>
+            {% if u.username == sesion_usuario %}<span class="badge-soft badge-soft--success" style="margin-left:6px;">Tú</span>{% endif %}
+          </td>
+          <td>
+            {% if u.rol == 'administrador' %}
+            <span class="badge-soft badge-soft--warning">Administrador</span>
+            {% else %}
+            <span class="badge-soft badge-soft--muted">Empleado</span>
+            {% endif %}
+          </td>
+          <td class="muted">
+            {% if u.tienda_id == 'ALL' %}Todas las tiendas{% else %}{{ tiendas_map.get(u.tienda_id, u.tienda_id or '—') }}{% endif %}
+          </td>
+          <td style="text-align:right;">
+            {% if u.username != sesion_usuario %}
+            <form method="post" action="{{ url_for('usuario_eliminar', usuario_id=u.id) }}"
+                  onsubmit="return confirm('¿Eliminar al usuario {{ u.username }}? Esta acción no se puede deshacer.')"
+                  style="display:inline;">
+              <button type="submit" class="btn btn--ghost" style="color:var(--danger);">Eliminar</button>
+            </form>
+            {% else %}
+            <span class="muted" style="font-size:.78rem;">Sesión activa</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">No hay usuarios registrados.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <div class="panel__head"><h3>Crear nuevo usuario</h3></div>
+    <form method="post" action="{{ url_for('usuario_crear') }}" style="display:flex;flex-direction:column;gap:14px;">
+      <label class="field">
+        <span class="field__label">Nombre de usuario</span>
+        <input type="text" name="username" required placeholder="ej. maria" />
+      </label>
+      <label class="field">
+        <span class="field__label">Rol</span>
+        <select name="rol" id="rolSelect" onchange="toggleTienda(this.value)">
+          <option value="empleado">Empleado</option>
+          <option value="administrador">Administrador</option>
+        </select>
+      </label>
+      <label class="field" id="tiendaField">
+        <span class="field__label">Tienda</span>
+        <select name="tienda_id">
+          {% for t in tiendas %}
+          <option value="{{ t.id }}">{{ t.nombre }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn btn--primary">Crear usuario</button>
+    </form>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function toggleTienda(rol) {
+    document.getElementById('tiendaField').style.display = rol === 'administrador' ? 'none' : '';
+  }
+</script>
+{% endblock %}

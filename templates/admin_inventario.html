@@ -1,0 +1,76 @@
+{% extends 'admin_base.html' %}
+{% block title %}Inventario Admin - {{ app_nombre }}{% endblock %}
+{% block heading %}Gestion de Inventario{% endblock %}
+{% block subheading %}Visualizacion y control por sucursal{% endblock %}
+
+{% block content %}
+<form method="get" class="filters card card--skip-collapse">
+  <label class="field field--inline">
+    <span class="field__label">Tienda</span>
+    <select name="tienda" onchange="this.form.submit()">
+      {% for t in tiendas %}<option value="{{ t.id }}" {{ 'selected' if t.id == tienda_id }}>{{ t.nombre }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field field--inline">
+    <span class="field__label">Categoria</span>
+    <select name="categoria" onchange="this.form.submit()">
+      <option value="Todas" {{ 'selected' if categoria_filtro == 'Todas' }}>Todas</option>
+      {% for c in categorias %}<option value="{{ c }}" {{ 'selected' if c == categoria_filtro }}>{{ c }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field field--inline">
+    <span class="field__label">Estado</span>
+    <select name="estado" onchange="this.form.submit()">
+      {% for e in ['Todos', 'Cargado', 'No cargado'] %}<option value="{{ e }}" {{ 'selected' if e == estado_filtro }}>{{ e }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field field--inline field--grow">
+    <span class="field__label">Buscar producto</span>
+    <input type="text" name="busqueda" value="{{ busqueda }}" placeholder="Escribe el nombre..." />
+  </label>
+  <div class="filters__actions action-group">
+    <button class="btn btn--primary">Filtrar</button>
+    <a class="btn btn--ghost" href="{{ url_for('export_inventario', tienda=tienda_id) }}">Exportar Excel</a>
+  </div>
+</form>
+
+{% for cat, filas in data.items() %}
+<section class="card" data-collapsed="true">
+  <div class="cart__head">
+    <h3 class="panel__title">{{ cat }}</h3>
+    <div class="metrics">
+      <span class="metric metric--green">{{ resumen[cat].cargados }} cargados</span>
+      <span class="metric metric--red">{{ resumen[cat].no_cargados }} sin cargar</span>
+      <span class="metric">{{ resumen[cat].total }} total</span>
+      <span class="metric metric--blue">{{ resumen[cat].porcentaje }}% cargado</span>
+    </div>
+  </div>
+
+  {% if filas %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Estado Stock</th><th>Producto</th><th>Cantidad</th><th>Modo</th><th>Carga</th></tr>
+      </thead>
+      <tbody>
+        {% for f in filas %}
+        <tr>
+          <td><span class="pill pill--{{ f.nivel }}">{{ f.etiqueta }}</span></td>
+          <td><strong>{{ f.producto }}</strong></td>
+          <td>{{ '%g'|format(f.cantidad) }}</td>
+          <td class="muted">{{ f.modo }}</td>
+          <td>
+            {% if f.cargado %}<span class="dot dot--green"></span> Cargado
+            {% else %}<span class="dot dot--red"></span> No cargado{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty"><p>No hay productos que coincidan con el filtro.</p></div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

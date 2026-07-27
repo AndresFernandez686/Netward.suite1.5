@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>{% block title %}Administración {{ app_nombre }}{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body class="admin-body">
+  <div class="layout">
+    <aside class="sidebar admin-sidebar" id="sidebar">
+      <div class="sidebar__brand">
+        <span class="brand__mark brand__mark--admin">N</span>
+        <div class="brand__text">
+          <strong>Netward</strong>
+          <small>Versión 2.1.0</small>
+        </div>
+      </div>
+
+      <nav class="sidebar__nav admin-nav">
+        <span class="nav__label">Principal</span>
+        <a href="{{ url_for('admin_dashboard') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_dashboard' }}">
+          <span class="nav__icon">{% include 'icons/chart.svg' %}</span> Resumen
+        </a>
+        <a href="{{ url_for('admin_inventario') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_inventario' }}">
+          <span class="nav__icon">{% include 'icons/box.svg' %}</span> Inventario
+        </a>
+        <a href="{{ url_for('admin_historial') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_historial' }}">
+          <span class="nav__icon">{% include 'icons/clock.svg' %}</span> Historial
+        </a>
+
+        <span class="nav__label">Operaciones</span>
+        <a href="{{ url_for('admin_delivery') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_delivery' }}">
+          <span class="nav__icon">{% include 'icons/truck.svg' %}</span> Delivery
+        </a>
+        <a href="{{ url_for('admin_averiados') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_averiados' }}">
+          <span class="nav__icon">{% include 'icons/alert.svg' %}</span> Averiados
+          {% if notif_averiados > 0 %}<span class="nav__badge">{{ notif_averiados }}</span>{% endif %}
+        </a>
+        <a href="{{ url_for('admin_vencimientos') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_vencimientos' }}">
+          <span class="nav__icon">{% include 'icons/clock.svg' %}</span> Vencimientos
+          {% if notif_vencimientos > 0 %}<span class="nav__badge">{{ notif_vencimientos }}</span>{% endif %}
+        </a>
+        <a href="{{ url_for('desc.admin_desc') }}" class="nav__link {{ 'is-active' if request.endpoint and request.endpoint.startswith('desc.') }}">
+          <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Desc.
+        </a>
+
+        <span class="nav__label">Catálogo</span>
+        <a href="{{ url_for('admin_configuracion') }}#sec-productos" class="nav__link {{ 'is-active' if request.endpoint == 'admin_configuracion' }}">
+          <span class="nav__icon">{% include 'icons/box.svg' %}</span> Productos
+        </a>
+        <a href="{{ url_for('admin_precios') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_precios' }}">
+          <span class="nav__icon">{% include 'icons/chart.svg' %}</span> Precios
+        </a>
+
+        <span class="nav__label">Sistema</span>
+        <a href="{{ url_for('admin_configuracion') }}#sec-tiendas" class="nav__link">
+          <span class="nav__icon">{% include 'icons/settings.svg' %}</span> Tiendas
+        </a>
+        <a href="{{ url_for('admin_usuarios') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_usuarios' }}">
+          <span class="nav__icon">{% include 'icons/settings.svg' %}</span> Usuarios
+        </a>
+        <a href="{{ url_for('admin_sincronizacion') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_sincronizacion' }}">
+          <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Sincronización
+        </a>
+
+        <span class="nav__label">Accesos rápidos</span>
+        <div class="quick-actions">
+          <a class="quick-action" href="{{ url_for('export_inventario', tienda=tienda_filtro if tienda_filtro != 'ALL' else 'T001') }}">
+            {% include 'icons/box.svg' %} Exportar inventario
+          </a>
+          <a class="quick-action" href="{{ url_for('export_historial', tienda=tienda_filtro if tienda_filtro != 'ALL' else 'T001') }}">
+            {% include 'icons/chart.svg' %} Exportar historial
+          </a>
+        </div>
+      </nav>
+
+      <div class="sidebar__user">
+        <div class="user__avatar user__avatar--admin">{{ sesion_usuario[0]|upper }}</div>
+        <div class="user__meta">
+          <strong>{{ sesion_usuario }}</strong>
+          <small>Administrador</small>
+        </div>
+        <a href="{{ url_for('logout') }}" class="user__logout" title="Cerrar sesión">
+          {% include 'icons/logout.svg' %}
+        </a>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar admin-topbar">
+        <button class="topbar__menu" id="menuToggle" aria-label="Abrir menú">{% include 'icons/menu.svg' %}</button>
+        <div class="topbar__title">
+          <h1>{% block heading %}Panel{% endblock %}</h1>
+          <p>{% block subheading %}{% endblock %}</p>
+        </div>
+        <div class="topbar__tools">
+          <label class="store-select" title="Tienda activa">
+            <span class="store__dot"></span>
+            <select id="tiendaGlobal" onchange="cambiarTiendaGlobal(this.value)" aria-label="Seleccionar tienda activa">
+              <option value="ALL" {{ 'selected' if tienda_filtro == 'ALL' }}>Todas las tiendas</option>
+              {% for t in tiendas_topbar %}
+              <option value="{{ t.id }}" {{ 'selected' if t.id == tienda_filtro }}>{{ t.nombre }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <span class="topbar__date">{{ hoy_es }}</span>
+          <a href="{{ url_for('admin_alertas') }}" class="topbar__bell" title="Ver alertas" aria-label="Alertas">
+            {% include 'icons/alert.svg' %}
+            {% set notif_total = notif_averiados + notif_vencimientos %}
+            {% if notif_total > 0 %}<span class="bell__badge">{{ notif_total }}</span>{% endif %}
+          </a>
+        </div>
+      </header>
+
+      <main class="content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="flash-stack">
+              {% for category, message in messages %}
+                <div class="flash flash--{{ category }}">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+
+        <footer class="admin-footer">
+          <span>Netward © {{ anio }} - Sistema de Gestión de Inventario</span>
+          <span>Versión 2.1.0</span>
+        </footer>
+      </main>
+    </div>
+  </div>
+  <div class="sidebar-backdrop" id="backdrop"></div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script>
+    function cambiarTiendaGlobal(valor) {
+      var url = new URL(window.location.href);
+      url.searchParams.set('tienda', valor);
+      window.location.href = url.toString();
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

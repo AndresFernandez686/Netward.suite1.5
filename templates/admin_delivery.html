@@ -1,0 +1,74 @@
+{% extends 'admin_base.html' %}
+{% block title %}Delivery Admin - {{ app_nombre }}{% endblock %}
+{% block heading %}Gestion de Delivery{% endblock %}
+{% block subheading %}Catalogo y ventas registradas{% endblock %}
+
+{% block content %}
+<section class="card card--skip-collapse">
+  <h3 class="panel__title">Agregar producto al catalogo</h3>
+  <form method="post" action="{{ url_for('admin_delivery') }}" class="form-row">
+    <label class="field field--grow">
+      <span class="field__label">Nombre del producto</span>
+      <input type="text" name="nombre" placeholder="Ej: Promo 2x1 Chocolate" required />
+    </label>
+    <label class="field">
+      <span class="field__label">Precio</span>
+      <input type="number" name="precio" min="0" step="0.01" value="0" required />
+    </label>
+    <label class="field field--check">
+      <input type="checkbox" name="es_promocion" /> <span>Es promocion</span>
+    </label>
+    <div class="inv-form__action">
+      <button class="btn btn--primary">Guardar producto</button>
+    </div>
+  </form>
+</section>
+
+<div class="grid-2">
+  <section class="card card--skip-collapse">
+    <h3 class="panel__title">Catalogo</h3>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Producto</th><th>Precio</th><th>Tipo</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          {% for p in catalogo %}
+          <tr>
+            <td><strong>{{ p.nombre }}</strong></td>
+            <td>${{ '%g'|format(p.precio) }}</td>
+            <td>{% if p.es_promocion %}<span class="badge badge--amber">Promo</span>{% else %}<span class="tag">Normal</span>{% endif %}</td>
+            <td>{% if p.activo %}<span class="dot dot--green"></span> Activo{% else %}<span class="dot dot--red"></span> Inactivo{% endif %}</td>
+            <td>
+              <div class="action-group">
+                <form method="post" action="{{ url_for('delivery_toggle', prod_id=p.id) }}">
+                  <button class="btn btn--sm btn--ghost">{{ 'Desactivar' if p.activo else 'Activar' }}</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card card--skip-collapse">
+    <div class="cart__head">
+      <h3 class="panel__title">Ultimas ventas</h3>
+      <span class="badge badge--green">Total: ${{ '%g'|format(total_ventas) }}</span>
+    </div>
+    {% if ventas %}
+      <ul class="sale-list">
+        {% for v in ventas %}
+          <li>
+            <span class="sale__time">{{ v.fecha }}</span>
+            <span class="sale__name">{{ v.cantidad }}x {{ v.producto }} <small class="muted">({{ v.usuario }})</small></span>
+            <span class="sale__total">${{ '%g'|format(v.total) }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty"><p>No hay ventas registradas.</p></div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

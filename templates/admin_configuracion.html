@@ -1,0 +1,160 @@
+{% extends 'admin_base.html' %}
+{% block title %}Configuracion - {{ app_nombre }}{% endblock %}
+{% block heading %}Configuracion{% endblock %}
+{% block subheading %}Catalogo de productos y tiendas del sistema{% endblock %}
+
+{% block content %}
+
+{# ── Formularios de eliminacion (vacios, ocultos del flujo flex) ── #}
+<div hidden>
+{% for p in productos_impulsivo + productos_extras + productos_kilos %}
+<form id="delf-{{ p.id }}" method="post"
+      action="{{ url_for('producto_eliminar', producto_id=p.id) }}"></form>
+{% endfor %}
+</div>
+
+{# ── Seccion: Catalogo de productos ── #}
+<section class="card card--skip-collapse" id="sec-productos">
+  <h3 class="panel__title">Catalogo de productos</h3>
+  <p class="muted" style="font-size:.88rem;margin-bottom:12px;">
+    Administra el catalogo: agrega o elimina productos.
+    Los precios se configuran en la seccion <a href="{{ url_for('admin_precios') }}">Precios</a>.
+  </p>
+
+  <div class="tabs" style="margin-bottom:18px;" id="precio-tabs">
+    <button type="button" class="tab is-active" data-tab="tab-impulsivo">
+      Impulsivo <span class="badge badge--neutral">{{ productos_impulsivo|length }}</span>
+    </button>
+    <button type="button" class="tab" data-tab="tab-extras">
+      Extras <span class="badge badge--neutral">{{ productos_extras|length }}</span>
+    </button>
+    <button type="button" class="tab" data-tab="tab-kilos">
+      Por Kilos <span class="badge badge--neutral">{{ productos_kilos|length }}</span>
+    </button>
+  </div>
+
+  {% for grupo, productos in [('tab-impulsivo', productos_impulsivo), ('tab-extras', productos_extras), ('tab-kilos', productos_kilos)] %}
+  <div class="tab-panel {{ 'is-active' if loop.first }}" id="{{ grupo }}">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th style="width:100px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in productos %}
+          <tr>
+            <td>{{ p.nombre }}</td>
+            <td>
+              <button type="submit" form="delf-{{ p.id }}" class="btn btn--sm btn--danger"
+                      onclick="return confirm('¿Eliminar {{ p.nombre }}? Esta accion no se puede deshacer.')">
+                Eliminar
+              </button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="muted">Sin productos en esta categoria.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+
+  {# ── Agregar producto ── #}
+  <div style="border-top:1px solid var(--line);margin-top:20px;padding-top:18px;">
+    <h4 style="margin:0 0 12px;font-size:.95rem;color:var(--ink-2);">Agregar producto</h4>
+    <form method="post" action="{{ url_for('producto_crear') }}" class="form-row">
+      <label class="field field--grow">
+        <span class="field__label">Nombre *</span>
+        <input type="text" name="nombre" placeholder="Ej: Tentacion Fresa" required />
+      </label>
+      <label class="field">
+        <span class="field__label">Categoria *</span>
+        <select name="categoria" required>
+          <option value="Impulsivo">Impulsivo</option>
+          <option value="Por Kilos">Por Kilos</option>
+          <option value="Extras">Extras</option>
+        </select>
+      </label>
+      <div class="inv-form__action">
+        <button class="btn btn--primary">Agregar</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+{# ── Seccion: Tiendas ── #}
+<section class="card card--skip-collapse" id="sec-tiendas">
+  <h3 class="panel__title">Tiendas registradas</h3>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Estado</th><th>Nombre</th><th>ID</th><th>Direccion</th><th>Creada</th><th>Acciones</th></tr>
+      </thead>
+      <tbody>
+        {% for t in tiendas %}
+        <tr>
+          <td>
+            {% if t.activa %}<span class="dot dot--green"></span> Activa
+            {% else %}<span class="dot dot--red"></span> Inactiva{% endif %}
+          </td>
+          <td>
+            <strong>{{ t.nombre }}</strong>
+            {% if t.es_default %}<span class="badge badge--blue">Default</span>{% endif %}
+          </td>
+          <td class="muted">{{ t.id }}</td>
+          <td class="muted">{{ t.direccion }}</td>
+          <td class="muted">{{ t.fecha_creacion }}</td>
+          <td>
+            <div class="action-group">
+              <form method="post" action="{{ url_for('tienda_toggle', tienda_id=t.id) }}">
+                <button class="btn btn--sm btn--ghost">{{ 'Desactivar' if t.activa else 'Activar' }}</button>
+              </form>
+              {% if not t.es_default and t.activa %}
+              <form method="post" action="{{ url_for('tienda_default', tienda_id=t.id) }}">
+                <button class="btn btn--sm btn--ghost">Hacer default</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card card--skip-collapse">
+  <h3 class="panel__title">Agregar nueva tienda</h3>
+  <form method="post" action="{{ url_for('tienda_crear') }}" class="form-row">
+    <label class="field field--grow">
+      <span class="field__label">Nombre de la tienda *</span>
+      <input type="text" name="nombre" placeholder="Ej: Tienda Mall Plaza" required />
+    </label>
+    <label class="field field--grow">
+      <span class="field__label">Direccion</span>
+      <input type="text" name="direccion" placeholder="Ej: Av. Principal 123" />
+    </label>
+    <div class="inv-form__action">
+      <button class="btn btn--primary">Crear tienda</button>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // ── Tabs ──
+  document.querySelectorAll('#precio-tabs .tab').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#precio-tabs .tab').forEach(function(t) { t.classList.remove('is-active'); });
+      document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('is-active'); });
+      btn.classList.add('is-active');
+      document.getElementById(btn.dataset.tab).classList.add('is-active');
+    });
+  });
+</script>
+{% endblock %}

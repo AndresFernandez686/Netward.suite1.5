@@ -1,0 +1,112 @@
+{% extends 'admin_base.html' %}
+{% block title %}Averiados - {{ app_nombre }}{% endblock %}
+{% block heading %}Productos Averiados{% endblock %}
+{% block subheading %}Registros reportados por empleados{% endblock %}
+
+{% block content %}
+<section class="card card--skip-collapse">
+  <h3 class="panel__title">Filtros</h3>
+  <form method="get" class="filters">
+    <label class="field">
+      <span class="field__label">Tienda</span>
+      <select name="tienda">
+        <option value="Todas" {{ 'selected' if tienda_f == 'Todas' }}>Todas las tiendas</option>
+        {% for t in tiendas %}
+        <option value="{{ t.id }}" {{ 'selected' if tienda_f == t.id }}>{{ t.nombre }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field">
+      <span class="field__label">Desde</span>
+      <input type="date" name="desde" value="{{ desde }}" />
+    </label>
+    <label class="field">
+      <span class="field__label">Hasta</span>
+      <input type="date" name="hasta" value="{{ hasta }}" />
+    </label>
+    <div class="filters__actions">
+      <button type="submit" class="btn btn--primary">Filtrar</button>
+    </div>
+  </form>
+</section>
+
+<section class="card card--skip-collapse">
+  <h3 class="panel__title">
+    Registros de averiados
+    <span class="badge badge--neutral">{{ registros|length }}</span>
+  </h3>
+
+  {% if registros %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Tienda</th>
+          <th>Empleado</th>
+          <th>Producto</th>
+          <th>Categoría</th>
+          <th>Cantidad</th>
+          <th>Unidades</th>
+          <th>Motivo</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in registros %}
+        <tr>
+          <td class="muted">{{ r.fecha }}<br><small>{{ r.hora }}</small></td>
+          <td><span class="badge badge--blue">{{ r.tienda_id }}</span></td>
+          <td class="muted">{{ r.usuario }}</td>
+          <td><strong>{{ r.producto | strip_unidad }}</strong></td>
+          <td><span class="tag">{{ r.categoria }}</span></td>
+          <td>{{ '%g'|format(r.cantidad) }} {{ r.ume }}</td>
+          <td>
+            {% if r.desc_conversion %}
+              <small class="muted">{{ r.desc_conversion }}</small>
+            {% else %}
+              {{ '%g'|format(r.cantidad_unidades) }} Unid.
+            {% endif %}
+          </td>
+          <td class="muted">{{ r.detalle or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Resumen por producto #}
+  <div style="margin-top:20px;border-top:1px solid var(--line);padding-top:16px;">
+    <h4 style="font-size:.9rem;margin:0 0 12px;color:var(--ink-2);">Resumen por producto (período)</h4>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>Producto</th><th>Total unidades averiadas</th><th>Registros</th></tr>
+        </thead>
+        <tbody>
+          {% set resumen = {} %}
+          {% for r in registros %}
+            {% set k = r.producto %}
+            {% if k not in resumen %}
+              {% set _ = resumen.update({k: {'total': 0, 'n': 0}}) %}
+            {% endif %}
+            {% set _ = resumen[k].update({'total': resumen[k].total + r.cantidad_unidades, 'n': resumen[k].n + 1}) %}
+          {% endfor %}
+          {% for prod, data in resumen.items() | sort(attribute='0') %}
+          <tr>
+            <td><strong>{{ prod | strip_unidad }}</strong></td>
+            <td style="color:var(--danger);font-weight:600;">{{ '%g'|format(data.total) }} Unid.</td>
+            <td class="muted">{{ data.n }} registro(s)</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="empty">
+    <p>No hay registros de averiados en este período.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

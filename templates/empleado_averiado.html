@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+{% block title %}Averiados - {{ app_nombre }}{% endblock %}
+{% block heading %}Registro de Averiados{% endblock %}
+{% block subheading %}Carga productos dañados o averiados{% endblock %}
+
+{% block content %}
+<section class="card card--skip-collapse">
+  <h3 class="panel__title">Nuevo registro</h3>
+
+  <form method="post" action="{{ url_for('empleado_averiado') }}" id="form-averiado">
+    <div class="inv-form__grid" style="grid-template-columns: 2fr 1fr 1fr 1fr 1.4fr; align-items: end;">
+
+      {# Producto #}
+      <div class="field combo" data-combo>
+        <span class="field__label">Producto</span>
+        <input type="hidden" name="producto" class="combo__value" required />
+        <input type="hidden" name="categoria" class="combo__cat" />
+        <div class="combo__control">
+          <svg class="combo__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" class="combo__input" placeholder="Buscar producto..." autocomplete="off" />
+          <button type="button" class="combo__clear" aria-label="Limpiar" hidden>&times;</button>
+        </div>
+        <ul class="combo__list" role="listbox" hidden>
+          {% for cat in categorias %}
+            {% for p in productos[cat] %}
+            <li class="combo__option" role="option"
+                data-value="{{ p }}"
+                data-cat="{{ cat }}"
+                data-display="{{ p | strip_unidad }}">{{ p | strip_unidad }}</li>
+            {% endfor %}
+          {% endfor %}
+        </ul>
+        <p class="combo__empty" hidden>Sin resultados.</p>
+      </div>
+
+      {# Cantidad #}
+      <label class="field">
+        <span class="field__label">Cantidad</span>
+        <input type="number" name="cantidad" min="0.01" step="0.01" value="0" required />
+      </label>
+
+      {# UME — incluye Tira #}
+      <label class="field">
+        <span class="field__label">UME</span>
+        <select name="ume">
+          <option value="Unidad">Unidad</option>
+          <option value="Caja">Caja</option>
+          <option value="Bulto">Bulto</option>
+          <option value="Tira">Tira</option>
+        </select>
+      </label>
+
+      {# Fecha #}
+      <label class="field">
+        <span class="field__label">Fecha</span>
+        <input type="date" name="fecha" value="{{ hoy }}" />
+      </label>
+
+      {# Boton #}
+      <div class="inv-form__action">
+        <button type="submit" class="btn btn--primary btn--block">Registrar</button>
+      </div>
+    </div>
+
+    {# Detalle opcional #}
+    <div style="margin-top:12px;">
+      <label class="field">
+        <span class="field__label">Detalle / motivo (opcional)</span>
+        <input type="text" name="detalle" placeholder="Ej: golpe durante traslado, congelación incorrecta..." style="width:100%;padding:9px 13px;border:1px solid var(--line);border-radius:10px;font:inherit;" />
+      </label>
+    </div>
+  </form>
+</section>
+
+{# Registros recientes #}
+{% if recientes %}
+<section class="card card--skip-collapse">
+  <h3 class="panel__title">Registros recientes <span class="badge badge--neutral">{{ recientes|length }}</span></h3>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Fecha</th><th>Producto</th><th>Categoría</th><th>Cantidad</th><th>Unidades</th><th>Detalle</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in recientes %}
+        <tr>
+          <td class="muted">{{ r.fecha }}</td>
+          <td><strong>{{ r.producto | strip_unidad }}</strong></td>
+          <td><span class="tag">{{ r.categoria }}</span></td>
+          <td>{{ '%g'|format(r.cantidad) }} {{ r.ume }}</td>
+          <td>
+            {% if r.desc_conversion %}
+              <small class="muted">{{ r.desc_conversion }}</small>
+            {% else %}
+              {{ '%g'|format(r.cantidad_unidades) }} Unid.
+            {% endif %}
+          </td>
+          <td class="muted">{{ r.detalle }}</td>
+          <td>
+            <form method="post" action="{{ url_for('averiado_eliminar', reg_id=r.id) }}"
+                  onsubmit="return confirm('¿Eliminar este registro?')">
+              <button class="btn btn--sm btn--danger">×</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<section class="card card--skip-collapse">
+  <div class="empty">
+    <p>No hay registros de averiados aún.</p>
+    <span class="muted">Usa el formulario de arriba para registrar productos dañados.</span>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{# El combobox está inicializado por main.js automáticamente #}
+{% endblock %}

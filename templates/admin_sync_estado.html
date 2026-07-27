@@ -1,0 +1,64 @@
+{% extends 'admin_base.html' %}
+{% block title %}Sincronización - {{ app_nombre }}{% endblock %}
+{% block heading %}Sincronización{% endblock %}
+{% block subheading %}Estado de sincronización de todas las tiendas{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel__head">
+    <h3>Estado por tienda</h3>
+    {% if total_pendientes > 0 %}
+    <span class="badge-soft badge-soft--danger">{{ total_pendientes }} ítem(s) pendientes en total</span>
+    {% else %}
+    <span class="badge-soft badge-soft--success">Todo sincronizado</span>
+    {% endif %}
+  </div>
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead>
+        <tr>
+          <th>Tienda</th>
+          <th>Estado</th>
+          <th>Último envío</th>
+          <th>Última recepción</th>
+          <th style="text-align:right;">Ítems pendientes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in filas %}
+        <tr>
+          <td><strong>{{ f.tienda }}</strong> <span class="muted" style="font-size:.76rem;">({{ f.tienda_id }})</span></td>
+          <td>
+            {% if f.activa %}
+            <span class="badge-soft badge-soft--success">Activa</span>
+            {% else %}
+            <span class="badge-soft badge-soft--muted">Inactiva</span>
+            {% endif %}
+          </td>
+          <td class="muted">{{ f.ultimo_envio or 'Nunca' }}</td>
+          <td class="muted">{{ f.ultima_recepcion or 'Nunca' }}</td>
+          <td class="num">
+            {% if f.pendientes > 0 %}
+            <span class="badge-soft badge-soft--danger">{{ f.pendientes }} pendiente(s)</span>
+            {% else %}
+            <span class="badge-soft badge-soft--muted">0</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">No hay tiendas registradas.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div style="display:flex;justify-content:flex-end;margin-top:18px;">
+    <form method="post" action="{{ url_for('admin_sincronizar_forzar') }}"
+          onsubmit="return confirm('¿Forzar la sincronización completa de todas las tiendas? Los ítems pendientes se marcarán como sincronizados.')">
+      <button type="submit" class="btn btn--primary" {{ 'disabled' if total_pendientes == 0 }}>
+        Forzar sincronización completa
+      </button>
+    </form>
+  </div>
+</section>
+{% endblock %}

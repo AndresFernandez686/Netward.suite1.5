@@ -1,0 +1,279 @@
+{% extends 'base.html' %}
+{% block title %}Inventario - {{ app_nombre }}{% endblock %}
+{% block heading %}Inventario{% endblock %}
+{% block subheading %}Carga de productos por categoria{% endblock %}
+
+{% block content %}
+<div class="toolbar card card--skip-collapse">
+  <label class="field field--inline">
+    <span class="field__label">Fecha de carga</span>
+    <input type="date" id="fechaCarga" value="{{ hoy }}" />
+  </label>
+  <label class="field field--inline">
+    <span class="field__label">Tipo de inventario</span>
+    <select id="tipoInventario">
+      {% for t in tipos_inventario %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+    </select>
+  </label>
+  <div class="toolbar__hint" id="tipoHint">
+    Inventario Diario: registra unidades y baldes por estado.
+  </div>
+</div>
+
+<div class="tabs" id="invTabs">
+  {% for cat in categorias %}
+    <button class="tab {{ 'is-active' if loop.first }}" data-tab="{{ cat }}">{{ cat }}</button>
+  {% endfor %}
+</div>
+
+{% for cat in categorias %}
+<section class="tab-panel card {{ 'is-active' if loop.first }}" data-panel="{{ cat }}">
+  <h3 class="panel__title">Producto de {{ cat }}</h3>
+  <form method="post" action="{{ url_for('carrito_agregar') }}" class="inv-form">
+    <input type="hidden" name="categoria" value="{{ cat }}" />
+    <input type="hidden" name="fecha" class="form-fecha" value="{{ hoy }}" />
+    <input type="hidden" name="tipo_inventario" class="form-tipo" value="Diario" />
+
+    <div class="inv-form__grid">
+      <div class="field combo" data-combo>
+        <span class="field__label">Producto</span>
+        <input type="hidden" name="producto" class="combo__value" required />
+        <div class="combo__control">
+          <svg class="combo__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" class="combo__input" placeholder="Buscar producto..." autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="list-{{ cat|replace(' ', '') }}" />
+          <button type="button" class="combo__clear" aria-label="Limpiar seleccion" hidden>&times;</button>
+        </div>
+        <ul class="combo__list" id="list-{{ cat|replace(' ', '') }}" role="listbox" hidden>
+          {% for p in productos[cat] %}
+          <li class="combo__option" role="option"
+              data-value="{{ p }}"
+              data-display="{{ p | strip_unidad }}">{{ p | strip_unidad }}</li>
+          {% endfor %}
+        </ul>
+        <p class="combo__empty" hidden>Sin resultados para tu busqueda.</p>
+      </div>
+
+      {% if cat == 'Por Kilos' %}
+        <label class="field kilos-quincenal" hidden>
+          <span class="field__label">Cantidad (kg)</span>
+          <input type="number" name="cantidad_kg" min="0" step="0.1" value="0" />
+        </label>
+        <label class="field kilos-normal">
+          <span class="field__label">Cantidad de baldes</span>
+          <input type="number" name="cantidad_baldes" min="0" step="1" value="0" />
+        </label>
+        <label class="field kilos-normal">
+          <span class="field__label">Estado</span>
+          <select name="estado_balde">
+            {% for e in estados_balde %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+          </select>
+        </label>
+      {% else %}
+        <label class="field">
+          <span class="field__label">Cantidad</span>
+          <input type="number" name="cantidad" min="0" step="1" value="0" />
+        </label>
+        <label class="field">
+          <span class="field__label">UME</span>
+          <select name="ume">
+            <option value="Unidad">Unidad</option>
+            <option value="Caja">Caja</option>
+            {% if cat == 'Extras' %}
+            <option value="Tira">Tira</option>
+            {% else %}
+            <option value="Bulto">Bulto</option>
+            {% endif %}
+          </select>
+        </label>
+      {% endif %}
+
+      <div class="inv-form__action">
+        <button type="submit" class="btn btn--primary btn--block">Agregar al carrito</button>
+      </div>
+    </div>
+  </form>
+</section>
+{% endfor %}
+
+<section class="cart card card--skip-collapse">
+  <div class="cart__head">
+    <h3>Productos cargados</h3>
+    {% if carrito %}<span class="badge badge--blue">{{ carrito|length }} producto(s)</span>{% endif %}
+  </div>
+
+  {% if carrito %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>Producto</th><th>Categoria</th><th>Entrada</th><th>Hora</th><th></th></tr>
+        </thead>
+        <tbody>
+          {# Calcular totales por producto para mostrar subtotal #}
+          {% set ns = namespace(prev_key='', subtotal=0) %}
+          {% for item in carrito %}
+            {% set key = item.categoria + '||' + item.producto %}
+            {% set cu = item.cantidad_unidades if item.cantidad_unidades is defined else item.cantidad %}
+
+            {# Fila de subtotal antes de cambiar de producto #}
+            {% if ns.prev_key and ns.prev_key != key %}
+              <tr style="background:#f0fdf4;font-weight:600;">
+                <td colspan="2" style="font-size:.82rem;color:var(--success);padding:6px 14px;">
+                  ∑ Total guardado en sistema
+                </td>
+                <td style="font-size:.82rem;color:var(--success);padding:6px 14px;">
+                  {{ '%g'|format(ns.subtotal) }} Unid.
+                </td>
+                <td colspan="2"></td>
+              </tr>
+              {% set ns.subtotal = 0 %}
+            {% endif %}
+
+            {% set ns.prev_key = key %}
+            {% set ns.subtotal = ns.subtotal + cu|float %}
+
+            <tr>
+              <td><strong>{% if item.ume == 'Unidad' %}{{ item.producto }}{% else %}{{ item.producto | strip_unidad }}{% endif %}</strong></td>
+              <td><span class="tag">{{ item.categoria }}</span></td>
+              <td>
+                {{ '%g'|format(item.cantidad) }} {{ item.ume }}
+                {% if item.get('desc_conversion') %}
+                  <br><small class="muted">→ {{ item.desc_conversion }}</small>
+                {% endif %}
+                {% if item.detalle %}<small class="muted">({{ item.detalle }})</small>{% endif %}
+              </td>
+              <td class="muted">{{ item.hora }}</td>
+              <td>
+                <form method="post" action="{{ url_for('carrito_eliminar', idx=loop.index0) }}">
+                  <button class="btn btn--icon btn--ghost" title="Eliminar">&times;</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+
+          {# Subtotal del último producto #}
+          {% if ns.prev_key %}
+          <tr style="background:#f0fdf4;font-weight:600;">
+            <td colspan="2" style="font-size:.82rem;color:var(--success);padding:6px 14px;">
+              ∑ Total guardado en sistema
+            </td>
+            <td style="font-size:.82rem;color:var(--success);padding:6px 14px;">
+              {{ '%g'|format(ns.subtotal) }} Unid.
+            </td>
+            <td colspan="2"></td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cart__actions action-group">
+      <form method="post" action="{{ url_for('carrito_guardar') }}">
+        <button class="btn btn--success">Guardar inventario</button>
+      </form>
+      <form method="post" action="{{ url_for('carrito_limpiar') }}">
+        <button class="btn btn--ghost">Limpiar carrito</button>
+      </form>
+    </div>
+  {% else %}
+    <div class="empty">
+      <p>No hay productos cargados.</p>
+      <span class="muted">Agrega productos usando las pestanas de arriba.</span>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Sincronizar fecha y tipo de inventario con cada formulario
+    }
+
+    input.addEventListener('focus', function () { filter(); });
+    input.addEventListener('input', function () {
+      hidden.value = '';
+      combo.classList.remove('has-value');
+      clear.hidden = input.value === '';
+      filter();
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (list.hidden) filter(); else highlight(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); highlight(-1); }
+      else if (e.key === 'Enter') {
+        var active = combo.querySelector('.combo__option.is-active');
+        if (active) { e.preventDefault(); select(active); }
+      } else if (e.key === 'Escape') { close(); }
+    });
+
+    options.forEach(function (o) {
+      o.addEventListener('mousedown', function (e) { e.preventDefault(); select(o); });
+    });
+
+    clear.addEventListener('click', function () {
+      hidden.value = '';
+      input.value = '';
+      clear.hidden = true;
+      combo.classList.remove('has-value');
+      options.forEach(o => o.hidden = false);
+      input.focus();
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!combo.contains(e.target)) close();
+    });
+  });
+
+  // Tabs
+  document.querySelectorAll('#invTabs .tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('#invTabs .tab').forEach(t => t.classList.remove('is-active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('is-active'));
+      tab.classList.add('is-active');
+      document.querySelector('[data-panel="' + tab.dataset.tab + '"]').classList.add('is-active');
+    });
+  });
+
+  // Sincronizar fecha y tipo de inventario con cada formulario
+  var fecha = document.getElementById('fechaCarga');
+  var tipo = document.getElementById('tipoInventario');
+  var hint = document.getElementById('tipoHint');
+  var hints = {
+    'Diario': 'Inventario Diario: registra unidades y baldes por estado.',
+    'Semanal': 'Inventario Semanal: usa estados descriptivos (Lleno, Medio lleno, etc.).',
+    'Quincenal': 'Inventario Quincenal: en Por Kilos registra la cantidad exacta en kilos.'
+  };
+
+  function sync() {
+    document.querySelectorAll('.form-fecha').forEach(i => i.value = fecha.value);
+    document.querySelectorAll('.form-tipo').forEach(i => i.value = tipo.value);
+    hint.textContent = hints[tipo.value];
+    var quincenal = tipo.value === 'Quincenal';
+    document.querySelectorAll('.kilos-quincenal').forEach(e => e.hidden = !quincenal);
+    document.querySelectorAll('.kilos-normal').forEach(e => e.hidden = quincenal);
+  }
+  fecha.addEventListener('change', sync);
+  tipo.addEventListener('change', sync);
+  sync();
+
+  // Normalizar campos de Por Kilos a 'cantidad' y 'ume' antes de enviar
+  document.querySelectorAll('.inv-form').forEach(function (form) {
+    form.addEventListener('submit', function () {
+      var quincenal = tipo.value === 'Quincenal';
+      var kg = form.querySelector('input[name="cantidad_kg"]');
+      var baldes = form.querySelector('input[name="cantidad_baldes"]');
+      var estado = form.querySelector('select[name="estado_balde"]');
+      if (kg && baldes) {
+        var hidCant = document.createElement('input');
+        hidCant.type = 'hidden'; hidCant.name = 'cantidad';
+        var hidUme = document.createElement('input');
+        hidUme.type = 'hidden'; hidUme.name = 'ume';
+        if (quincenal) {
+          hidCant.value = kg.value; hidUme.value = 'Kg';
+        } else {
+          hidCant.value = baldes.value; hidUme.value = estado.value;
+        }
+        form.appendChild(hidCant); form.appendChild(hidUme);
+      }
+    });
+  });
+</script>
+{% endblock %}

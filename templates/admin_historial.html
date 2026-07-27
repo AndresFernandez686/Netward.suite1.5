@@ -1,0 +1,96 @@
+{% extends 'admin_base.html' %}
+{% block title %}Historial - {{ app_nombre }}{% endblock %}
+{% block heading %}Historial de Cargas{% endblock %}
+{% block subheading %}Movimientos por empleado y fecha{% endblock %}
+
+{% block content %}
+<form method="get" class="filters card card--skip-collapse">
+  <label class="field field--inline">
+    <span class="field__label">Tienda</span>
+    <select name="tienda" onchange="this.form.submit()">
+      {% for t in tiendas %}<option value="{{ t.id }}" {{ 'selected' if t.id == tienda_id }}>{{ t.nombre }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field field--inline">
+    <span class="field__label">Empleado</span>
+    <select name="empleado">
+      <option value="Todos" {{ 'selected' if empleado == 'Todos' }}>Todos</option>
+      {% for e in empleados %}<option value="{{ e }}" {{ 'selected' if e == empleado }}>{{ e }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field field--inline">
+    <span class="field__label">Tipo</span>
+    <select name="tipo">
+      <option value="Todos" {{ 'selected' if tipo == 'Todos' }}>Todos</option>
+      {% for t in tipos %}<option value="{{ t }}" {{ 'selected' if t == tipo }}>{{ t }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field field--inline">
+    <span class="field__label">Desde</span>
+    <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" />
+  </label>
+  <label class="field field--inline">
+    <span class="field__label">Hasta</span>
+    <input type="date" name="fecha_fin" value="{{ fecha_fin }}" />
+  </label>
+  <div class="filters__actions action-group">
+    <button class="btn btn--primary">Filtrar</button>
+    <a class="btn btn--ghost" href="{{ url_for('export_historial', tienda=tienda_id) }}">Exportar Excel</a>
+  </div>
+</form>
+
+<section class="card card--skip-collapse">
+  {% if snapshots %}
+  <div class="history-grid">
+    {% for snap in snapshots %}
+    <a class="history-card {{ 'is-selected' if selected_snapshot and selected_snapshot.id == snap.id }}" href="{{ url_for('admin_historial', tienda=tienda_id, empleado=empleado, tipo=tipo, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, fecha=snap.fecha) }}">
+      <div class="history-card__top">
+        <strong>{{ snap.fecha }}</strong>
+        <span class="tag">{{ snap.tipo_inventario }}</span>
+      </div>
+      <div class="history-card__meta">
+        <span>Empleado: {{ snap.usuario }}</span>
+      </div>
+      <div class="history-card__meta">
+        <span>{{ snap.total_items }} producto(s)</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+    <div class="empty"><p>No hay registros con ese filtro.</p></div>
+  {% endif %}
+</section>
+
+{% if selected_snapshot %}
+<section class="card card--skip-collapse">
+  <div class="card__header">
+    <h3>Detalle del inventario de {{ selected_snapshot.fecha }} — {{ selected_snapshot.usuario }}</h3>
+    <span class="badge badge--green">{{ registros|length }} registros</span>
+  </div>
+
+  {% if registros %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Producto</th><th>Categoria</th><th>Cantidad</th><th>Modo</th><th>Detalle</th></tr>
+      </thead>
+      <tbody>
+        {% for r in registros %}
+        <tr>
+          <td><strong>{{ r.producto }}</strong></td>
+          <td><span class="tag">{{ r.categoria }}</span></td>
+          <td>{{ '%g'|format(r.cantidad) }}</td>
+          <td>{{ r.modo }}</td>
+          <td>{{ r.detalle or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty"><p>No hay detalle para esta fecha.</p></div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

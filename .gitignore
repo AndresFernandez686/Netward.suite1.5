@@ -1,0 +1,61 @@
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Entornos virtuales
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Datos sensibles (mantener archivos JSON de ejemplo)
+# Descomenta si quieres excluir datos reales
+# inventario.json
+# historial_inventario.json
+
+# Logs
+*.log
+
+# Archivos temporales
+*.tmp
+*.temp
+diagnostico.py
+activar_modular.py
+
+# Base de datos SQLite (Flask)
+instance/
+*.db
+*.sqlite3

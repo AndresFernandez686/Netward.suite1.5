@@ -1,0 +1,97 @@
+{% extends 'admin_base.html' %}
+{% block title %}Alertas - {{ app_nombre }}{% endblock %}
+{% block heading %}Alertas{% endblock %}
+{% block subheading %}Centro de alertas de inventario, vencimientos y averiados{% endblock %}
+
+{% block content %}
+<section class="card" {{ 'data-collapsed=true' if not stock_bajo }}>
+  <h3 class="panel__title">
+    Stock bajo
+    <span class="badge-soft {{ 'badge-soft--danger' if stock_bajo else 'badge-soft--muted' }}" style="margin-left:8px;">{{ stock_bajo|length }}</span>
+  </h3>
+  {% if stock_bajo %}
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead><tr><th>Producto</th><th>Categoría</th><th>Tienda</th><th style="text-align:right;">Stock actual</th><th>Estado</th></tr></thead>
+      <tbody>
+        {% for s in stock_bajo %}
+        <tr>
+          <td><strong>{{ s.producto }}</strong></td>
+          <td class="muted">{{ s.categoria }}</td>
+          <td class="muted">{{ s.tienda }}</td>
+          <td class="num">{{ '%g'|format(s.cantidad) }}</td>
+          <td><span class="badge-soft badge-soft--danger">{{ s.etiqueta }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-mini">No hay productos con stock bajo.</div>
+  {% endif %}
+</section>
+
+<section class="card" {{ 'data-collapsed=true' if not por_vencer }}>
+  <h3 class="panel__title">
+    Próximos a vencer (≤ 15 días)
+    <span class="badge-soft {{ 'badge-soft--warning' if por_vencer else 'badge-soft--muted' }}" style="margin-left:8px;">{{ por_vencer|length }}</span>
+  </h3>
+  {% if por_vencer %}
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead><tr><th>Producto</th><th>Tienda</th><th style="text-align:right;">Cantidad</th><th>Fecha venc.</th><th style="text-align:right;">Vence</th></tr></thead>
+      <tbody>
+        {% for p in por_vencer %}
+        <tr>
+          <td><strong>{{ p.producto }}</strong></td>
+          <td class="muted">{{ p.tienda }}</td>
+          <td class="num">{{ '%g'|format(p.cantidad) }} {{ p.ume }}</td>
+          <td class="muted">{{ p.fecha_vencimiento }}</td>
+          <td class="num">
+            <span class="due-{{ p.nivel }}">
+              {% if p.dias < 0 %}Vencido hace {{ -p.dias }} día{{ 's' if p.dias != -1 }}
+              {% elif p.dias == 0 %}Vence hoy
+              {% else %}Vence en {{ p.dias }} día{{ 's' if p.dias != 1 }}{% endif %}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-mini">No hay productos próximos a vencer.</div>
+  {% endif %}
+</section>
+
+<section class="card" {{ 'data-collapsed=true' if not averiados }}>
+  <h3 class="panel__title">
+    Averiados sin revisar
+    <span class="badge-soft {{ 'badge-soft--danger' if averiados else 'badge-soft--muted' }}" style="margin-left:8px;">{{ averiados|length }}</span>
+  </h3>
+  {% if averiados %}
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead><tr><th>Producto</th><th>Categoría</th><th>Tienda</th><th style="text-align:right;">Cantidad</th><th>Fecha</th><th>Detalle</th></tr></thead>
+      <tbody>
+        {% for a in averiados %}
+        <tr>
+          <td><strong>{{ a.producto }}</strong></td>
+          <td class="muted">{{ a.categoria }}</td>
+          <td class="muted">{{ a.tienda }}</td>
+          <td class="num">{{ '%g'|format(a.cantidad) }} {{ a.ume }}</td>
+          <td class="muted">{{ a.fecha }}</td>
+          <td class="muted">{{ a.detalle or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div style="margin-top:14px;">
+    <a class="btn btn--ghost" href="{{ url_for('admin_averiados') }}">Ir a Averiados para marcar como revisados</a>
+  </div>
+  {% else %}
+  <div class="empty-mini">No hay registros de averiados pendientes de revisión.</div>
+  {% endif %}
+</section>
+{% endblock %}

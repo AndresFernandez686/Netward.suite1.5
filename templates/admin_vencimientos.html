@@ -1,0 +1,126 @@
+{% extends 'admin_base.html' %}
+{% block title %}Stock Vencimiento - {{ app_nombre }}{% endblock %}
+{% block heading %}Stock próximo a vencer{% endblock %}
+{% block subheading %}Registros reportados por empleados{% endblock %}
+
+{% block content %}
+<section class="card card--skip-collapse">
+  <h3 class="panel__title">Filtros</h3>
+  <form method="get" class="filters">
+    <label class="field">
+      <span class="field__label">Tienda</span>
+      <select name="tienda">
+        <option value="Todas" {{ 'selected' if tienda_f == 'Todas' }}>Todas las tiendas</option>
+        {% for t in tiendas %}
+        <option value="{{ t.id }}" {{ 'selected' if tienda_f == t.id }}>{{ t.nombre }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field">
+      <span class="field__label">Reg. desde</span>
+      <input type="date" name="desde" value="{{ desde }}" />
+    </label>
+    <label class="field">
+      <span class="field__label">Reg. hasta</span>
+      <input type="date" name="hasta" value="{{ hasta }}" />
+    </label>
+    <div class="filters__actions">
+      <button type="submit" class="btn btn--primary">Filtrar</button>
+    </div>
+  </form>
+</section>
+
+<section class="card card--skip-collapse">
+  <h3 class="panel__title">
+    Registros de vencimiento
+    <span class="badge badge--neutral">{{ registros|length }}</span>
+  </h3>
+
+  {% if registros %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Reg.</th>
+          <th>Tienda</th>
+          <th>Empleado</th>
+          <th>Producto</th>
+          <th>Categoría</th>
+          <th>Cantidad</th>
+          <th>Unidades</th>
+          <th>Vence</th>
+          <th>Días</th>
+          <th>Observ.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in registros %}
+        <tr>
+          <td class="muted">{{ r.fecha }}<br><small>{{ r.hora }}</small></td>
+          <td><span class="badge badge--blue">{{ r.tienda_id }}</span></td>
+          <td class="muted">{{ r.usuario }}</td>
+          <td><strong>{{ r.producto | strip_unidad }}</strong></td>
+          <td><span class="tag">{{ r.categoria }}</span></td>
+          <td>{{ '%g'|format(r.cantidad) }} {{ r.ume }}</td>
+          <td>
+            {% if r.desc_conversion %}
+              <small class="muted">{{ r.desc_conversion }}</small>
+            {% else %}
+              {{ '%g'|format(r.cantidad_unidades) }} Unid.
+            {% endif %}
+          </td>
+          <td><strong style="color:var(--danger);">{{ r.fecha_vencimiento }}</strong></td>
+          <td><span class="dias-restantes muted" data-fecha="{{ r.fecha_vencimiento }}">—</span></td>
+          <td class="muted">{{ r.detalle or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Productos con vencimiento más próximo #}
+  {% set proximos = registros | sort(attribute='fecha_vencimiento') %}
+  {% if proximos %}
+  <div style="margin-top:20px;border-top:1px solid var(--line);padding-top:16px;">
+    <h4 style="font-size:.9rem;margin:0 0 12px;color:var(--ink-2);">⚠ Más urgentes (próximos a vencer)</h4>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>Producto</th><th>Tienda</th><th>Cantidad</th><th>Vence</th></tr>
+        </thead>
+        <tbody>
+          {% for r in proximos[:10] %}
+          <tr>
+            <td><strong>{{ r.producto | strip_unidad }}</strong></td>
+            <td><span class="badge badge--blue">{{ r.tienda_id }}</span></td>
+            <td>{{ '%g'|format(r.cantidad_unidades) }} Unid.</td>
+            <td><strong style="color:var(--danger);">{{ r.fecha_vencimiento }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty">
+    <p>No hay registros de vencimiento en este período.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.dias-restantes').forEach(function(el) {
+  var hoy   = new Date(); hoy.setHours(0,0,0,0);
+  var vence = new Date(el.dataset.fecha + 'T00:00:00');
+  var dias  = Math.round((vence - hoy) / 86400000);
+  if (dias < 0)       { el.textContent = 'Vencido';  el.style.color = 'var(--danger)'; el.style.fontWeight = '700'; }
+  else if (dias === 0){ el.textContent = 'Hoy';      el.style.color = 'var(--danger)'; el.style.fontWeight = '700'; }
+  else if (dias <= 3) { el.textContent = dias + 'd'; el.style.color = 'var(--warning)'; el.style.fontWeight = '600'; }
+  else                { el.textContent = dias + 'd'; }
+});
+</script>
+{% endblock %}
