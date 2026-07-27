@@ -33,6 +33,7 @@ load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=True)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "netward-secret-key-beta-2025")
+app.config["ASSET_VERSION"] = os.getenv("ASSET_VERSION", datetime.utcnow().strftime("%Y%m%d%H%M%S"))
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL_EMPLEADO", "sqlite:///netward_empleado.db"))
 app.config["SQLALCHEMY_BINDS"] = {
     "empleado": os.getenv("DATABASE_URL_EMPLEADO", "sqlite:///netward_empleado.db"),
@@ -99,6 +100,25 @@ def select_database_for_request():
 def get_tienda_filtro():
     """Tienda activa seleccionada por el admin en el topbar ('ALL' = todas)."""
     return session.get("admin_tienda_id", "ALL")
+
+
+CONFIG_PRODUCT_TABS = {"tab-impulsivo", "tab-extras", "tab-kilos"}
+
+
+def _safe_config_tab(tab_value):
+    """Valida la pestaña activa de la sección de productos en configuración."""
+    return tab_value if tab_value in CONFIG_PRODUCT_TABS else "tab-impulsivo"
+
+
+def _set_admin_config_notice(section, message, category="info", tab=None):
+    """Guarda un aviso local para /admin/configuracion sin usar flash global."""
+    session["admin_config_notice"] = {
+        "section": section,
+        "message": message,
+        "category": category,
+        "tab": _safe_config_tab(tab) if tab else None,
+    }
+    session.modified = True
 
 
 # --------------------------------------------------------------------------- #
@@ -169,6 +189,7 @@ def inject_globals():
     ctx = {
         "app_nombre": "Netward",
         "anio": date.today().year,
+        "asset_v": app.config.get("ASSET_VERSION", "1"),
         "sesion_usuario": session.get("usuario"),
         "sesion_rol": session.get("rol"),
         "sesion_tienda": session.get("tienda_nombre"),
@@ -287,6 +308,7 @@ def empleado_inventario():
         estados_balde=ESTADOS_BALDE,
         carrito=get_carrito(),
         hoy=date.today().isoformat(),
+        hide_global_flash=True,
     )
 
 
@@ -1236,6 +1258,12 @@ def admin_historial():
 def admin_configuracion():
     tiendas = Tienda.query.all()
     default = next((t.id for t in tiendas if t.es_default), None)
+    local_notice = session.pop("admin_config_notice", None)
+    active_tab = _safe_config_tab(
+        request.args.get("tab")
+        or ((local_notice or {}).get("tab"))
+        or "tab-impulsivo"
+    )
     productos_impulsivo = Producto.query.filter_by(categoria="Impulsivo").order_by(Producto.nombre).all()
     productos_extras = Producto.query.filter_by(categoria="Extras").order_by(Producto.nombre).all()
     productos_kilos = Producto.query.filter_by(categoria="Por Kilos").order_by(Producto.nombre).all()
@@ -1245,7 +1273,10 @@ def admin_configuracion():
                            productos_impulsivo=productos_impulsivo,
                            productos_extras=productos_extras,
                            productos_kilos=productos_kilos,
-                           precios_map=precios_map)
+                           precios_map=precios_map,
+                           active_tab=active_tab,
+                           local_notice=local_notice,
+                           hide_global_flash=True)
 
 
 @app.route("/admin/configuracion/precios", methods=["POST"])
@@ -1287,24 +1318,33 @@ def producto_precio_guardar():
 def producto_crear():
     nombre = (request.form.get("nombre") or "").strip()
     categoria = (request.form.get("categoria") or "").strip()
+    active_tab = _safe_config_tab(request.form.get("active_tab"))
+    if "active_tab" not in request.form and categoria in ("Impulsivo", "Extras", "Por Kilos"):
+        active_tab = {
+            "Impulsivo": "tab-impulsivo",
+            "Extras": "tab-extras",
+            "Por Kilos": "tab-kilos",
+        }[categoria]
+
     if not nombre:
-        flash("El nombre del producto es obligatorio.", "error")
-        return redirect(url_for("admin_configuracion") + "#sec-productos")
+        _set_admin_config_notice("productos", "El nombre del producto es obligatorio.", "error", active_tab)
+        return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
     if categoria not in ("Impulsivo", "Por Kilos", "Extras"):
-        flash("Categoria no valida.", "error")
-        return redirect(url_for("admin_configuracion") + "#sec-productos")
+        _set_admin_config_notice("productos", "Categoria no valida.", "error", active_tab)
+        return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
     if Producto.query.filter_by(nombre=nombre, categoria=categoria).first():
-        flash(f"Ya existe '{nombre}' en {categoria}.", "warning")
-        return redirect(url_for("admin_configuracion") + "#sec-productos")
+        _set_admin_config_notice("productos", f"Ya existe '{nombre}' en {categoria}.", "warning", active_tab)
+        return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
     db.session.add(Producto(nombre=nombre, categoria=categoria))
     db.session.commit()
-    flash(f"Producto '{nombre}' agregado a {categoria}.", "success")
-    return redirect(url_for("admin_configuracion") + "#sec-productos")
+    _set_admin_config_notice("productos", f"Producto '{nombre}' agregado a {categoria}.", "success", active_tab)
+    return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
 
 
 @app.route("/admin/producto/<int:producto_id>/eliminar", methods=["POST"])
 @login_required(rol="administrador")
 def producto_eliminar(producto_id):
+    active_tab = _safe_config_tab(request.form.get("active_tab"))
     producto = db.session.get(Producto, producto_id)
     if producto is None:
         abort(404)
@@ -1315,8 +1355,8 @@ def producto_eliminar(producto_id):
     nombre = producto.nombre
     db.session.delete(producto)
     db.session.commit()
-    flash(f"Producto '{nombre}' eliminado.", "info")
-    return redirect(url_for("admin_configuracion") + "#sec-productos")
+    _set_admin_config_notice("productos", f"Producto '{nombre}' eliminado.", "info", active_tab)
+    return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
 
 
 @app.route("/admin/tienda/crear", methods=["POST"])
@@ -1325,15 +1365,15 @@ def tienda_crear():
     nombre = (request.form.get("nombre") or "").strip()
     direccion = (request.form.get("direccion") or "").strip() or "Direccion no especificada"
     if not nombre:
-        flash("El nombre de la tienda es obligatorio.", "error")
-        return redirect(url_for("admin_configuracion"))
+        _set_admin_config_notice("tiendas", "El nombre de la tienda es obligatorio.", "error")
+        return redirect(url_for("admin_configuracion") + "#sec-tiendas")
 
     ids = [int(t.id[1:]) for t in Tienda.query.all() if t.id.startswith("T") and t.id[1:].isdigit()]
     nuevo_id = f"T{(max(ids) + 1) if ids else 1:03d}"
     db.session.add(Tienda(id=nuevo_id, nombre=nombre, direccion=direccion, activa=True))
     db.session.commit()
-    flash(f"Tienda creada con ID {nuevo_id}.", "success")
-    return redirect(url_for("admin_configuracion"))
+    _set_admin_config_notice("tiendas", f"Tienda creada con ID {nuevo_id}.", "success")
+    return redirect(url_for("admin_configuracion") + "#sec-tiendas")
 
 
 @app.route("/admin/tienda/<tienda_id>/toggle", methods=["POST"])
@@ -1342,8 +1382,8 @@ def tienda_toggle(tienda_id):
     tienda = Tienda.query.get_or_404(tienda_id)
     tienda.activa = not tienda.activa
     db.session.commit()
-    flash(f"Tienda {tienda.nombre} {'activada' if tienda.activa else 'desactivada'}.", "info")
-    return redirect(url_for("admin_configuracion"))
+    _set_admin_config_notice("tiendas", f"Tienda {tienda.nombre} {'activada' if tienda.activa else 'desactivada'}.", "info")
+    return redirect(url_for("admin_configuracion") + "#sec-tiendas")
 
 
 @app.route("/admin/tienda/<tienda_id>/default", methods=["POST"])
@@ -1352,8 +1392,8 @@ def tienda_default(tienda_id):
     for t in Tienda.query.all():
         t.es_default = (t.id == tienda_id)
     db.session.commit()
-    flash("Tienda predeterminada actualizada.", "success")
-    return redirect(url_for("admin_configuracion"))
+    _set_admin_config_notice("tiendas", "Tienda predeterminada actualizada.", "success")
+    return redirect(url_for("admin_configuracion") + "#sec-tiendas")
 
 
 # --------------------------------------------------------------------------- #

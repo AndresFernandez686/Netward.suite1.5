@@ -20,9 +20,19 @@
   </div>
 </div>
 
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-stack">
+      {% for category, message in messages %}
+        <div class="flash flash--{{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
 <div class="tabs" id="invTabs">
   {% for cat in categorias %}
-    <button class="tab {{ 'is-active' if loop.first }}" data-tab="{{ cat }}">{{ cat }}</button>
+    <button type="button" class="tab {{ 'is-active' if loop.first }}" data-tab="{{ cat }}">{{ cat }}</button>
   {% endfor %}
 </div>
 
@@ -185,95 +195,81 @@
 
 {% block scripts %}
 <script>
-  // Sincronizar fecha y tipo de inventario con cada formulario
+  (function () {
+    // Tabs de categorias
+    document.querySelectorAll('#invTabs .tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        document.querySelectorAll('#invTabs .tab').forEach(function (t) { t.classList.remove('is-active'); });
+        document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('is-active'); });
+        tab.classList.add('is-active');
+        var panel = document.querySelector('[data-panel="' + tab.dataset.tab + '"]');
+        if (panel) {
+          panel.classList.add('is-active');
+        }
+      });
+    });
+
+    // Sincronizar fecha y tipo de inventario con cada formulario
+    var fecha = document.getElementById('fechaCarga');
+    var tipo = document.getElementById('tipoInventario');
+    var hint = document.getElementById('tipoHint');
+    var hints = {
+      'Diario': 'Inventario Diario: registra unidades y baldes por estado.',
+      'Semanal': 'Inventario Semanal: usa estados descriptivos (Lleno, Medio lleno, etc.).',
+      'Quincenal': 'Inventario Quincenal: en Por Kilos registra la cantidad exacta en kilos.'
+    };
+
+    function sync() {
+      document.querySelectorAll('.form-fecha').forEach(function (i) { i.value = fecha.value; });
+      document.querySelectorAll('.form-tipo').forEach(function (i) { i.value = tipo.value; });
+      hint.textContent = hints[tipo.value] || '';
+      var quincenal = tipo.value === 'Quincenal';
+      document.querySelectorAll('.kilos-quincenal').forEach(function (e) { e.hidden = !quincenal; });
+      document.querySelectorAll('.kilos-normal').forEach(function (e) { e.hidden = quincenal; });
     }
 
-    input.addEventListener('focus', function () { filter(); });
-    input.addEventListener('input', function () {
-      hidden.value = '';
-      combo.classList.remove('has-value');
-      clear.hidden = input.value === '';
-      filter();
-    });
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); if (list.hidden) filter(); else highlight(1); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); highlight(-1); }
-      else if (e.key === 'Enter') {
-        var active = combo.querySelector('.combo__option.is-active');
-        if (active) { e.preventDefault(); select(active); }
-      } else if (e.key === 'Escape') { close(); }
-    });
+    if (fecha && tipo) {
+      fecha.addEventListener('change', sync);
+      tipo.addEventListener('change', sync);
+      sync();
+    }
 
-    options.forEach(function (o) {
-      o.addEventListener('mousedown', function (e) { e.preventDefault(); select(o); });
-    });
+    // Normalizar campos de Por Kilos a 'cantidad' y 'ume' antes de enviar
+    document.querySelectorAll('.inv-form').forEach(function (form) {
+      form.addEventListener('submit', function () {
+        var quincenal = tipo && tipo.value === 'Quincenal';
+        var kg = form.querySelector('input[name="cantidad_kg"]');
+        var baldes = form.querySelector('input[name="cantidad_baldes"]');
+        var estado = form.querySelector('select[name="estado_balde"]');
+        if (kg && baldes) {
+          var prevCant = form.querySelector('input[name="cantidad"][data-generated="true"]');
+          var prevUme = form.querySelector('input[name="ume"][data-generated="true"]');
+          if (prevCant) prevCant.remove();
+          if (prevUme) prevUme.remove();
 
-    clear.addEventListener('click', function () {
-      hidden.value = '';
-      input.value = '';
-      clear.hidden = true;
-      combo.classList.remove('has-value');
-      options.forEach(o => o.hidden = false);
-      input.focus();
-    });
+          var hidCant = document.createElement('input');
+          hidCant.type = 'hidden';
+          hidCant.name = 'cantidad';
+          hidCant.dataset.generated = 'true';
 
-    document.addEventListener('click', function (e) {
-      if (!combo.contains(e.target)) close();
-    });
-  });
+          var hidUme = document.createElement('input');
+          hidUme.type = 'hidden';
+          hidUme.name = 'ume';
+          hidUme.dataset.generated = 'true';
 
-  // Tabs
-  document.querySelectorAll('#invTabs .tab').forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      document.querySelectorAll('#invTabs .tab').forEach(t => t.classList.remove('is-active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('is-active'));
-      tab.classList.add('is-active');
-      document.querySelector('[data-panel="' + tab.dataset.tab + '"]').classList.add('is-active');
-    });
-  });
+          if (quincenal) {
+            hidCant.value = kg.value;
+            hidUme.value = 'Kg';
+          } else {
+            hidCant.value = baldes.value;
+            hidUme.value = estado ? estado.value : 'Unidad';
+          }
 
-  // Sincronizar fecha y tipo de inventario con cada formulario
-  var fecha = document.getElementById('fechaCarga');
-  var tipo = document.getElementById('tipoInventario');
-  var hint = document.getElementById('tipoHint');
-  var hints = {
-    'Diario': 'Inventario Diario: registra unidades y baldes por estado.',
-    'Semanal': 'Inventario Semanal: usa estados descriptivos (Lleno, Medio lleno, etc.).',
-    'Quincenal': 'Inventario Quincenal: en Por Kilos registra la cantidad exacta en kilos.'
-  };
-
-  function sync() {
-    document.querySelectorAll('.form-fecha').forEach(i => i.value = fecha.value);
-    document.querySelectorAll('.form-tipo').forEach(i => i.value = tipo.value);
-    hint.textContent = hints[tipo.value];
-    var quincenal = tipo.value === 'Quincenal';
-    document.querySelectorAll('.kilos-quincenal').forEach(e => e.hidden = !quincenal);
-    document.querySelectorAll('.kilos-normal').forEach(e => e.hidden = quincenal);
-  }
-  fecha.addEventListener('change', sync);
-  tipo.addEventListener('change', sync);
-  sync();
-
-  // Normalizar campos de Por Kilos a 'cantidad' y 'ume' antes de enviar
-  document.querySelectorAll('.inv-form').forEach(function (form) {
-    form.addEventListener('submit', function () {
-      var quincenal = tipo.value === 'Quincenal';
-      var kg = form.querySelector('input[name="cantidad_kg"]');
-      var baldes = form.querySelector('input[name="cantidad_baldes"]');
-      var estado = form.querySelector('select[name="estado_balde"]');
-      if (kg && baldes) {
-        var hidCant = document.createElement('input');
-        hidCant.type = 'hidden'; hidCant.name = 'cantidad';
-        var hidUme = document.createElement('input');
-        hidUme.type = 'hidden'; hidUme.name = 'ume';
-        if (quincenal) {
-          hidCant.value = kg.value; hidUme.value = 'Kg';
-        } else {
-          hidCant.value = baldes.value; hidUme.value = estado.value;
+          form.appendChild(hidCant);
+          form.appendChild(hidUme);
         }
-        form.appendChild(hidCant); form.appendChild(hidUme);
-      }
+      });
     });
-  });
+  })();
 </script>
 {% endblock %}

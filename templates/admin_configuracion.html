@@ -9,13 +9,20 @@
 <div hidden>
 {% for p in productos_impulsivo + productos_extras + productos_kilos %}
 <form id="delf-{{ p.id }}" method="post"
-      action="{{ url_for('producto_eliminar', producto_id=p.id) }}"></form>
+  action="{{ url_for('producto_eliminar', producto_id=p.id) }}">
+  <input type="hidden" name="active_tab" value="{{ active_tab }}" class="js-active-tab-value" />
+</form>
 {% endfor %}
 </div>
 
 {# ── Seccion: Catalogo de productos ── #}
 <section class="card card--skip-collapse" id="sec-productos">
   <h3 class="panel__title">Catalogo de productos</h3>
+  {% if local_notice and local_notice.section == 'productos' %}
+  <div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">
+    {{ local_notice.message }}
+  </div>
+  {% endif %}
   <p class="muted" style="font-size:.88rem;margin-bottom:12px;">
     Administra el catalogo: agrega o elimina productos.
     Los precios se configuran en la seccion <a href="{{ url_for('admin_precios') }}">Precios</a>.
@@ -67,13 +74,14 @@
   <div style="border-top:1px solid var(--line);margin-top:20px;padding-top:18px;">
     <h4 style="margin:0 0 12px;font-size:.95rem;color:var(--ink-2);">Agregar producto</h4>
     <form method="post" action="{{ url_for('producto_crear') }}" class="form-row">
+      <input type="hidden" id="nuevo-producto-active-tab" name="active_tab" value="{{ active_tab }}" class="js-active-tab-value" />
       <label class="field field--grow">
         <span class="field__label">Nombre *</span>
         <input type="text" name="nombre" placeholder="Ej: Tentacion Fresa" required />
       </label>
       <label class="field">
         <span class="field__label">Categoria *</span>
-        <select name="categoria" required>
+        <select id="nuevo-producto-categoria" name="categoria" required>
           <option value="Impulsivo">Impulsivo</option>
           <option value="Por Kilos">Por Kilos</option>
           <option value="Extras">Extras</option>
@@ -89,6 +97,11 @@
 {# ── Seccion: Tiendas ── #}
 <section class="card card--skip-collapse" id="sec-tiendas">
   <h3 class="panel__title">Tiendas registradas</h3>
+  {% if local_notice and local_notice.section == 'tiendas' %}
+  <div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">
+    {{ local_notice.message }}
+  </div>
+  {% endif %}
   <div class="table-wrap">
     <table class="table">
       <thead>
@@ -147,14 +160,60 @@
 
 {% block scripts %}
 <script>
-  // ── Tabs ──
-  document.querySelectorAll('#precio-tabs .tab').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('#precio-tabs .tab').forEach(function(t) { t.classList.remove('is-active'); });
-      document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('is-active'); });
-      btn.classList.add('is-active');
-      document.getElementById(btn.dataset.tab).classList.add('is-active');
+  (function () {
+    var tabsWrap = document.getElementById('precio-tabs');
+    if (!tabsWrap) return;
+
+    var activeTab = '{{ active_tab|default("tab-impulsivo") }}';
+    var validTabs = ['tab-impulsivo', 'tab-extras', 'tab-kilos'];
+
+    function syncHiddenActiveTab() {
+      document.querySelectorAll('input.js-active-tab-value').forEach(function (input) {
+        input.value = activeTab;
+      });
+    }
+
+    function setActiveTab(nextTab) {
+      if (validTabs.indexOf(nextTab) === -1) {
+        nextTab = 'tab-impulsivo';
+      }
+
+      document.querySelectorAll('#precio-tabs .tab').forEach(function (btn) {
+        var isCurrent = btn.dataset.tab === nextTab;
+        btn.classList.toggle('is-active', isCurrent);
+        btn.setAttribute('aria-selected', isCurrent ? 'true' : 'false');
+      });
+
+      document.querySelectorAll('.tab-panel').forEach(function (panel) {
+        panel.classList.toggle('is-active', panel.id === nextTab);
+      });
+
+      activeTab = nextTab;
+      syncHiddenActiveTab();
+    }
+
+    tabsWrap.addEventListener('click', function (event) {
+      var btn = event.target.closest('.tab');
+      if (!btn || !tabsWrap.contains(btn)) {
+        return;
+      }
+      setActiveTab(btn.dataset.tab);
     });
-  });
+
+    var categoriaSelect = document.getElementById('nuevo-producto-categoria');
+    if (categoriaSelect) {
+      categoriaSelect.addEventListener('change', function () {
+        var map = {
+          'Impulsivo': 'tab-impulsivo',
+          'Extras': 'tab-extras',
+          'Por Kilos': 'tab-kilos'
+        };
+        activeTab = map[categoriaSelect.value] || activeTab;
+        syncHiddenActiveTab();
+      });
+    }
+
+    setActiveTab(activeTab);
+  })();
 </script>
 {% endblock %}
