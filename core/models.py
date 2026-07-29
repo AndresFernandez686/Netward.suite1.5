@@ -59,11 +59,12 @@ class Tienda(BaseModel):
 
 
 class Usuario(BaseModel):
-    """Usuario del sistema. En MODO BETA cualquier contrasena es valida."""
+    """Usuario del sistema con autenticacion por contrasena hasheada."""
     __tablename__ = "usuarios"
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(256), nullable=True)  # NULL = sin contrasena (legacy beta)
     cliente_id = db.Column(db.String(10), db.ForeignKey("clientes.id"), nullable=False, default="C001", index=True)
     rol = db.Column(db.String(20), nullable=False)           # empleado | administrador
     tienda_id = db.Column(db.String(10), nullable=True)      # ALL para administradores

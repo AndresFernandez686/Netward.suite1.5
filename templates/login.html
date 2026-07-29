@@ -20,7 +20,7 @@
 
     <div class="auth__note">
       <strong>Modo Beta</strong>
-      <span>Cualquier contrasena es valida para pruebas.</span>
+      <span>Admins: <code>admin123</code> &nbsp;|&nbsp; Empleados: <code>emp123</code></span>
     </div>
   </div>
 
@@ -58,8 +58,9 @@
         <span class="auth__users-title">Usuarios disponibles</span>
         <div class="chips">
           {% for u in usuarios %}
-            <button type="button" class="chip" data-user="{{ u.username }}">
+            <button type="button" class="chip" data-user="{{ u.username }}" data-pwd="{{ 'admin123' if u.rol == 'administrador' else 'emp123' }}">
               {{ u.username }}<small>{{ 'Admin' if u.rol == 'administrador' else 'Empleado' }}</small>
+              <span class="chip__pwd">{{ 'admin123' if u.rol == 'administrador' else 'emp123' }}</span>
             </button>
           {% endfor %}
         </div>
@@ -72,6 +73,7 @@
   document.querySelectorAll('.chip').forEach(function (c) {
     c.addEventListener('click', function () {
       document.querySelector('input[name="usuario"]').value = c.dataset.user;
+      document.querySelector('input[name="contrasena"]').value = c.dataset.pwd;
       document.querySelector('input[name="contrasena"]').focus();
     });
   });

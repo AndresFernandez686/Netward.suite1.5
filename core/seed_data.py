@@ -57,14 +57,14 @@ TIENDAS_DEFAULT = [
     {"id": "T002", "cliente_id": "C001", "nombre": "Mcal Lopez", "es_default": False},
 ]
 
-# Usuarios (MODO BETA: cualquier contrasena es valida)
+# Usuarios con contrasenas (modo beta: contrasenas simples y visibles en pantalla)
 USUARIOS_DEFAULT = [
-    {"username": "empleado1", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T001"},
-    {"username": "empleado2", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T002"},
-    {"username": "empleado3", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T001"},
-    {"username": "admin1", "cliente_id": "C001", "rol": "administrador", "tienda_id": "ALL"},
-    {"username": "admin", "cliente_id": "C001", "rol": "administrador", "tienda_id": "ALL"},
-    {"username": "empleado", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T001"},
+    {"username": "empleado1", "password": "emp123", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T001"},
+    {"username": "empleado2", "password": "emp123", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T002"},
+    {"username": "empleado3", "password": "emp123", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T001"},
+    {"username": "admin1",   "password": "admin123", "cliente_id": "C001", "rol": "administrador", "tienda_id": "ALL"},
+    {"username": "admin",    "password": "admin123", "cliente_id": "C001", "rol": "administrador", "tienda_id": "ALL"},
+    {"username": "empleado", "password": "emp123", "cliente_id": "C001", "rol": "empleado", "tienda_id": "T001"},
 ]
 
 # Umbrales del semaforo de stock (migrados de stock_alerts.py)

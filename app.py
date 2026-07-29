@@ -16,6 +16,7 @@ from functools import wraps
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, send_file, jsonify, abort)
+from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
 from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
@@ -173,6 +174,8 @@ def ensure_multitenant_schema():
                                "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
         _add_column_if_missing(conn, "registros_vencimiento",
                                "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
+        _add_column_if_missing(conn, "usuarios",
+                               "password_hash VARCHAR(256)", "password_hash")
 
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tiendas_cliente_id ON tiendas(cliente_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id)")
@@ -208,12 +211,18 @@ def init_db():
     if Usuario.query.count() == 0:
         for u in USUARIOS_DEFAULT:
             db.session.add(Usuario(username=u["username"],
+                                   password_hash=generate_password_hash(u["password"]),
                                    cliente_id=u.get("cliente_id", "C001"),
                                    rol=u["rol"],
                                    tienda_id=u["tienda_id"]))
     else:
         for u in Usuario.query.filter((Usuario.cliente_id.is_(None)) | (Usuario.cliente_id == "")).all():
             u.cliente_id = "C001"
+        # Asignar contrasena a usuarios existentes que no la tienen
+        pwd_map = {u["username"]: u["password"] for u in USUARIOS_DEFAULT}
+        for u in Usuario.query.filter(Usuario.password_hash.is_(None)).all():
+            raw = pwd_map.get(u.username, "netward2025")
+            u.password_hash = generate_password_hash(raw)
 
     if Producto.query.count() == 0:
         for categoria, productos in PRODUCTOS_BASE.items():
@@ -334,7 +343,10 @@ def login():
             flash(f"Usuario '{username}' no reconocido.", "error")
             return redirect(url_for("login"))
 
-        # MODO BETA: cualquier contrasena es valida
+        if not usuario.password_hash or not check_password_hash(usuario.password_hash, contrasena):
+            flash("Contrasena incorrecta.", "error")
+            return redirect(url_for("login"))
+
         session["usuario"] = usuario.username
         session["cliente_id"] = usuario.cliente_id or "C001"
         session["rol"] = usuario.rol
