@@ -28,6 +28,29 @@
     Los precios se configuran en la seccion <a href="{{ url_for('admin_precios') }}">Precios</a>.
   </p>
 
+  {# ── Agregar producto ── #}
+  <div style="border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:18px;background:#fff;">
+    <h4 style="margin:0 0 12px;font-size:.95rem;color:var(--ink-2);">Agregar producto</h4>
+    <form method="post" action="{{ url_for('producto_crear') }}" class="form-row">
+      <input type="hidden" id="nuevo-producto-active-tab" name="active_tab" value="{{ active_tab }}" class="js-active-tab-value" />
+      <label class="field field--grow">
+        <span class="field__label">Nombre *</span>
+        <input type="text" name="nombre" placeholder="Ej: Tentacion Fresa" required />
+      </label>
+      <label class="field">
+        <span class="field__label">Categoria *</span>
+        <select id="nuevo-producto-categoria" name="categoria" required>
+          <option value="Impulsivo">Impulsivo</option>
+          <option value="Por Kilos">Por Kilos</option>
+          <option value="Extras">Extras</option>
+        </select>
+      </label>
+      <div class="inv-form__action">
+        <button class="btn btn--primary">Agregar</button>
+      </div>
+    </form>
+  </div>
+
   <div class="tabs" style="margin-bottom:18px;" id="precio-tabs">
     <button type="button" class="tab is-active" data-tab="tab-impulsivo">
       Impulsivo <span class="badge badge--neutral">{{ productos_impulsivo|length }}</span>
@@ -69,29 +92,6 @@
     </div>
   </div>
   {% endfor %}
-
-  {# ── Agregar producto ── #}
-  <div style="border-top:1px solid var(--line);margin-top:20px;padding-top:18px;">
-    <h4 style="margin:0 0 12px;font-size:.95rem;color:var(--ink-2);">Agregar producto</h4>
-    <form method="post" action="{{ url_for('producto_crear') }}" class="form-row">
-      <input type="hidden" id="nuevo-producto-active-tab" name="active_tab" value="{{ active_tab }}" class="js-active-tab-value" />
-      <label class="field field--grow">
-        <span class="field__label">Nombre *</span>
-        <input type="text" name="nombre" placeholder="Ej: Tentacion Fresa" required />
-      </label>
-      <label class="field">
-        <span class="field__label">Categoria *</span>
-        <select id="nuevo-producto-categoria" name="categoria" required>
-          <option value="Impulsivo">Impulsivo</option>
-          <option value="Por Kilos">Por Kilos</option>
-          <option value="Extras">Extras</option>
-        </select>
-      </label>
-      <div class="inv-form__action">
-        <button class="btn btn--primary">Agregar</button>
-      </div>
-    </form>
-  </div>
 </section>
 
 {# ── Seccion: Tiendas ── #}

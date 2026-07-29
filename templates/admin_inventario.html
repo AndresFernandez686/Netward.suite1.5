@@ -4,73 +4,204 @@
 {% block subheading %}Visualizacion y control por sucursal{% endblock %}
 
 {% block content %}
-<form method="get" class="filters card card--skip-collapse">
-  <label class="field field--inline">
-    <span class="field__label">Tienda</span>
-    <select name="tienda" onchange="this.form.submit()">
-      {% for t in tiendas %}<option value="{{ t.id }}" {{ 'selected' if t.id == tienda_id }}>{{ t.nombre }}</option>{% endfor %}
-    </select>
-  </label>
-  <label class="field field--inline">
-    <span class="field__label">Categoria</span>
-    <select name="categoria" onchange="this.form.submit()">
-      <option value="Todas" {{ 'selected' if categoria_filtro == 'Todas' }}>Todas</option>
-      {% for c in categorias %}<option value="{{ c }}" {{ 'selected' if c == categoria_filtro }}>{{ c }}</option>{% endfor %}
-    </select>
-  </label>
-  <label class="field field--inline">
-    <span class="field__label">Estado</span>
-    <select name="estado" onchange="this.form.submit()">
-      {% for e in ['Todos', 'Cargado', 'No cargado'] %}<option value="{{ e }}" {{ 'selected' if e == estado_filtro }}>{{ e }}</option>{% endfor %}
-    </select>
-  </label>
-  <label class="field field--inline field--grow">
-    <span class="field__label">Buscar producto</span>
-    <input type="text" name="busqueda" value="{{ busqueda }}" placeholder="Escribe el nombre..." />
-  </label>
-  <div class="filters__actions action-group">
-    <button class="btn btn--primary">Filtrar</button>
-    <a class="btn btn--ghost" href="{{ url_for('export_inventario', tienda=tienda_id) }}">Exportar Excel</a>
-  </div>
-</form>
-
-{% for cat, filas in data.items() %}
-<section class="card" data-collapsed="true">
-  <div class="cart__head">
-    <h3 class="panel__title">{{ cat }}</h3>
-    <div class="metrics">
-      <span class="metric metric--green">{{ resumen[cat].cargados }} cargados</span>
-      <span class="metric metric--red">{{ resumen[cat].no_cargados }} sin cargar</span>
-      <span class="metric">{{ resumen[cat].total }} total</span>
-      <span class="metric metric--blue">{{ resumen[cat].porcentaje }}% cargado</span>
+<div class="inventory-page">
+  <form method="get" class="filters card card--skip-collapse inventory-filters">
+    {% if alerta_filtro != 'Todos' %}
+    <input type="hidden" name="alerta" value="{{ alerta_filtro }}" />
+    {% endif %}
+    <label class="field field--inline">
+      <span class="field__label">Tienda</span>
+      <select name="tienda" onchange="this.form.submit()">
+        <option value="ALL" {{ 'selected' if tienda_id == 'ALL' }}>Todas las tiendas</option>
+        {% for t in tiendas %}<option value="{{ t.id }}" {{ 'selected' if t.id == tienda_id }}>{{ t.nombre }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="field field--inline">
+      <span class="field__label">Categoria</span>
+      <select name="categoria" onchange="this.form.submit()">
+        <option value="Todas" {{ 'selected' if categoria_filtro == 'Todas' }}>Todas</option>
+        {% for c in categorias %}<option value="{{ c }}" {{ 'selected' if c == categoria_filtro }}>{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="field field--inline">
+      <span class="field__label">Estado</span>
+      <select name="estado" onchange="this.form.submit()">
+        {% for e in ['Todos', 'Cargado', 'No cargado'] %}<option value="{{ e }}" {{ 'selected' if e == estado_filtro }}>{{ e }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="field field--inline field--grow">
+      <span class="field__label">Buscar producto</span>
+      <input type="text" name="busqueda" value="{{ busqueda }}" placeholder="Escribe el nombre..." />
+    </label>
+    <div class="filters__actions action-group">
+      <button class="btn btn--primary">Filtrar</button>
+      <a class="btn btn--ghost" href="{{ url_for('export_inventario', tienda=tienda_export_id) }}">Exportar Excel</a>
     </div>
-  </div>
+  </form>
 
-  {% if filas %}
-  <div class="table-wrap">
-    <table class="table">
-      <thead>
-        <tr><th>Estado Stock</th><th>Producto</th><th>Cantidad</th><th>Modo</th><th>Carga</th></tr>
-      </thead>
-      <tbody>
-        {% for f in filas %}
-        <tr>
-          <td><span class="pill pill--{{ f.nivel }}">{{ f.etiqueta }}</span></td>
-          <td><strong>{{ f.producto }}</strong></td>
-          <td>{{ '%g'|format(f.cantidad) }}</td>
-          <td class="muted">{{ f.modo }}</td>
-          <td>
-            {% if f.cargado %}<span class="dot dot--green"></span> Cargado
-            {% else %}<span class="dot dot--red"></span> No cargado{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-    <div class="empty"><p>No hay productos que coincidan con el filtro.</p></div>
+  <section class="inventory-overview">
+    <div class="inventory-overview__head">
+      <div>
+        <h3>Selecciona una categoria para ver su inventario cargado</h3>
+        <p>Resumen por sucursal de {{ tienda_label }} con totales, valor de stock y estado de carga.</p>
+      </div>
+      {% if alerta_filtro != 'Todos' %}
+        <a class="btn btn--ghost btn--sm" href="{{ url_for('admin_inventario', tienda=tienda_id, categoria=categoria_filtro, estado=estado_filtro, busqueda=busqueda) }}">Limpiar filtro especial</a>
+      {% endif %}
+    </div>
+
+    <div class="inventory-summary-grid">
+      {% set card_styles = {
+        'Impulsivo': '#2563eb',
+        'Por Kilos': '#16a34a',
+        'Extras': '#7c3aed'
+      } %}
+      {% for cat in categorias %}
+      <article class="inventory-summary-card js-summary-card {{ 'is-active' if categoria_filtro == cat }}" data-category="{{ cat }}" style="--accent: {{ card_styles.get(cat, '#2563eb') }};">
+        <div class="inventory-summary-card__top">
+          <span class="inventory-summary-card__eyebrow">{{ cat }}</span>
+          <span class="inventory-summary-card__chip">{{ resumen[cat].porcentaje }}% cargado</span>
+        </div>
+        <div class="inventory-summary-card__body">
+          <div class="inventory-summary-card__stat">
+            <strong>{{ resumen[cat].total }}</strong>
+            <small>Productos</small>
+          </div>
+          <div class="inventory-summary-card__stat inventory-summary-card__stat--value">
+            <strong>Gs. {{ resumen[cat].valor_total_fmt }}</strong>
+            <small>Valor total del stock</small>
+          </div>
+        </div>
+        <div class="inventory-summary-card__footer">
+          <span>Stock total: {{ resumen[cat].stock_total_fmt }} {{ 'kg' if cat == 'Por Kilos' else 'unidades' }}</span>
+          <span>{{ resumen[cat].cargados }} cargados</span>
+        </div>
+        <div class="inventory-summary-card__bar"><span style="width: {{ resumen[cat].porcentaje }}%"></span></div>
+        <button type="button" class="inventory-summary-card__link js-ver-detalle" data-category="{{ cat }}" aria-label="Ver detalle de {{ cat }}">
+          Ver detalle <span aria-hidden="true">›</span>
+        </button>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="inventory-quick card card--skip-collapse">
+    <div class="panel__head inventory-section__head">
+      <h3 class="panel__title">Acceso rapido</h3>
+    </div>
+    <div class="quick-access-grid">
+      {% for action in quick_actions %}
+      <a class="quick-access-card quick-access-card--{{ action.tone }}" href="{{ action.href }}">
+        <span class="quick-access-card__icon">{% include action.icon %}</span>
+        <span class="quick-access-card__content">
+          <strong>{{ action.label }}</strong>
+          <small>{{ action.sub }}</small>
+        </span>
+        {% if action.count is not none %}
+        <span class="quick-access-card__count">{{ action.count }}</span>
+        {% else %}
+        <span class="quick-access-card__arrow">›</span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card card--skip-collapse" id="inventario-placeholder" {% if categoria_filtro != 'Todas' or alerta_filtro != 'Todos' %}style="display:none"{% endif %}>
+    <div class="empty">
+      <p>Selecciona una categoría y presiona <strong>Ver detalle</strong> para ver el inventario.</p>
+      <span class="muted">Verás productos cargados, valor total del stock y stock total por categoría.</span>
+    </div>
+  </section>
+
+  <section class="inventory-details" id="inventario-detalle" {% if categoria_filtro == 'Todas' and alerta_filtro == 'Todos' %}style="display:none"{% endif %}>
+    {% for cat in categorias_render %}
+    <section class="card card--skip-collapse inventory-category-card" data-category="{{ cat }}" id="categoria-{{ cat|lower|replace(' ', '-') }}" {% if categoria_filtro == 'Todas' or (categoria_filtro != cat and alerta_filtro == 'Todos') %}style="display:none"{% endif %}>
+      <div class="cart__head inventory-category-card__head">
+        <h3 class="panel__title">{{ cat }}</h3>
+        <div class="metrics">
+          <span class="metric metric--green">{{ resumen[cat].cargados }} cargados</span>
+          <span class="metric metric--red">{{ resumen[cat].no_cargados }} sin cargar</span>
+          <span class="metric">{{ resumen[cat].total }} total</span>
+          <span class="metric metric--blue">{{ resumen[cat].stock_total_fmt }} {{ 'kg' if cat == 'Por Kilos' else 'unidades' }}</span>
+        </div>
+      </div>
+
+      {% if data[cat] %}
+      <div class="table-wrap">
+        <table class="table inventory-table">
+          <thead>
+            <tr><th>Estado Stock</th><th>Producto</th><th>Cantidad</th><th>Valor</th><th>Modo</th><th>Carga</th></tr>
+          </thead>
+          <tbody>
+            {% for f in data[cat] %}
+            <tr>
+              <td><span class="pill pill--{{ f.nivel }}">{{ f.etiqueta }}</span></td>
+              <td><strong>{{ f.producto }}</strong></td>
+              <td>{{ f.cantidad_fmt }}</td>
+              <td>Gs. {{ f.valor_fmt }}</td>
+              <td class="muted">{{ f.modo }}</td>
+              <td>
+                {% if f.cargado %}<span class="dot dot--green"></span> Cargado
+                {% else %}<span class="dot dot--red"></span> No cargado{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="empty"><p>No hay productos que coincidan con el filtro.</p></div>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var summaryCards = Array.prototype.slice.call(document.querySelectorAll('.js-summary-card'));
+  var detailButtons = Array.prototype.slice.call(document.querySelectorAll('.js-ver-detalle'));
+  var detailPanels = Array.prototype.slice.call(document.querySelectorAll('.inventory-category-card[data-category]'));
+  var detailSection = document.getElementById('inventario-detalle');
+  var placeholder = document.getElementById('inventario-placeholder');
+
+  function show(el) { if (el) el.style.display = ''; }
+  function hide(el) { if (el) el.style.display = 'none'; }
+
+  function openCategory(category) {
+    summaryCards.forEach(function (c) {
+      c.classList.toggle('is-active', c.dataset.category === category);
+    });
+    detailPanels.forEach(function (p) {
+      p.style.display = (p.dataset.category === category) ? '' : 'none';
+    });
+    show(detailSection);
+    hide(placeholder);
+  }
+
+  detailButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var cat = btn.dataset.category;
+      openCategory(cat);
+      if (window.history && window.history.replaceState) {
+        var u = new URL(window.location.href);
+        u.searchParams.set('categoria', cat);
+        window.history.replaceState({}, '', u.pathname + '?' + u.searchParams.toString() + '#inventario-detalle');
+      }
+      if (detailSection) detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  {% if categoria_filtro != 'Todas' %}
+  openCategory('{{ categoria_filtro }}');
   {% endif %}
-</section>
-{% endfor %}
+  {% if alerta_filtro != 'Todos' %}
+  detailPanels.forEach(function (p) { p.style.display = ''; });
+  show(detailSection); hide(placeholder);
+  {% endif %}
+})();
+</script>
 {% endblock %}

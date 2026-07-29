@@ -1,0 +1,350 @@
+"""Lógica de negocio para funcionalidades de empleado."""
+from __future__ import annotations
+
+from collections import defaultdict
+
+from flask import session
+
+from core.catalogo import get_productos_db, activar_catalogo_pendiente_empleado
+from core.models import (
+    db, InventarioItem, HistorialMovimiento, InventarioSnapshot,
+    RegistroAveriado, RegistroVencimiento, ProductoPrecio, SincronizacionLog,
+    DeliveryProducto, DeliveryVenta,
+)
+from core.seed_data import CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME, ESTADOS_BALDE
+
+
+def _safe_inv_tab(tab_value):
+    return tab_value if tab_value in CATEGORIAS else CATEGORIAS[0]
+
+
+def build_empleado_inventario_context(*, active_tab: str, carrito: list, hoy: str):
+    return {
+        "productos": get_productos_db(),
+        "active_tab": _safe_inv_tab(active_tab),
+        "categorias": CATEGORIAS,
+        "tipos_inventario": TIPOS_INVENTARIO,
+        "opciones_ume": OPCIONES_UME,
+        "estados_balde": ESTADOS_BALDE,
+        "carrito": carrito,
+        "hoy": hoy,
+        "hide_global_flash": True,
+    }
+
+
+def add_carrito_item(*, carrito: list, categoria: str, producto: str, cantidad: float,
+                     ume: str, tipo_inventario: str, fecha: str, detalle: str):
+    cantidad_unidades = cantidad
+    factor = 1.0
+    desc_conversion = ""
+    if ume in ("Caja", "Bulto"):
+        pp = ProductoPrecio.query.filter(
+            db.func.lower(ProductoPrecio.producto_nombre) == producto.lower()
+        ).first()
+        if pp:
+            u_caja = float(pp.unidades_por_caja or 0)
+            u_bulto = float(pp.unidades_por_bulto or 0)
+            if ume == "Caja" and u_caja > 0:
+                factor = u_caja
+                cantidad_unidades = cantidad * u_caja
+                desc_conversion = f"{cantidad:g} Caja × {u_caja:g} unid/caja = {cantidad_unidades:g} unid."
+            elif ume == "Bulto" and u_bulto > 0 and u_caja > 0:
+                factor = u_bulto * u_caja
+                cantidad_unidades = cantidad * u_bulto * u_caja
+                desc_conversion = (
+                    f"{cantidad:g} Bulto × {u_bulto:g} cajas/bulto "
+                    f"× {u_caja:g} unid/caja = {cantidad_unidades:g} unid."
+                )
+
+    carrito = [i for i in carrito if not (
+        i["categoria"] == categoria and i["producto"] == producto and i["ume"] == ume
+    )]
+    carrito.append({
+        "categoria": categoria,
+        "producto": producto,
+        "cantidad": cantidad,
+        "cantidad_unidades": cantidad_unidades,
+        "ume": ume,
+        "factor": factor,
+        "desc_conversion": desc_conversion,
+        "tipo_inventario": tipo_inventario,
+        "fecha": fecha,
+        "detalle": detalle,
+        "hora": __import__("datetime").datetime.now().strftime("%H:%M:%S"),
+    })
+    nombre_display = producto if ume == "Unidad" else __import__("re").sub(r"\s+x\s+un(?:idad|\.?|)\s*$", "", producto, flags=__import__("re").IGNORECASE)
+    msg = f"{nombre_display} agregado ({cantidad:g} {ume})"
+    if desc_conversion:
+        msg += f" → {desc_conversion}"
+    return carrito, msg
+
+
+def remove_carrito_item(carrito: list, idx: int):
+    if 0 <= idx < len(carrito):
+        eliminado = carrito.pop(idx)
+        return carrito, f"{eliminado['producto']} eliminado del carrito."
+    return carrito, None
+
+
+def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str):
+    if not carrito:
+        return 0
+    fecha_snapshot = carrito[0].get("fecha") or __import__("datetime").date.today().isoformat()
+    guardados = 0
+    grupos = defaultdict(lambda: {"entradas": [], "total_unidades": 0.0})
+    for entrada in carrito:
+        key = (entrada["categoria"], entrada["producto"])
+        grupos[key]["entradas"].append(entrada)
+        grupos[key]["total_unidades"] += float(entrada.get("cantidad_unidades", entrada["cantidad"]) or 0)
+
+    for (categoria, producto), grupo in grupos.items():
+        cantidad_total = round(grupo["total_unidades"], 3)
+        primera = grupo["entradas"][0]
+        tipo_inv = primera["tipo_inventario"]
+        fecha_prod = primera["fecha"]
+
+        for e in grupo["entradas"]:
+            cant_e = float(e.get("cantidad_unidades", e["cantidad"]) or 0)
+            det_e = e.get("desc_conversion") or e.get("detalle", "")
+            db.session.add(HistorialMovimiento(
+                fecha=e["fecha"], hora=e["hora"], usuario=usuario,
+                categoria=categoria, producto=producto,
+                cantidad=cant_e, modo=e["ume"],
+                tipo_inventario=tipo_inv,
+                detalle=det_e, tienda_id=tienda_id,
+                cliente_id=session.get("cliente_id", "C001"),
+            ))
+
+        item = InventarioItem.query.filter_by(
+            tienda_id=tienda_id, categoria=categoria, producto=producto).first()
+        if item:
+            item.cantidad = cantidad_total
+            item.ume = "Unidad"
+            item.tipo_inventario = tipo_inv
+            item.fecha = fecha_prod
+            item.sinc_estado = "pendiente"
+        else:
+            db.session.add(InventarioItem(
+                cliente_id=session.get("cliente_id", "C001"),
+                tienda_id=tienda_id, categoria=categoria, producto=producto,
+                cantidad=cantidad_total, ume="Unidad",
+                tipo_inventario=tipo_inv, fecha=fecha_prod,
+                sinc_estado="pendiente"))
+        guardados += 1
+
+    snapshot = InventarioSnapshot.query.filter_by(
+        fecha=fecha_snapshot, tienda_id=tienda_id, usuario=usuario).first()
+    if snapshot:
+        snapshot.total_items = guardados
+        snapshot.tipo_inventario = carrito[0].get("tipo_inventario", "Diario")
+    else:
+        db.session.add(InventarioSnapshot(
+            cliente_id=session.get("cliente_id", "C001"),
+            fecha=fecha_snapshot,
+            tienda_id=tienda_id,
+            usuario=usuario,
+            tipo_inventario=carrito[0].get("tipo_inventario", "Diario"),
+            total_items=guardados,
+        ))
+    return guardados
+
+
+def build_averiado_context(*, tienda_id: str):
+    return {
+        "productos": get_productos_db(),
+        "categorias": CATEGORIAS,
+        "recientes": RegistroAveriado.query.filter_by(tienda_id=tienda_id).order_by(RegistroAveriado.creado.desc()).limit(30).all(),
+        "hoy": __import__("datetime").date.today().isoformat(),
+    }
+
+
+def registrar_averiado(*, tienda_id: str, usuario: str, categoria: str, producto: str,
+                       cantidad: int, ume: str, detalle: str, fecha: str):
+    cu, desc = convertir_ume(producto, ume, cantidad)
+    db.session.add(RegistroAveriado(
+        cliente_id=session.get("cliente_id", "C001"),
+        tienda_id=tienda_id, fecha=fecha,
+        hora=__import__("datetime").datetime.now().strftime("%H:%M:%S"),
+        usuario=usuario, categoria=categoria,
+        producto=producto, cantidad=cantidad,
+        cantidad_unidades=cu, ume=ume,
+        desc_conversion=desc, detalle=detalle,
+        sinc_estado="pendiente",
+    ))
+    return cu, desc
+
+
+def build_vencimiento_context(*, tienda_id: str):
+    return {
+        "productos": get_productos_db(),
+        "categorias": CATEGORIAS,
+        "recientes": RegistroVencimiento.query.filter_by(tienda_id=tienda_id).order_by(RegistroVencimiento.creado.desc()).limit(30).all(),
+        "hoy": __import__("datetime").date.today().isoformat(),
+    }
+
+
+def registrar_vencimiento(*, tienda_id: str, usuario: str, categoria: str, producto: str,
+                          cantidad: int, ume: str, fecha_vencimiento: str,
+                          detalle: str, fecha: str):
+    cu, desc = convertir_ume(producto, ume, cantidad)
+    db.session.add(RegistroVencimiento(
+        cliente_id=session.get("cliente_id", "C001"),
+        tienda_id=tienda_id, fecha=fecha,
+        hora=__import__("datetime").datetime.now().strftime("%H:%M:%S"),
+        usuario=usuario, categoria=categoria,
+        producto=producto, cantidad=cantidad,
+        cantidad_unidades=cu, ume=ume,
+        desc_conversion=desc, fecha_vencimiento=fecha_vencimiento,
+        detalle=detalle,
+        sinc_estado="pendiente",
+    ))
+    return cu, desc
+
+
+def build_sincronizacion_context(*, cliente_id: str, tienda_id: str):
+    pend_inv = InventarioItem.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").count()
+    pend_aver = RegistroAveriado.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").count()
+    pend_venc = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").count()
+    return {
+        "pendientes": pend_inv + pend_aver + pend_venc,
+        "pend_inv": pend_inv,
+        "pend_aver": pend_aver,
+        "pend_venc": pend_venc,
+        "sync_ultimo_envio": sync_ultimo_envio_empleado(),
+        "sync_ultima_recepcion": sync_ultima_recepcion_empleado(),
+    }
+
+
+def sync_ultimo_envio_empleado():
+    u, t = session.get("usuario"), session.get("tienda_id", "")
+    r = (SincronizacionLog.query
+         .filter_by(usuario=u, tienda_id=t, tipo="envio")
+         .order_by(SincronizacionLog.timestamp.desc()).first())
+    return r.timestamp.strftime("%d/%m/%y %H:%M") if r else None
+
+
+def sync_ultima_recepcion_empleado():
+    u, t = session.get("usuario"), session.get("tienda_id", "")
+    r = (SincronizacionLog.query
+         .filter_by(usuario=u, tienda_id=t, tipo="recepcion")
+         .order_by(SincronizacionLog.timestamp.desc()).first())
+    return r.timestamp.strftime("%d/%m/%y %H:%M") if r else None
+
+
+def procesar_sincronizacion(*, cliente_id: str, tienda_id: str, usuario: str, accion: str):
+    db.session.add(SincronizacionLog(
+        cliente_id=cliente_id,
+        tienda_id=tienda_id,
+        usuario=usuario,
+        tipo="envio",
+        accion=accion,
+    ))
+
+    pendientes = InventarioItem.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").all()
+    for item in pendientes:
+        item.sinc_estado = "sincronizado"
+    n_inv = len(pendientes)
+
+    pend_aver = RegistroAveriado.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").all()
+    for reg in pend_aver:
+        reg.sinc_estado = "sincronizado"
+    n_aver = len(pend_aver)
+
+    pend_venc = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").all()
+    for reg in pend_venc:
+        reg.sinc_estado = "sincronizado"
+    n_venc = len(pend_venc)
+
+    n_total = n_inv + n_aver + n_venc
+    catalogo_actualizado = 0
+    if accion == "enviar_recibir":
+        catalogo_actualizado = activar_catalogo_pendiente_empleado()
+        db.session.add(SincronizacionLog(
+            cliente_id=cliente_id,
+            tienda_id=tienda_id,
+            usuario=usuario,
+            tipo="recepcion",
+            accion=accion,
+        ))
+    return {
+        "n_inv": n_inv,
+        "n_aver": n_aver,
+        "n_venc": n_venc,
+        "n_total": n_total,
+        "catalogo_actualizado": catalogo_actualizado,
+    }
+
+
+def build_historial_context(*, tienda_id: str, usuario: str):
+    snapshots = InventarioSnapshot.query.filter_by(
+        tienda_id=tienda_id, usuario=usuario
+    ).order_by(InventarioSnapshot.fecha.desc(), InventarioSnapshot.id.desc()).all()
+
+    selected_snapshot = snapshots[0] if snapshots else None
+    detalle = []
+    if selected_snapshot is not None:
+        detalle = HistorialMovimiento.query.filter_by(
+            tienda_id=tienda_id, usuario=usuario, fecha=selected_snapshot.fecha
+        ).order_by(HistorialMovimiento.categoria, HistorialMovimiento.producto).all()
+
+    return {
+        "snapshots": snapshots,
+        "selected_snapshot": selected_snapshot,
+        "detalle": detalle,
+    }
+
+
+def build_delivery_context(*, tienda_id: str):
+    hoy = __import__("datetime").date.today().isoformat()
+    activos = DeliveryProducto.query.filter_by(activo=True).all()
+    ventas_hoy = DeliveryVenta.query.filter_by(
+        tienda_id=tienda_id,
+        fecha=hoy,
+    ).all()
+    total_hoy = sum(float(venta.total or 0) for venta in ventas_hoy)
+    return {
+        "hoy": hoy,
+        "activos": activos,
+        "ventas_hoy": ventas_hoy,
+        "total_hoy": total_hoy,
+        "total_dia": total_hoy,
+    }
+
+
+def registrar_venta_delivery(*, tienda_id: str, usuario: str, producto_id: int, cantidad: int, fecha: str):
+    producto = db.session.get(DeliveryProducto, producto_id)
+    if not producto:
+        return None
+    total = producto.precio * cantidad
+    db.session.add(DeliveryVenta(
+        cliente_id=session.get("cliente_id", "C001"),
+        fecha=fecha,
+        hora=__import__("datetime").datetime.now().strftime("%H:%M:%S"),
+        producto=producto.nombre,
+        cantidad=cantidad,
+        precio_unitario=producto.precio,
+        total=total,
+        usuario=usuario,
+        tienda_id=tienda_id,
+    ))
+    return producto.nombre, total
+
+
+def convertir_ume(producto: str, ume: str, cantidad: float):
+    if ume not in ("Caja", "Bulto", "Tira"):
+        return cantidad, ""
+    pp = ProductoPrecio.query.filter(
+        db.func.lower(ProductoPrecio.producto_nombre) == producto.strip().lower()
+    ).first()
+    if not pp:
+        return cantidad, ""
+    u_caja = float(pp.unidades_por_caja or 0)
+    u_bulto = float(pp.unidades_por_bulto or 0)
+    if ume == "Caja" and u_caja > 0:
+        cu = cantidad * u_caja
+        return cu, f"{cantidad:g} Caja × {u_caja:g} unid/caja = {cu:g} unid."
+    if ume in ("Bulto", "Tira") and u_bulto > 0 and u_caja > 0:
+        cu = cantidad * u_bulto * u_caja
+        return cu, (f"{cantidad:g} {ume} × {u_bulto:g} cajas/{ume.lower()} "
+                    f"× {u_caja:g} unid/caja = {cu:g} unid.")
+    return cantidad, ""

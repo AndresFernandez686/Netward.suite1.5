@@ -13,6 +13,19 @@
   </div>
 </div>
 
+<div class="card card--skip-collapse" style="margin-bottom:16px;">
+  <div class="form-row" style="align-items:end;">
+    <label class="field field--grow">
+      <span class="field__label">Buscar producto</span>
+      <input type="text" id="buscar-precio-producto" placeholder="Escribe el nombre del producto..." />
+    </label>
+    <div class="inv-form__action">
+      <button type="button" class="btn btn--ghost" id="limpiar-busqueda-precios">Limpiar búsqueda</button>
+    </div>
+  </div>
+  <p class="muted" style="margin:10px 0 0;font-size:.85rem;">La búsqueda filtra los productos visibles en todas las categorías.</p>
+</div>
+
 {% if local_notice %}
 <div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">
   {{ local_notice.message }}
@@ -110,6 +123,8 @@
 <script>
   (function () {
     var activeTab = '{{ active_tab|default("tab-0") }}';
+    var searchInput = document.getElementById('buscar-precio-producto');
+    var clearButton = document.getElementById('limpiar-busqueda-precios');
 
     function syncTabInForms() {
       document.querySelectorAll('input.js-admin-precios-tab').forEach(function (input) {
@@ -130,13 +145,64 @@
       syncTabInForms();
     }
 
+    function norm(value) {
+      return (value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function applySearch() {
+      var query = norm(searchInput ? searchInput.value : '');
+      document.querySelectorAll('.admin-tabpanel').forEach(function (panel) {
+        var rows = Array.prototype.slice.call(panel.querySelectorAll('tbody tr'));
+        var visibleCount = 0;
+
+        rows.forEach(function (row) {
+          var text = norm(row.textContent);
+          var match = !query || text.indexOf(query) !== -1;
+          row.hidden = !match;
+          if (match) visibleCount += 1;
+        });
+
+        var emptyRow = panel.querySelector('.js-precios-empty-search');
+        if (!emptyRow) {
+          emptyRow = document.createElement('tr');
+          emptyRow.className = 'js-precios-empty-search';
+          emptyRow.innerHTML = '<td colspan="5" class="muted">No hay productos que coincidan con la búsqueda.</td>';
+          var tbody = panel.querySelector('tbody');
+          if (tbody) tbody.appendChild(emptyRow);
+        }
+        emptyRow.hidden = !!query && visibleCount > 0;
+
+        if (!query) {
+          emptyRow.hidden = true;
+        }
+      });
+    }
+
     document.querySelectorAll('.admin-tab').forEach(function (tab) {
       tab.addEventListener('click', function () {
         setActiveTab(tab.dataset.tabtarget);
       });
     });
 
+    if (searchInput) {
+      searchInput.addEventListener('input', applySearch);
+    }
+
+    if (clearButton) {
+      clearButton.addEventListener('click', function () {
+        if (searchInput) {
+          searchInput.value = '';
+          applySearch();
+          searchInput.focus();
+        }
+      });
+    }
+
     setActiveTab(activeTab);
+    applySearch();
   })();
 </script>
 {% endblock %}

@@ -436,7 +436,7 @@ def _generar_xlsx(filas_procesadas: list, fecha_proceso: str,
 @desc_bp.route("/admin/desc", methods=["GET", "POST"])
 def admin_desc():
     _requiere_admin()
-    from core.models import Tienda, InventarioDescSnapshot
+    from core.models import Tienda, InventarioDescSnapshot, Producto
 
     tiendas = Tienda.query.all()
     # Historial de snapshots para mostrar en la UI
@@ -519,6 +519,12 @@ def admin_desc():
         "admin_desc.html",
         tiendas=tiendas,
         snapshots=snapshots,
+        inventarios_procesados=InventarioDescSnapshot.query.count(),
+        ultimo_snapshot=(snapshots[0] if snapshots else None),
+        total_productos=Producto.query.count(),
+        categorias_registradas=Producto.query.with_entities(Producto.categoria).distinct().count(),
+        grupos_excluidos_count=len(GRUPOS_EXCLUIDOS),
+        reglas_activas=3,
         hoy=date.today().isoformat(),
         primer_dia=date.today().replace(day=1).isoformat(),
     )

@@ -24,17 +24,22 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     DeliveryVenta, StockThreshold, ProductoPrecio,
                     InventarioDescSnapshot, RegistroAveriado, RegistroVencimiento,
                     SincronizacionLog)
+from core.catalogo import get_productos_db as catalogo_get_productos_db, activar_catalogo_pendiente_empleado
 from core.seed_data import (PRODUCTOS_BASE, CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME,
                        ESTADOS_BALDE, CLIENTES_DEFAULT, TIENDAS_DEFAULT, USUARIOS_DEFAULT,
                        STOCK_THRESHOLDS_DEFAULT, DELIVERY_DEFAULT, stock_status)
 from core.inventario import desc_bp
+from core.admin_inventario import build_admin_inventory_context, _items_sincronizados, _precios_lookup
+from core.admin_historial import build_admin_historial_context
+from core.admin_vencimientos import build_admin_vencimientos_context, marcar_vencimientos_vistos, marcar_vencimientos_filtrados
+from core import empleado as empleado_service
 from core.admin_feedback import set_view_notice, pop_view_notice
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=True)
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "netward-secret-key-beta-2025")
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or "netward-dev-secret-change-me"
 app.config["ASSET_VERSION"] = os.getenv("ASSET_VERSION", datetime.utcnow().strftime("%Y%m%d%H%M%S"))
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL_EMPLEADO", "sqlite:///netward_empleado.db"))
 app.config["SQLALCHEMY_BINDS"] = {
@@ -66,16 +71,8 @@ def set_database_bind(bind_name):
 
 
 def get_productos_db():
-    """Devuelve {categoria: [nombre, ...]} leyendo desde la BD (incluye productos nuevos)."""
-    result = {}
-    for categoria in CATEGORIAS:
-        result[categoria] = [
-            p.nombre for p in Producto.query
-            .filter_by(categoria=categoria)
-            .order_by(Producto.nombre)
-            .all()
-        ]
-    return result
+    """Devuelve el catálogo visible para empleado por categoria."""
+    return catalogo_get_productos_db(include_hidden=False)
 
 
 def get_active_bind():
@@ -176,6 +173,8 @@ def ensure_multitenant_schema():
                                "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
         _add_column_if_missing(conn, "usuarios",
                                "password_hash VARCHAR(256)", "password_hash")
+        _add_column_if_missing(conn, "productos",
+                       "visible_empleado BOOLEAN NOT NULL DEFAULT 1", "visible_empleado")
 
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tiendas_cliente_id ON tiendas(cliente_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id)")
@@ -227,7 +226,7 @@ def init_db():
     if Producto.query.count() == 0:
         for categoria, productos in PRODUCTOS_BASE.items():
             for nombre in productos:
-                db.session.add(Producto(nombre=nombre, categoria=categoria))
+                db.session.add(Producto(nombre=nombre, categoria=categoria, visible_empleado=True))
 
     if StockThreshold.query.count() == 0:
         for producto, th in STOCK_THRESHOLDS_DEFAULT.items():
@@ -397,20 +396,13 @@ def _redirect_inventario_context(default_anchor="sec-carga"):
 @app.route("/empleado/inventario")
 @login_required(rol="empleado")
 def empleado_inventario():
-    tienda_id = session["tienda_id"]
-    active_tab = _safe_inv_tab(request.args.get("tab"))
-    productos = get_productos_db()
     return render_template(
         "empleado_inventario.html",
-        productos=productos,
-        active_tab=active_tab,
-        categorias=CATEGORIAS,
-        tipos_inventario=TIPOS_INVENTARIO,
-        opciones_ume=OPCIONES_UME,
-        estados_balde=ESTADOS_BALDE,
-        carrito=get_carrito(),
-        hoy=date.today().isoformat(),
-        hide_global_flash=True,
+        **empleado_service.build_empleado_inventario_context(
+            active_tab=request.args.get("tab") or CATEGORIAS[0],
+            carrito=get_carrito(),
+            hoy=date.today().isoformat(),
+        ),
     )
 
 
@@ -433,52 +425,18 @@ def carrito_agregar():
         flash("Ingresa una cantidad valida.", "warning")
         return _redirect_inventario_context("sec-carga")
 
-    # Conversion a unidades individuales segun config del admin
-    cantidad_unidades = cantidad
-    factor = 1.0
-    desc_conversion = ""
-    if ume in ("Caja", "Bulto"):
-        pp = ProductoPrecio.query.filter(
-            db.func.lower(ProductoPrecio.producto_nombre) == producto.lower()
-        ).first()
-        if pp:
-            u_caja  = float(pp.unidades_por_caja  or 0)
-            u_bulto = float(pp.unidades_por_bulto or 0)
-            if ume == "Caja" and u_caja > 0:
-                factor = u_caja
-                cantidad_unidades = cantidad * u_caja
-                desc_conversion = f"{cantidad:g} Caja × {u_caja:g} unid/caja = {cantidad_unidades:g} unid."
-            elif ume == "Bulto" and u_bulto > 0 and u_caja > 0:
-                factor = u_bulto * u_caja
-                cantidad_unidades = cantidad * u_bulto * u_caja
-                desc_conversion = (f"{cantidad:g} Bulto × {u_bulto:g} cajas/bulto "
-                                   f"× {u_caja:g} unid/caja = {cantidad_unidades:g} unid.")
-
     carrito = get_carrito()
-    # Reemplazar solo si es el mismo producto + misma UME; distintas UMEs conviven
-    carrito = [i for i in carrito if not (
-        i["categoria"] == categoria and
-        i["producto"]  == producto and
-        i["ume"]       == ume
-    )]
-    carrito.append({
-        "categoria": categoria,
-        "producto": producto,
-        "cantidad": cantidad,
-        "cantidad_unidades": cantidad_unidades,
-        "ume": ume,
-        "factor": factor,
-        "desc_conversion": desc_conversion,
-        "tipo_inventario": tipo_inventario,
-        "fecha": fecha,
-        "detalle": detalle,
-        "hora": datetime.now().strftime("%H:%M:%S"),
-    })
+    carrito, msg = empleado_service.add_carrito_item(
+        carrito=carrito,
+        categoria=categoria or CATEGORIAS[0],
+        producto=producto,
+        cantidad=cantidad,
+        ume=ume,
+        tipo_inventario=tipo_inventario,
+        fecha=fecha,
+        detalle=detalle,
+    )
     set_carrito(carrito)
-    nombre_display = producto if ume == "Unidad" else _re.sub(r"\s+x\s+un(?:idad|\.?)\s*$", "", producto, flags=_re.IGNORECASE)
-    msg = f"{nombre_display} agregado ({cantidad:g} {ume})"
-    if desc_conversion:
-        msg += f" → {desc_conversion}"
     flash(msg, "success")
     return _redirect_inventario_context("sec-carga")
 
@@ -487,10 +445,10 @@ def carrito_agregar():
 @login_required(rol="empleado")
 def carrito_eliminar(idx):
     carrito = get_carrito()
-    if 0 <= idx < len(carrito):
-        eliminado = carrito.pop(idx)
+    carrito, msg = empleado_service.remove_carrito_item(carrito, idx)
+    if msg:
         set_carrito(carrito)
-        flash(f"{eliminado['producto']} eliminado del carrito.", "info")
+        flash(msg, "info")
     return _redirect_inventario_context("sec-carrito")
 
 
@@ -512,77 +470,7 @@ def carrito_guardar():
 
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
-    fecha_snapshot = carrito[0].get("fecha", date.today().isoformat())
-    guardados = 0
-
-    # --- Agrupar por (categoria, producto): sumar todas las UMEs ---
-    from collections import defaultdict
-    grupos: dict = defaultdict(lambda: {"entradas": [], "total_unidades": 0.0})
-    for entrada in carrito:
-        key = (entrada["categoria"], entrada["producto"])
-        grupos[key]["entradas"].append(entrada)
-        grupos[key]["total_unidades"] += float(
-            entrada.get("cantidad_unidades", entrada["cantidad"]) or 0
-        )
-
-    for (categoria, producto), grupo in grupos.items():
-        cantidad_total = round(grupo["total_unidades"], 3)
-        primera = grupo["entradas"][0]
-        tipo_inv = primera["tipo_inventario"]
-        fecha_prod = primera["fecha"]
-
-        # Construir detalle resumido de todas las entradas
-        detalles = []
-        for e in grupo["entradas"]:
-            if e.get("desc_conversion"):
-                detalles.append(e["desc_conversion"])
-            elif e["ume"] != "Unidad":
-                detalles.append(f"{e['cantidad']:g} {e['ume']}")
-        detalle_resumen = " + ".join(detalles) if detalles else ""
-        if detalle_resumen:
-            detalle_resumen += f" = {cantidad_total:g} unid. total"
-
-        # Guardar en InventarioItem con estado "pendiente" hasta que se sincronice
-        item = InventarioItem.query.filter_by(
-            tienda_id=tienda_id, categoria=categoria, producto=producto).first()
-        if item:
-            item.cantidad = cantidad_total
-            item.ume = "Unidad"
-            item.tipo_inventario = tipo_inv
-            item.fecha = fecha_prod
-            item.sinc_estado = "pendiente"
-        else:
-            db.session.add(InventarioItem(
-                tienda_id=tienda_id, categoria=categoria, producto=producto,
-                cantidad=cantidad_total, ume="Unidad",
-                tipo_inventario=tipo_inv, fecha=fecha_prod,
-                sinc_estado="pendiente"))
-
-        # Guardar cada entrada individual en el historial (auditoría completa)
-        for e in grupo["entradas"]:
-            cant_e = float(e.get("cantidad_unidades", e["cantidad"]) or 0)
-            det_e  = e.get("desc_conversion") or e.get("detalle", "")
-            db.session.add(HistorialMovimiento(
-                fecha=e["fecha"], hora=e["hora"], usuario=usuario,
-                categoria=categoria, producto=producto,
-                cantidad=cant_e, modo=e["ume"],
-                tipo_inventario=tipo_inv,
-                detalle=det_e, tienda_id=tienda_id))
-        guardados += 1
-
-    snapshot = InventarioSnapshot.query.filter_by(
-        fecha=fecha_snapshot, tienda_id=tienda_id, usuario=usuario).first()
-    if snapshot:
-        snapshot.total_items = guardados
-        snapshot.tipo_inventario = carrito[0].get("tipo_inventario", "Diario")
-    else:
-        db.session.add(InventarioSnapshot(
-            fecha=fecha_snapshot,
-            tienda_id=tienda_id,
-            usuario=usuario,
-            tipo_inventario=carrito[0].get("tipo_inventario", "Diario"),
-            total_items=guardados,
-        ))
+    guardados = empleado_service.build_carrito_guardado(carrito, tienda_id, usuario)
 
     db.session.commit()
     set_carrito([])
@@ -622,7 +510,7 @@ def _convertir_ume(producto: str, ume: str, cantidad: float):
 def empleado_averiado():
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
-    productos = get_productos_db()
+    context = empleado_service.build_averiado_context(tienda_id=tienda_id)
 
     if request.method == "POST":
         categoria = request.form.get("categoria", "")
@@ -647,16 +535,12 @@ def empleado_averiado():
         elif cantidad <= 0:
             flash("Ingresa una cantidad válida.", "warning")
         else:
-            cu, desc = _convertir_ume(producto, ume, cantidad)
-            db.session.add(RegistroAveriado(
-                tienda_id=tienda_id, fecha=fecha,
-                hora=datetime.now().strftime("%H:%M:%S"),
-                usuario=usuario, categoria=categoria,
-                producto=producto, cantidad=cantidad,
-                cantidad_unidades=cu, ume=ume,
-                desc_conversion=desc, detalle=detalle,
-                sinc_estado="pendiente",
-            ))
+            cu, desc = empleado_service.registrar_averiado(
+                tienda_id=tienda_id, usuario=usuario,
+                categoria=categoria, producto=producto,
+                cantidad=cantidad, ume=ume,
+                detalle=detalle, fecha=fecha,
+            )
             db.session.commit()
             nombre_d = _re.sub(r"\s+x\s+un(?:idad|\.?)\s*$", "", producto, flags=_re.IGNORECASE)
             msg = f"Averiado registrado: {nombre_d} — {cantidad:g} {ume}"
@@ -666,13 +550,7 @@ def empleado_averiado():
             flash(msg, "success")
             return redirect(url_for("empleado_averiado"))
 
-    recientes = (RegistroAveriado.query
-                 .filter_by(tienda_id=tienda_id)
-                 .order_by(RegistroAveriado.creado.desc())
-                 .limit(30).all())
-    return render_template("empleado_averiado.html",
-                           productos=productos, categorias=CATEGORIAS,
-                           recientes=recientes, hoy=date.today().isoformat())
+    return render_template("empleado_averiado.html", **context)
 
 
 @app.route("/empleado/averiado/<int:reg_id>/eliminar", methods=["POST"])
@@ -694,7 +572,7 @@ def averiado_eliminar(reg_id):
 def empleado_vencimiento():
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
-    productos = get_productos_db()
+    context = empleado_service.build_vencimiento_context(tienda_id=tienda_id)
 
     if request.method == "POST":
         categoria        = request.form.get("categoria", "")
@@ -722,29 +600,19 @@ def empleado_vencimiento():
         elif not fecha_venc:
             flash("Ingresa la fecha de vencimiento.", "warning")
         else:
-            cu, desc = _convertir_ume(producto, ume, cantidad)
-            db.session.add(RegistroVencimiento(
-                tienda_id=tienda_id, fecha=fecha,
-                hora=datetime.now().strftime("%H:%M:%S"),
-                usuario=usuario, categoria=categoria,
-                producto=producto, cantidad=cantidad,
-                cantidad_unidades=cu, ume=ume,
-                desc_conversion=desc, fecha_vencimiento=fecha_venc,
-                detalle=detalle,
-                sinc_estado="pendiente",
-            ))
+            cu, desc = empleado_service.registrar_vencimiento(
+                tienda_id=tienda_id, usuario=usuario,
+                categoria=categoria, producto=producto,
+                cantidad=cantidad, ume=ume,
+                fecha_vencimiento=fecha_venc, detalle=detalle,
+                fecha=fecha,
+            )
             db.session.commit()
             nombre_d = _re.sub(r"\s+x\s+un(?:idad|\.?)\s*$", "", producto, flags=_re.IGNORECASE)
             flash(f"Vencimiento registrado: {nombre_d} — vence {fecha_venc} (pendiente de sincronización)", "success")
             return redirect(url_for("empleado_vencimiento"))
 
-    recientes = (RegistroVencimiento.query
-                 .filter_by(tienda_id=tienda_id)
-                 .order_by(RegistroVencimiento.creado.desc())
-                 .limit(30).all())
-    return render_template("empleado_vencimiento.html",
-                           productos=productos, categorias=CATEGORIAS,
-                           recientes=recientes, hoy=date.today().isoformat())
+    return render_template("empleado_vencimiento.html", **context)
 
 
 @app.route("/empleado/vencimiento/<int:reg_id>/eliminar", methods=["POST"])
@@ -766,36 +634,16 @@ def vencimiento_eliminar(reg_id):
 def empleado_sincronizar_page():
     cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
-    pend_inv = InventarioItem.query.filter_by(
-        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").count()
-    pend_aver = RegistroAveriado.query.filter_by(
-        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").count()
-    pend_venc = RegistroVencimiento.query.filter_by(
-        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").count()
-    pendientes = pend_inv + pend_aver + pend_venc
     return render_template("empleado_sincronizar.html",
-                           pendientes=pendientes,
-                           pend_inv=pend_inv,
-                           pend_aver=pend_aver,
-                           pend_venc=pend_venc,
-                           sync_ultimo_envio=sync_ultimo_envio_empleado(),
-                           sync_ultima_recepcion=sync_ultima_recepcion_empleado())
+                           **empleado_service.build_sincronizacion_context(cliente_id=cliente_id, tienda_id=tienda_id))
 
 
 def sync_ultimo_envio_empleado():
-    u, t = session.get("usuario"), session.get("tienda_id", "")
-    r = (SincronizacionLog.query
-         .filter_by(usuario=u, tienda_id=t, tipo="envio")
-         .order_by(SincronizacionLog.timestamp.desc()).first())
-    return r.timestamp.strftime("%d/%m/%y %H:%M") if r else None
+    return empleado_service.sync_ultimo_envio_empleado()
 
 
 def sync_ultima_recepcion_empleado():
-    u, t = session.get("usuario"), session.get("tienda_id", "")
-    r = (SincronizacionLog.query
-         .filter_by(usuario=u, tienda_id=t, tipo="recepcion")
-         .order_by(SincronizacionLog.timestamp.desc()).first())
-    return r.timestamp.strftime("%d/%m/%y %H:%M") if r else None
+    return empleado_service.sync_ultima_recepcion_empleado()
 
 
 # --------------------------------------------------------------------------- #
@@ -809,51 +657,18 @@ def empleado_sincronizar():
     cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
-
-    # Registrar envío + marcar todos los pendientes como sincronizados
-    db.session.add(SincronizacionLog(
-        cliente_id=cliente_id,
-        tienda_id=tienda_id, usuario=usuario,
-        tipo="envio", accion=accion,
-    ))
-
-    # Marcar InventarioItems pendientes de esta tienda como sincronizados
-    pendientes = InventarioItem.query.filter_by(
-        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").all()
-    for item in pendientes:
-        item.sinc_estado = "sincronizado"
-    n_inv = len(pendientes)
-
-    pend_aver = RegistroAveriado.query.filter_by(
-        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").all()
-    for reg in pend_aver:
-        reg.sinc_estado = "sincronizado"
-    n_aver = len(pend_aver)
-
-    pend_venc = RegistroVencimiento.query.filter_by(
-        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente").all()
-    for reg in pend_venc:
-        reg.sinc_estado = "sincronizado"
-    n_venc = len(pend_venc)
-
-    n_total = n_inv + n_aver + n_venc
-
+    resumen = empleado_service.procesar_sincronizacion(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, accion=accion)
     if accion == "enviar_recibir":
-        db.session.add(SincronizacionLog(
-            cliente_id=cliente_id,
-            tienda_id=tienda_id, usuario=usuario,
-            tipo="recepcion", accion=accion,
-        ))
         flash((
-            f"Sincronización completada: {n_total} registro(s) enviado(s) "
-            f"(Inventario: {n_inv}, Averiados: {n_aver}, Vencimientos: {n_venc}) y catálogo actualizado."
+            f"Sincronización completada: {resumen['n_total']} registro(s) enviado(s) "
+            f"(Inventario: {resumen['n_inv']}, Averiados: {resumen['n_aver']}, Vencimientos: {resumen['n_venc']}) "
+            f"y catálogo actualizado ({resumen['catalogo_actualizado']} producto(s))."
         ), "success")
     else:
         flash(
-            f"Datos enviados: {n_total} registro(s) (Inventario: {n_inv}, Averiados: {n_aver}, Vencimientos: {n_venc}).",
+            f"Datos enviados: {resumen['n_total']} registro(s) (Inventario: {resumen['n_inv']}, Averiados: {resumen['n_aver']}, Vencimientos: {resumen['n_venc']}).",
             "success",
         )
-
     db.session.commit()
     return redirect(url_for("empleado_sincronizar_page"))
 
@@ -863,29 +678,17 @@ def empleado_sincronizar():
 def empleado_historial():
     tienda_id = session["tienda_id"]
     usuario = session["usuario"]
-    snapshots = InventarioSnapshot.query.filter_by(
-        tienda_id=tienda_id, usuario=usuario
-    ).order_by(InventarioSnapshot.fecha.desc(), InventarioSnapshot.id.desc()).all()
-
+    context = empleado_service.build_historial_context(tienda_id=tienda_id, usuario=usuario)
     selected_fecha = request.args.get("fecha")
-    selected_snapshot = None
-    detalle = []
+    if selected_fecha and context["snapshots"]:
+        selected_snapshot = next((s for s in context["snapshots"] if s.fecha == selected_fecha), None)
+        if selected_snapshot is not None:
+            context["selected_snapshot"] = selected_snapshot
+            context["detalle"] = HistorialMovimiento.query.filter_by(
+                tienda_id=tienda_id, usuario=usuario, fecha=selected_snapshot.fecha
+            ).order_by(HistorialMovimiento.categoria, HistorialMovimiento.producto).all()
 
-    if snapshots:
-        if selected_fecha:
-            selected_snapshot = next((s for s in snapshots if s.fecha == selected_fecha), None)
-        if selected_snapshot is None:
-            selected_snapshot = snapshots[0]
-        detalle = HistorialMovimiento.query.filter_by(
-            tienda_id=tienda_id, usuario=usuario, fecha=selected_snapshot.fecha
-        ).order_by(HistorialMovimiento.categoria, HistorialMovimiento.producto).all()
-
-    return render_template(
-        "empleado_historial.html",
-        snapshots=snapshots,
-        selected_snapshot=selected_snapshot,
-        detalle=detalle,
-    )
+    return render_template("empleado_historial.html", **context)
 
 
 # --------------------------------------------------------------------------- #
@@ -898,42 +701,26 @@ def empleado_delivery():
         producto_id = request.form.get("producto_id", type=int)
         cantidad = request.form.get("cantidad", type=int) or 1
         fecha = request.form.get("fecha", date.today().isoformat())
-        producto = DeliveryProducto.query.get(producto_id)
-        if producto:
-            total = producto.precio * cantidad
-            db.session.add(DeliveryVenta(
-                fecha=fecha, hora=datetime.now().strftime("%H:%M:%S"),
-                producto=producto.nombre, cantidad=cantidad,
-                precio_unitario=producto.precio, total=total,
-                usuario=session["usuario"], tienda_id=session["tienda_id"]))
+        if producto_id is None:
+            flash("Selecciona un producto antes de registrar la venta.", "warning")
+            return redirect(url_for("empleado_delivery"))
+        resultado = empleado_service.registrar_venta_delivery(
+            tienda_id=session["tienda_id"],
+            usuario=session["usuario"],
+            producto_id=producto_id,
+            cantidad=cantidad,
+            fecha=fecha,
+        )
+        if resultado:
+            nombre_producto, total = resultado
             db.session.commit()
-            flash(f"Venta registrada: {cantidad}x {producto.nombre} = ${total:g}", "success")
+            flash(f"Venta registrada: {cantidad}x {nombre_producto} = ${total:g}", "success")
         return redirect(url_for("empleado_delivery"))
 
-    hoy = date.today().isoformat()
-    activos = DeliveryProducto.query.filter_by(activo=True).all()
-    ventas_hoy = DeliveryVenta.query.filter_by(
-        fecha=hoy, tienda_id=session["tienda_id"]).order_by(DeliveryVenta.id.desc()).all()
-    total_dia = sum(v.total for v in ventas_hoy)
-    return render_template("empleado_delivery.html", activos=activos,
-                           ventas_hoy=ventas_hoy, total_dia=total_dia, hoy=hoy)
-
-
-# --------------------------------------------------------------------------- #
-#  Admin - Helpers de dashboard
-# --------------------------------------------------------------------------- #
-def _items_sincronizados(tienda_id=None):
-    """InventarioItems sincronizados, opcionalmente filtrados por tienda."""
-    q = InventarioItem.query.filter_by(sinc_estado="sincronizado")
-    if tienda_id and tienda_id != "ALL":
-        q = q.filter_by(tienda_id=tienda_id)
-    return q.all()
-
-
-def _precios_lookup():
-    """{nombre_lower: ProductoPrecio} solo con precio cargado."""
-    return {p.producto_nombre.strip().lower(): p
-            for p in ProductoPrecio.query.filter(ProductoPrecio.precio.isnot(None)).all()}
+    return render_template(
+        "empleado_delivery.html",
+        **empleado_service.build_delivery_context(tienda_id=session["tienda_id"]),
+    )
 
 
 def _dias_hasta(fecha_iso):
@@ -1344,50 +1131,34 @@ def admin_sincronizar_forzar():
 @app.route("/admin/inventario")
 @login_required(rol="administrador")
 def admin_inventario():
-    tiendas = Tienda.query.all()
-    tienda_id = request.args.get("tienda") or (tiendas[0].id if tiendas else "T001")
+    cliente_id = get_cliente_filtro()
+    tiendas = Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()
+    tienda_id = request.args.get("tienda") or get_tienda_filtro() or (tiendas[0].id if tiendas else "T001")
     categoria_filtro = request.args.get("categoria", "Todas")
     busqueda = (request.args.get("busqueda") or "").strip().lower()
     estado_filtro = request.args.get("estado", "Todos")
+    alerta_filtro = request.args.get("alerta", "Todos") or "Todos"
+    context = build_admin_inventory_context(
+        cliente_id=cliente_id,
+        tiendas=tiendas,
+        tienda_id=tienda_id,
+        categoria_filtro=categoria_filtro,
+        busqueda=busqueda,
+        estado_filtro=estado_filtro,
+        alerta_filtro=alerta_filtro,
+    )
 
-    thresholds = get_thresholds()
-    items = InventarioItem.query.filter_by(tienda_id=tienda_id, sinc_estado="sincronizado").all()
-    cargados_map = {(i.categoria, i.producto): i for i in items}
-
-    categorias_mostrar = CATEGORIAS if categoria_filtro == "Todas" else [categoria_filtro]
-    productos_db = get_productos_db()
-    data = {}
-    resumen = {}
-    for categoria in categorias_mostrar:
-        filas = []
-        for producto in productos_db.get(categoria, []):
-            item = cargados_map.get((categoria, producto))
-            cantidad = item.cantidad if item else 0
-            modo = item.ume if item else "N/A"
-            nivel, etiqueta = stock_status(producto, cantidad, thresholds)
-            cargado = cantidad > 0
-            if busqueda and busqueda not in producto.lower():
-                continue
-            if estado_filtro == "Cargado" and not cargado:
-                continue
-            if estado_filtro == "No cargado" and cargado:
-                continue
-            filas.append({
-                "producto": producto, "cantidad": cantidad, "modo": modo,
-                "nivel": nivel, "etiqueta": etiqueta, "cargado": cargado,
-            })
-        data[categoria] = filas
-        total = len(filas)
-        cargados = sum(1 for f in filas if f["cargado"])
-        resumen[categoria] = {
-            "total": total, "cargados": cargados, "no_cargados": total - cargados,
-            "porcentaje": round(cargados / total * 100, 1) if total else 0,
-        }
-
-    return render_template("admin_inventario.html", tiendas=tiendas, tienda_id=tienda_id,
-                           categorias=CATEGORIAS, categoria_filtro=categoria_filtro,
-                           busqueda=request.args.get("busqueda", ""), estado_filtro=estado_filtro,
-                           data=data, resumen=resumen)
+    return render_template(
+        "admin_inventario.html",
+        tiendas=tiendas,
+        tienda_id=tienda_id,
+        categoria_filtro=categoria_filtro,
+        busqueda=request.args.get("busqueda", ""),
+        estado_filtro=estado_filtro,
+        alerta_filtro=alerta_filtro,
+        categorias=CATEGORIAS,
+        **context,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1396,40 +1167,26 @@ def admin_inventario():
 @app.route("/admin/historial")
 @login_required(rol="administrador")
 def admin_historial():
-    tiendas = Tienda.query.all()
+    cliente_id = get_cliente_filtro()
+    tiendas = Tienda.query.filter_by(cliente_id=cliente_id).all()
     tienda_id = request.args.get("tienda") or (tiendas[0].id if tiendas else "T001")
     empleado = request.args.get("empleado", "Todos")
     tipo = request.args.get("tipo", "Todos")
     fecha_inicio = request.args.get("fecha_inicio", date.today().replace(day=1).isoformat())
     fecha_fin = request.args.get("fecha_fin", date.today().isoformat())
-
-    snapshots = InventarioSnapshot.query.filter_by(tienda_id=tienda_id)
-    if empleado != "Todos":
-        snapshots = snapshots.filter_by(usuario=empleado)
-    snapshots = snapshots.filter(InventarioSnapshot.fecha >= fecha_inicio,
-                                 InventarioSnapshot.fecha <= fecha_fin)
-    snapshots = snapshots.order_by(InventarioSnapshot.fecha.desc(),
-                                   InventarioSnapshot.id.desc()).all()
-
     selected_fecha = request.args.get("fecha")
-    selected_snapshot = None
-    registros = []
-    if snapshots:
-        if selected_fecha:
-            selected_snapshot = next((s for s in snapshots if s.fecha == selected_fecha), None)
-        if selected_snapshot is None:
-            selected_snapshot = snapshots[0]
-        q = HistorialMovimiento.query.filter_by(tienda_id=tienda_id, usuario=selected_snapshot.usuario, fecha=selected_snapshot.fecha)
-        if tipo != "Todos":
-            q = q.filter_by(tipo_inventario=tipo)
-        registros = q.order_by(HistorialMovimiento.categoria, HistorialMovimiento.producto).all()
 
-    empleados = [u.username for u in Usuario.query.filter_by(rol="empleado").all()]
-    return render_template("admin_historial.html", tiendas=tiendas, tienda_id=tienda_id,
-                           empleados=empleados, empleado=empleado, tipos=TIPOS_INVENTARIO,
-                           tipo=tipo, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
-                           snapshots=snapshots, selected_snapshot=selected_snapshot,
-                           registros=registros)
+    context = build_admin_historial_context(
+        cliente_id=cliente_id,
+        tiendas=tiendas,
+        tienda_id=tienda_id,
+        empleado=empleado,
+        tipo=tipo,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        fecha=selected_fecha,
+    )
+    return render_template("admin_historial.html", tiendas=tiendas, **context)
 
 
 # --------------------------------------------------------------------------- #
@@ -1518,7 +1275,7 @@ def producto_crear():
     if Producto.query.filter_by(nombre=nombre, categoria=categoria).first():
         _set_admin_config_notice("productos", f"Ya existe '{nombre}' en {categoria}.", "warning", active_tab)
         return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
-    db.session.add(Producto(nombre=nombre, categoria=categoria))
+    db.session.add(Producto(nombre=nombre, categoria=categoria, visible_empleado=False))
     db.session.commit()
     _set_admin_config_notice("productos", f"Producto '{nombre}' agregado a {categoria}.", "success", active_tab)
     return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
@@ -1596,27 +1353,40 @@ def admin_delivery():
         section = request.form.get("_section") or "delivery-form"
         nombre = (request.form.get("nombre") or "").strip()
         precio = request.form.get("precio", type=float) or 0
-        es_promocion = bool(request.form.get("es_promocion"))
+        es_promocion = request.form.get("es_promocion") == "on"
         if not nombre:
-            set_view_notice(session, "admin_delivery_notice", "El nombre no puede estar vacio.", "error")
-        elif DeliveryProducto.query.filter_by(cliente_id=cliente_id, nombre=nombre).first():
-            set_view_notice(session, "admin_delivery_notice", "Ya existe un producto con ese nombre.", "warning")
+            set_view_notice(session, "admin_delivery_notice", "El nombre del producto es obligatorio.", "error")
         else:
-            db.session.add(DeliveryProducto(cliente_id=cliente_id, nombre=nombre, precio=precio,
-                                            es_promocion=es_promocion, activo=True))
+            existente = DeliveryProducto.query.filter_by(cliente_id=cliente_id, nombre=nombre).first()
+            if existente:
+                existente.precio = precio
+                existente.es_promocion = es_promocion
+                existente.activo = True
+            else:
+                db.session.add(DeliveryProducto(
+                    cliente_id=cliente_id,
+                    nombre=nombre,
+                    precio=precio,
+                    es_promocion=es_promocion,
+                    activo=True,
+                ))
             db.session.commit()
             set_view_notice(session, "admin_delivery_notice", "Producto agregado al catalogo.", "success")
             section = "delivery-catalogo"
-        return redirect(url_for("admin_delivery") + f"#{section}")
 
-    local_notice = pop_view_notice(session, "admin_delivery_notice")
     catalogo = DeliveryProducto.query.filter_by(cliente_id=cliente_id).order_by(DeliveryProducto.nombre).all()
-    ventas = DeliveryVenta.query.filter_by(cliente_id=cliente_id).order_by(DeliveryVenta.id.desc()).limit(50).all()
-    total_ventas = sum(v.total for v in DeliveryVenta.query.filter_by(cliente_id=cliente_id).all())
-    return render_template("admin_delivery.html", catalogo=catalogo,
-                           ventas=ventas, total_ventas=total_ventas,
-                           local_notice=local_notice,
-                           hide_global_flash=True)
+    ventas = DeliveryVenta.query.filter_by(cliente_id=cliente_id).order_by(DeliveryVenta.id.desc()).limit(20).all()
+    total_ventas = sum(float(v.total or 0) for v in ventas)
+    local_notice = pop_view_notice(session, "admin_delivery_notice")
+
+    return render_template(
+        "admin_delivery.html",
+        catalogo=catalogo,
+        ventas=ventas,
+        total_ventas=total_ventas,
+        local_notice=local_notice,
+        hide_global_flash=True,
+    )
 
 
 @app.route("/admin/delivery/<int:prod_id>/toggle", methods=["POST"])
@@ -1711,30 +1481,18 @@ def admin_vencimientos():
     local_notice = pop_view_notice(session, "admin_vencimientos_notice")
 
     # Al abrir la vista, se consideran vistas las notificaciones sincronizadas.
-    RegistroVencimiento.query.filter_by(
-        cliente_id=cliente_id,
-        sinc_estado="sincronizado",
-        revisado=False,
-    ).update({"revisado": True}, synchronize_session=False)
+    marcar_vencimientos_vistos(cliente_id)
     db.session.commit()
 
-    q = RegistroVencimiento.query.filter(
-        RegistroVencimiento.cliente_id == cliente_id,
-        RegistroVencimiento.sinc_estado == "sincronizado",
-        RegistroVencimiento.fecha >= desde,
-        RegistroVencimiento.fecha <= hasta,
+    context = build_admin_vencimientos_context(
+        cliente_id=cliente_id,
+        tiendas=tiendas,
+        tienda_f=tienda_f,
+        desde=desde,
+        hasta=hasta,
+        local_notice=local_notice,
     )
-    if tienda_f != "Todas":
-        q = q.filter_by(tienda_id=tienda_f)
-    registros = q.order_by(RegistroVencimiento.creado.desc()).all()
-
-    return render_template("admin_vencimientos.html",
-                           registros=registros, tiendas=tiendas,
-                           tienda_f=tienda_f, desde=desde, hasta=hasta,
-                           hoy=date.today().isoformat(),
-                           local_notice=local_notice,
-                           notif_vencimientos=0,
-                           hide_global_flash=True)
+    return render_template("admin_vencimientos.html", **context)
 
 
 @app.route("/admin/vencimientos/revisar", methods=["POST"])
@@ -1745,17 +1503,7 @@ def admin_vencimientos_revisar():
     desde     = request.form.get("desde", date.today().replace(day=1).isoformat())
     hasta     = request.form.get("hasta", date.today().isoformat())
 
-    q = RegistroVencimiento.query.filter(
-        RegistroVencimiento.cliente_id == cliente_id,
-        RegistroVencimiento.sinc_estado == "sincronizado",
-        RegistroVencimiento.revisado.is_(False),
-        RegistroVencimiento.fecha >= desde,
-        RegistroVencimiento.fecha <= hasta,
-    )
-    if tienda_f != "Todas":
-        q = q.filter(RegistroVencimiento.tienda_id == tienda_f)
-
-    revisados = q.update({"revisado": True}, synchronize_session=False)
+    revisados = marcar_vencimientos_filtrados(cliente_id, tienda_f, desde, hasta)
     db.session.commit()
     set_view_notice(session, "admin_vencimientos_notice",
                     f"Registros marcados como revisados: {revisados}.", "success")

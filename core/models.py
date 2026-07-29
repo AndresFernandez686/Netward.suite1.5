@@ -77,6 +77,7 @@ class Producto(BaseModel):
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(160), nullable=False)
     categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Por Kilos | Extras
+    visible_empleado = db.Column(db.Boolean, default=True, nullable=False)
 
     __table_args__ = (db.UniqueConstraint("nombre", "categoria", name="uq_producto_categoria"),)
 

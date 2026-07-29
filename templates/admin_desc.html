@@ -4,125 +4,138 @@
 {% block subheading %}Procesamiento quincenal con continuidad automatica{% endblock %}
 
 {% block content %}
-<section class="card card--skip-collapse">
-  <h3 class="panel__title">Procesar archivo Excel</h3>
-  <p class="muted" style="font-size:.88rem;margin-bottom:16px;">
-    Sube el archivo <strong>.xls/.xlsx</strong> de inventario. El sistema eliminara grupos
-    irrelevantes (Canjes, Promociones, etc.), aplicara la
-    <strong>regla de continuidad quincenal</strong> (SI = SF del inventario anterior del mismo mes),
-    recalculara ventas teoricas y diferencias, y descargara el resultado como <strong>.xlsx</strong>.
-  </p>
-  <p style="font-size:.84rem;margin-bottom:20px;">
-    <a href="{{ url_for('desc.desc_sincronizar') }}" class="btn btn--ghost btn--sm">
-      Sincronizar nombres del catalogo con Excel
-    </a>
-  </p>
+<div class="desc-layout">
+  <section class="card card--skip-collapse desc-kpis">
+    <article class="desc-kpi">
+      <div class="desc-kpi__label">Inventarios procesados</div>
+      <div class="desc-kpi__value">{{ inventarios_procesados }}</div>
+      <div class="desc-kpi__sub">Histórico</div>
+    </article>
+    <article class="desc-kpi">
+      <div class="desc-kpi__label">Último proceso</div>
+      <div class="desc-kpi__value">{{ ultimo_snapshot.fecha_proceso if ultimo_snapshot else '—' }}</div>
+      <div class="desc-kpi__sub">{{ ultimo_snapshot.tienda_id if ultimo_snapshot else 'Sin datos' }}</div>
+    </article>
+    <article class="desc-kpi">
+      <div class="desc-kpi__label">Estado del servicio</div>
+      <div class="desc-kpi__value desc-kpi__value--ok">Activo</div>
+      <div class="desc-kpi__sub">Sin incidencias</div>
+    </article>
+    <article class="desc-kpi">
+      <div class="desc-kpi__label">Reglas activas</div>
+      <div class="desc-kpi__value">{{ reglas_activas }}</div>
+      <div class="desc-kpi__sub">Reglas configuradas</div>
+    </article>
+  </section>
 
-  <form method="post" action="{{ url_for('desc.admin_desc') }}"
-        enctype="multipart/form-data" id="proc-form">
-    <div class="form-row" style="margin-bottom:16px;">
-      <label class="field field--grow" style="min-width:220px;">
-        <span class="field__label">Archivo Excel *</span>
+  <section class="card card--skip-collapse">
+    <div class="panel__head" style="margin-bottom:8px;">
+      <h3 class="panel__title">Nuevo procesamiento</h3>
+    </div>
+    <form method="post" action="{{ url_for('desc.admin_desc') }}" enctype="multipart/form-data" id="proc-form" class="desc-form">
+      <div class="desc-dropzone">
+        <label for="file-input" class="desc-dropzone__box">
+          <span class="desc-dropzone__title">Archivo de inventario (XLSX)</span>
+          <span class="desc-dropzone__sub">Arrastra o selecciona un archivo</span>
+          <span class="desc-dropzone__hint">Tamaño recomendado: hasta 20 MB</span>
+          <span class="btn btn--ghost btn--sm">Seleccionar archivo</span>
+        </label>
         <input type="file" name="archivo" id="file-input" accept=".xlsx,.xls" required />
-      </label>
-      <label class="field">
-        <span class="field__label">Tienda</span>
-        <select name="tienda_id">
-          <option value="">— Sin tienda —</option>
-          {% for t in tiendas %}
-          <option value="{{ t.id }}">{{ t.nombre }} ({{ t.id }})</option>
+      </div>
+
+      <div class="desc-fields">
+        <div class="form-row" style="margin-bottom:10px;">
+          <label class="field">
+            <span class="field__label">Tienda</span>
+            <select name="tienda_id">
+              <option value="">— Sin tienda —</option>
+              {% for t in tiendas %}
+              <option value="{{ t.id }}">{{ t.nombre }} ({{ t.id }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field">
+            <span class="field__label">Fecha desde</span>
+            <input type="date" name="fecha_inicio" value="{{ primer_dia }}" />
+          </label>
+          <label class="field">
+            <span class="field__label">Fecha hasta</span>
+            <input type="date" name="fecha_fin" value="{{ hoy }}" />
+          </label>
+          <label class="field field--grow">
+            <span class="field__label">Etiqueta de período</span>
+            <input type="text" name="label_periodo" placeholder="Ej: Ventas 01 y 02" />
+          </label>
+        </div>
+
+        <div class="desc-inline-kpis">
+          <div><strong>{{ total_productos }}</strong><span>Productos en catálogo</span></div>
+          <div><strong>{{ categorias_registradas }}</strong><span>Categorías registradas</span></div>
+          <div><strong>{{ grupos_excluidos_count }}</strong><span>Exclusiones activas</span></div>
+          <div><strong>{{ ultimo_snapshot.fecha_proceso if ultimo_snapshot else '—' }}</strong><span>Última carga</span></div>
+        </div>
+
+        <div class="desc-actions">
+          <a href="{{ url_for('desc.desc_sincronizar') }}" class="btn btn--ghost">Sincronizar catálogo con Excel</a>
+          <button type="submit" class="btn btn--primary" id="btn-proc">
+            <span class="nav__icon">{% include 'icons/upload.svg' %}</span>
+            Procesar inventario
+          </button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <section class="desc-rules-grid">
+    <article class="card card--skip-collapse desc-rule desc-rule--blue">
+      <h4>Validaciones</h4>
+      <p><strong>{{ reglas_activas }}</strong> reglas activas</p>
+      <small>Archivo válido, columnas detectadas y formato normalizado.</small>
+    </article>
+    <article class="card card--skip-collapse desc-rule desc-rule--green">
+      <h4>Continuidad</h4>
+      <p><strong>Stock final → Stock inicial</strong></p>
+      <small>Automático por tienda y mes cuando existe snapshot previo.</small>
+    </article>
+    <article class="card card--skip-collapse desc-rule desc-rule--violet">
+      <h4>Exclusiones</h4>
+      <p><strong>{{ grupos_excluidos_count }}</strong> grupos ignorados</p>
+      <small>Canjes, promociones y otros grupos no relevantes.</small>
+    </article>
+  </section>
+
+  <section class="card card--skip-collapse">
+    <h3 class="panel__title">Procesamientos recientes</h3>
+    {% if snapshots %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>Tienda</th><th>Mes</th><th>Periodo</th><th>Registros</th><th>Estado</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for s in snapshots %}
+          {% set n_prods = s.stock_final_json | from_json | length %}
+          <tr>
+            <td>{{ s.tienda_id }}</td>
+            <td>{{ s.mes }}</td>
+            <td class="muted">{{ s.fecha_proceso }}</td>
+            <td>{{ n_prods }}</td>
+            <td><span class="badge badge--green">Correcto</span></td>
+            <td>
+              <form method="post" action="{{ url_for('desc.desc_snapshot_eliminar', snap_id=s.id) }}" onsubmit="return confirm('¿Eliminar este snapshot? Se perderá la continuidad para este período.')">
+                <button class="btn btn--sm btn--danger">Eliminar</button>
+              </form>
+            </td>
+          </tr>
           {% endfor %}
-        </select>
-      </label>
-      <label class="field">
-        <span class="field__label">Fecha desde</span>
-        <input type="date" name="fecha_inicio" value="{{ primer_dia }}" />
-      </label>
-      <label class="field">
-        <span class="field__label">Fecha hasta</span>
-        <input type="date" name="fecha_fin" value="{{ hoy }}" />
-      </label>
-      <label class="field field--grow">
-        <span class="field__label">Etiqueta de período</span>
-        <input type="text" name="label_periodo" placeholder="Ej: Ventas 01 y 02" />
-      </label>
+        </tbody>
+      </table>
     </div>
-    <button type="submit" class="btn btn--primary" id="btn-proc">
-      <span class="nav__icon">{% include 'icons/upload.svg' %}</span>
-      Procesar y descargar
-    </button>
-  </form>
-</section>
-
-{# ── Leyenda ── #}
-<section class="card card--skip-collapse">
-  <h3 class="panel__title">Leyenda y reglas</h3>
-  <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:.85rem;margin-bottom:14px;">
-    <div style="display:flex;align-items:center;gap:7px;">
-      <span style="width:20px;height:20px;border-radius:4px;background:#DBEAFE;display:inline-block;border:1px solid #bfdbfe;flex-shrink:0;"></span>
-      Stock Inicial y Venta Real &mdash; dato del sistema (o snapshot anterior)
-    </div>
-    <div style="display:flex;align-items:center;gap:7px;">
-      <span style="width:20px;height:20px;border-radius:4px;background:#D1FAE5;display:inline-block;border:1px solid #6ee7b7;flex-shrink:0;"></span>
-      Venta Teorica &mdash; calculada automaticamente
-    </div>
-    <div style="display:flex;align-items:center;gap:7px;">
-      <span style="width:20px;height:20px;border-radius:4px;background:#DCFCE7;display:inline-block;border:1px solid #86efac;flex-shrink:0;"></span>
-      Diferencia positiva (sin faltante)
-    </div>
-    <div style="display:flex;align-items:center;gap:7px;">
-      <span style="width:20px;height:20px;border-radius:4px;background:#FEE2E2;display:inline-block;border:1px solid #fca5a5;flex-shrink:0;"></span>
-      Diferencia negativa (faltante)
-    </div>
-  </div>
-  <div style="font-size:.83rem;color:var(--muted);line-height:1.8;">
-    <strong>Grupos excluidos automáticamente:</strong>
-    Canjes &bull; Congelados &bull; Frizzio &bull; Lineas especiales &bull;
-    Otros &bull; Otros ingred. &bull; Promociones
-    <br>
-    <strong>Regla de continuidad:</strong>
-    Si existe un inventario procesado previo del mismo mes y tienda, el
-    <em>stock final</em> de ese período se usa como <em>stock inicial</em> del nuevo.
-    De lo contrario se usa el stock del sistema (InventarioItem).
-    <br>
-    <strong>Formula venta teórica:</strong>
-    SI + Compras + Otros Ingresos &minus; Stock Final &minus; Otras Salidas
-    &nbsp;|&nbsp;
-    <strong>Diferencia:</strong> Venta Teorica &minus; Venta Real
-  </div>
-</section>
-
-{# ── Snapshots guardados ── #}
-{% if snapshots %}
-<section class="card card--skip-collapse">
-  <h3 class="panel__title">Inventarios procesados (snapshots de continuidad)</h3>
-  <div class="table-wrap">
-    <table class="table">
-      <thead>
-        <tr><th>Tienda</th><th>Mes</th><th>Fecha proceso</th><th>Productos</th><th></th></tr>
-      </thead>
-      <tbody>
-        {% for s in snapshots %}
-        {% set n_prods = s.stock_final_json | from_json | length %}
-        <tr>
-          <td>{{ s.tienda_id }}</td>
-          <td>{{ s.mes }}</td>
-          <td class="muted">{{ s.fecha_proceso }}</td>
-          <td><span class="badge badge--neutral">{{ n_prods }} prods.</span></td>
-          <td>
-            <form method="post"
-                  action="{{ url_for('desc.desc_snapshot_eliminar', snap_id=s.id) }}"
-                  onsubmit="return confirm('¿Eliminar este snapshot? Se perderá la continuidad para este período.')">
-              <button class="btn btn--sm btn--danger">Eliminar</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-{% endif %}
+    {% else %}
+    <div class="empty"><p>No hay procesamientos todavía.</p></div>
+    {% endif %}
+  </section>
+</div>
 {% endblock %}
 
 {% block scripts %}
