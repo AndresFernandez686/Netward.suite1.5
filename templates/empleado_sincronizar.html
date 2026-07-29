@@ -7,41 +7,39 @@
 <section class="card card--skip-collapse">
   <h3 class="panel__title">Estado de sincronización</h3>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
-    <div style="background:var(--bg);border-radius:12px;padding:18px;">
-      <div style="font-size:.78rem;color:var(--muted);margin-bottom:4px;">Última transmisión</div>
-      <div style="font-size:1.1rem;font-weight:700;color:var(--ink);">
+  <div class="sync-status-grid">
+    <div class="sync-status-box">
+      <div class="sync-status-label">Última transmisión</div>
+      <div class="sync-status-value">
         {{ sync_ultimo_envio or '—' }}
       </div>
     </div>
-    <div style="background:var(--bg);border-radius:12px;padding:18px;">
-      <div style="font-size:.78rem;color:var(--muted);margin-bottom:4px;">Última recepción</div>
-      <div style="font-size:1.1rem;font-weight:700;color:var(--ink);">
+    <div class="sync-status-box">
+      <div class="sync-status-label">Última recepción</div>
+      <div class="sync-status-value">
         {{ sync_ultima_recepcion or '—' }}
       </div>
     </div>
   </div>
 
   {% if pendientes > 0 %}
-  <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:12px;padding:16px;margin-bottom:24px;display:flex;align-items:center;gap:12px;">
-    <span style="font-size:1.4rem;">⚠️</span>
+  <div class="sync-banner sync-banner--warning">
     <div>
-      <strong style="color:#92400e;">{{ pendientes }} registro(s) pendiente(s) de envío</strong>
-      <p style="margin:2px 0 0;font-size:.85rem;color:#a16207;">
+      <strong class="sync-banner-title">{{ pendientes }} registro(s) pendiente(s) de envío</strong>
+      <p class="sync-banner-text">
         Guardaste inventario que aún no fue enviado al administrador.
         Presiona PROCESAR para sincronizar.
       </p>
-      <p style="margin:6px 0 0;font-size:.82rem;color:#a16207;">
+      <p class="sync-banner-meta">
         Inventario: {{ pend_inv or 0 }} | Averiados: {{ pend_aver or 0 }} | Vencimientos: {{ pend_venc or 0 }}
       </p>
     </div>
   </div>
   {% else %}
-  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px;margin-bottom:24px;display:flex;align-items:center;gap:12px;">
-    <span style="font-size:1.4rem;">✅</span>
+  <div class="sync-banner sync-banner--ok">
     <div>
-      <strong style="color:#166534;">Todo sincronizado</strong>
-      <p style="margin:2px 0 0;font-size:.85rem;color:#15803d;">
+      <strong class="sync-banner-title">Todo sincronizado</strong>
+      <p class="sync-banner-text">
         No hay datos pendientes. El administrador ya tiene todo actualizado.
       </p>
     </div>
@@ -51,48 +49,45 @@
   <form method="post" action="{{ url_for('empleado_sincronizar') }}" id="sync-form"
         onsubmit="document.getElementById('btn-procesar').disabled=true; document.getElementById('btn-procesar').textContent='Procesando...';">
 
-    <div style="margin-bottom:16px;">
-      <label class="field">
-        <span class="field__label">Acción</span>
-        <select name="accion" style="width:100%;max-width:320px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff;">
-          <option value="solo_enviar">Solo Enviar — envía inventario, averiados y vencimientos</option>
-          <option value="enviar_recibir">Enviar y Recibir — también recibe productos nuevos del admin</option>
-        </select>
-      </label>
+    <input type="hidden" name="accion" id="accion-hidden" value="solo_enviar" />
+
+    <div class="sync-opcion-grid">
+      <button type="button" class="sync-opcion is-active" data-value="solo_enviar">
+        <span class="sync-opcion__titulo">Solo Enviar</span>
+        <span class="sync-opcion__desc">Inventario, averiados y vencimientos</span>
+      </button>
+      <button type="button" class="sync-opcion" data-value="enviar_recibir">
+        <span class="sync-opcion__titulo">Enviar y Recibir</span>
+        <span class="sync-opcion__desc">También descarga productos nuevos del admin</span>
+      </button>
     </div>
 
     <button type="submit" id="btn-procesar"
-            class="btn btn--primary"
-            style="font-size:1rem;padding:14px 40px;letter-spacing:.02em;">
+            class="btn btn--primary sync-submit-btn">
       PROCESAR
     </button>
   </form>
 </section>
+{% endblock %}
 
-<section class="card card--skip-collapse">
-  <h3 class="panel__title">¿Qué hace la sincronización?</h3>
-  <div style="display:flex;flex-direction:column;gap:12px;font-size:.88rem;">
-    <div style="display:flex;gap:12px;align-items:flex-start;">
-      <span style="flex-shrink:0;font-size:1.1rem;">📤</span>
-      <div>
-        <strong>Solo Enviar</strong><br>
-        <span class="muted">Envía al administrador todo el inventario guardado, registros de averiados y stock próximo a vencer. Los datos quedan marcados como sincronizados.</span>
-      </div>
-    </div>
-    <div style="display:flex;gap:12px;align-items:flex-start;">
-      <span style="flex-shrink:0;font-size:1.1rem;">🔄</span>
-      <div>
-        <strong>Enviar y Recibir</strong><br>
-        <span class="muted">Hace lo mismo que "Solo Enviar" y además descarga las actualizaciones del administrador: nuevos productos, cambios de configuración de precios y empaques.</span>
-      </div>
-    </div>
-    <div style="display:flex;gap:12px;align-items:flex-start;">
-      <span style="flex-shrink:0;font-size:1.1rem;">💾</span>
-      <div>
-        <strong>Guardar inventario</strong><br>
-        <span class="muted">El botón "Guardar inventario" solo guarda los datos en el dispositivo. El administrador los verá después de que presiones PROCESAR aquí.</span>
-      </div>
-    </div>
-  </div>
-</section>
+{% block scripts %}
+<script>
+  (function () {
+    var opciones = document.querySelectorAll('.sync-opcion');
+    var hidden = document.getElementById('accion-hidden');
+    if (!opciones.length || !hidden) {
+      return;
+    }
+
+    opciones.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        opciones.forEach(function (b) {
+          b.classList.remove('is-active');
+        });
+        btn.classList.add('is-active');
+        hidden.value = btn.dataset.value || 'solo_enviar';
+      });
+    });
+  })();
+</script>
 {% endblock %}

@@ -8,7 +8,7 @@
   <h3 class="panel__title">Nuevo registro</h3>
 
   <form method="post" action="{{ url_for('empleado_vencimiento') }}" id="form-venc">
-    <div class="inv-form__grid" style="grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1.4fr; align-items: end;">
+    <div class="venc-form-grid">
 
       {# Producto #}
       <div class="field combo" data-combo>
@@ -62,16 +62,16 @@
       </label>
 
       {# Botón #}
-      <div class="inv-form__action">
+      <div class="venc-form-submit">
         <button type="submit" class="btn btn--primary btn--block">Guardar</button>
       </div>
     </div>
 
     {# Detalle opcional #}
-    <div style="margin-top:12px;">
+    <div class="vencimiento-observacion">
       <label class="field">
         <span class="field__label">Observaciones (opcional)</span>
-        <input type="text" name="detalle" placeholder="Ej: lote A-42, ubicacion freezer 2..." style="width:100%;padding:9px 13px;border:1px solid var(--line);border-radius:10px;font:inherit;" />
+        <input type="text" name="detalle" placeholder="Ej: lote A-42, ubicacion freezer 2..." class="vencimiento-observacion__input" />
       </label>
     </div>
   </form>
@@ -82,7 +82,7 @@
 <section class="card card--skip-collapse">
   <h3 class="panel__title">Registros recientes <span class="badge badge--neutral">{{ recientes|length }}</span></h3>
   <div class="table-wrap">
-    <table class="table">
+    <table class="table table--vencimiento-mobile">
       <thead>
         <tr><th>Reg.</th><th>Producto</th><th>Categoría</th><th>Cantidad</th><th>Unidades</th><th>Vence</th><th>Días</th><th>Obs.</th><th></th></tr>
       </thead>

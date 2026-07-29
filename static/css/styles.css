@@ -806,6 +806,362 @@ small { font-size: .78rem; }
 }
 .combo__clear:hover { background: var(--line); color: var(--ink); }
 
+/* ---------- Empleado: Sincronización / Vencimiento ---------- */
+.sync-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.sync-status-box {
+  background: var(--bg);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.sync-status-label {
+  font-size: .78rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.sync-status-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.sync-banner {
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sync-banner--warning {
+  background: #fef9c3;
+  border: 1px solid #fde68a;
+}
+
+.sync-banner--ok {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.sync-banner-icon {
+  flex-shrink: 0;
+  font-size: 1.4rem;
+}
+
+.sync-banner-title {
+  display: block;
+}
+
+.sync-banner--warning .sync-banner-title {
+  color: #92400e;
+}
+
+.sync-banner--ok .sync-banner-title {
+  color: #166534;
+}
+
+.sync-banner-text {
+  margin: 2px 0 0;
+  font-size: .85rem;
+}
+
+.sync-banner-meta {
+  margin: 6px 0 0;
+  font-size: .82rem;
+}
+
+.sync-banner--warning .sync-banner-text,
+.sync-banner--warning .sync-banner-meta {
+  color: #a16207;
+}
+
+.sync-banner--ok .sync-banner-text,
+.sync-banner--ok .sync-banner-meta {
+  color: #15803d;
+}
+
+.sync-opcion-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.sync-opcion {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 14px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+
+.sync-opcion:hover {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.sync-opcion.is-active {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  box-shadow: 0 0 0 3px rgba(29,78,216,.1);
+}
+
+.sync-opcion__icon { font-size: 1.3rem; }
+
+.sync-opcion__titulo {
+  font-size: .9rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.sync-opcion.is-active .sync-opcion__titulo {
+  color: var(--brand-dark);
+}
+
+.sync-opcion__desc {
+  font-size: .76rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.sync-submit-btn {
+  width: 100%;
+  font-size: 1rem;
+  padding: 14px;
+  letter-spacing: .04em;
+  font-weight: 800;
+}
+
+/* Vencimiento form grid */
+.venc-form-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  gap: 12px;
+  align-items: end;
+}
+
+.venc-form-submit {
+  align-self: end;
+}
+
+@media (max-width: 900px) {
+  .venc-form-grid {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .sync-opcion-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .venc-form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .venc-form-submit {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 480px) {
+  .venc-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-opcion {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .sync-opcion__icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+  }
+}
+
+.sync-help-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: .88rem;
+}
+
+.sync-help-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.sync-help-icon {
+  flex-shrink: 0;
+  font-size: 1.1rem;
+}
+
+.inv-form__grid--vencimiento {
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1.4fr;
+  align-items: end;
+}
+
+.inv-form__grid--averiado {
+  grid-template-columns: 2fr 1fr 1fr 1fr 1.4fr;
+  align-items: end;
+}
+
+.averiado-detalle {
+  margin-top: 12px;
+}
+
+.averiado-detalle__input {
+  width: 100%;
+}
+
+.vencimiento-observacion {
+  margin-top: 12px;
+}
+
+.vencimiento-observacion__input {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .inv-form__grid--vencimiento {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .inv-form__grid--averiado {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .sync-status-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .sync-status-box {
+    padding: 12px;
+  }
+
+  .sync-status-value {
+    font-size: 1rem;
+  }
+
+  .sync-banner {
+    padding: 12px;
+    margin-bottom: 16px;
+    align-items: flex-start;
+  }
+
+  .sync-action-select {
+    max-width: 100%;
+  }
+
+  .sync-submit-btn {
+    width: 100%;
+    padding: 12px 16px;
+  }
+
+  .table--vencimiento-mobile th:nth-child(5),
+  .table--vencimiento-mobile td:nth-child(5),
+  .table--vencimiento-mobile th:nth-child(8),
+  .table--vencimiento-mobile td:nth-child(8) {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .inv-form__grid--vencimiento {
+    grid-template-columns: 1fr;
+  }
+
+  .inv-form__grid--averiado {
+    grid-template-columns: 1fr;
+  }
+
+  .table--vencimiento-mobile {
+    min-width: 620px;
+  }
+
+  .sync-help-list {
+    font-size: .84rem;
+  }
+
+  .table--averiado-mobile thead {
+    display: none;
+  }
+
+  .table--averiado-mobile,
+  .table--averiado-mobile tbody,
+  .table--averiado-mobile tr,
+  .table--averiado-mobile td {
+    display: block;
+    width: 100%;
+  }
+
+  .table--averiado-mobile tr {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    background: #fff;
+    padding: 8px 10px;
+  }
+
+  .table--averiado-mobile td {
+    border: 0;
+    padding: 8px 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: baseline;
+    font-size: .84rem;
+  }
+
+  .table--averiado-mobile td::before {
+    content: attr(data-label);
+    font-weight: 700;
+    color: var(--ink-2);
+    flex-shrink: 0;
+  }
+
+  .table--averiado-mobile td strong,
+  .table--averiado-mobile td .tag,
+  .table--averiado-mobile td small {
+    text-align: right;
+  }
+
+  .table--averiado-mobile .averiado-row-delete {
+    justify-content: flex-end;
+    padding-top: 10px;
+  }
+
+  .table--averiado-mobile .averiado-row-delete::before {
+    display: none;
+  }
+
+  .table--averiado-mobile .averiado-row-delete .btn {
+    min-width: 44px;
+  }
+}
+
 .combo__list {
   list-style: none;
   margin: 0;

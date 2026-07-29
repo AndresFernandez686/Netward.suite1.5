@@ -8,7 +8,7 @@
   <h3 class="panel__title">Nuevo registro</h3>
 
   <form method="post" action="{{ url_for('empleado_averiado') }}" id="form-averiado">
-    <div class="inv-form__grid" style="grid-template-columns: 2fr 1fr 1fr 1fr 1.4fr; align-items: end;">
+    <div class="inv-form__grid inv-form__grid--averiado">
 
       {# Producto #}
       <div class="field combo" data-combo>
@@ -63,10 +63,10 @@
     </div>
 
     {# Detalle opcional #}
-    <div style="margin-top:12px;">
+    <div class="averiado-detalle">
       <label class="field">
         <span class="field__label">Detalle / motivo (opcional)</span>
-        <input type="text" name="detalle" placeholder="Ej: golpe durante traslado, congelación incorrecta..." style="width:100%;padding:9px 13px;border:1px solid var(--line);border-radius:10px;font:inherit;" />
+        <input type="text" name="detalle" placeholder="Ej: golpe durante traslado, congelación incorrecta..." class="averiado-detalle__input" />
       </label>
     </div>
   </form>
@@ -77,26 +77,26 @@
 <section class="card card--skip-collapse">
   <h3 class="panel__title">Registros recientes <span class="badge badge--neutral">{{ recientes|length }}</span></h3>
   <div class="table-wrap">
-    <table class="table">
+    <table class="table table--averiado-mobile">
       <thead>
         <tr><th>Fecha</th><th>Producto</th><th>Categoría</th><th>Cantidad</th><th>Unidades</th><th>Detalle</th><th></th></tr>
       </thead>
       <tbody>
         {% for r in recientes %}
         <tr>
-          <td class="muted">{{ r.fecha }}</td>
-          <td><strong>{{ r.producto | strip_unidad }}</strong></td>
-          <td><span class="tag">{{ r.categoria }}</span></td>
-          <td>{{ '%g'|format(r.cantidad) }} {{ r.ume }}</td>
-          <td>
+          <td class="muted" data-label="Fecha">{{ r.fecha }}</td>
+          <td data-label="Producto"><strong>{{ r.producto | strip_unidad }}</strong></td>
+          <td data-label="Categoría"><span class="tag">{{ r.categoria }}</span></td>
+          <td data-label="Cantidad">{{ '%g'|format(r.cantidad) }} {{ r.ume }}</td>
+          <td data-label="Unidades">
             {% if r.desc_conversion %}
               <small class="muted">{{ r.desc_conversion }}</small>
             {% else %}
               {{ '%g'|format(r.cantidad_unidades) }} Unid.
             {% endif %}
           </td>
-          <td class="muted">{{ r.detalle }}</td>
-          <td>
+          <td class="muted" data-label="Detalle">{{ r.detalle }}</td>
+          <td class="averiado-row-delete" data-label="Acciones">
             <form method="post" action="{{ url_for('averiado_eliminar', reg_id=r.id) }}"
                   onsubmit="return confirm('¿Eliminar este registro?')">
               <button class="btn btn--sm btn--danger">×</button>
