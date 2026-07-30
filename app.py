@@ -13,6 +13,7 @@ import io
 import os
 from datetime import datetime, date, timedelta
 from functools import wraps
+import secrets
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, send_file, jsonify, abort)
@@ -41,6 +42,11 @@ load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=True)
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or "netward-dev-secret-change-me"
 app.config["ASSET_VERSION"] = os.getenv("ASSET_VERSION", datetime.utcnow().strftime("%Y%m%d%H%M%S"))
+# ── Seguridad de sesion ───────────────────────────────────────────────────────
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)  # Sesion expira en 8 h
+app.config["SESSION_COOKIE_HTTPONLY"] = True    # JS no puede leer la cookie de sesion
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # Proteccion CSRF basica
+# ─────────────────────────────────────────────────────────────────────────────
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL_EMPLEADO", "sqlite:///netward_empleado.db"))
 app.config["SQLALCHEMY_BINDS"] = {
     "empleado": os.getenv("DATABASE_URL_EMPLEADO", "sqlite:///netward_empleado.db"),
@@ -346,6 +352,8 @@ def login():
             flash("Contrasena incorrecta.", "error")
             return redirect(url_for("login"))
 
+        session.clear()          # Eliminar cualquier sesion anterior antes de crear una nueva
+        session.permanent = True # Aplicar PERMANENT_SESSION_LIFETIME
         session["usuario"] = usuario.username
         session["cliente_id"] = usuario.cliente_id or "C001"
         session["rol"] = usuario.rol
