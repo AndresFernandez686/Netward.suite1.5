@@ -35,6 +35,7 @@ from core.admin_historial import build_admin_historial_context
 from core.admin_vencimientos import build_admin_vencimientos_context, marcar_vencimientos_vistos, marcar_vencimientos_filtrados
 from core import empleado as empleado_service
 from core.admin_feedback import set_view_notice, pop_view_notice
+from core.time_utils import today_local_iso, format_utc_naive_to_local
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=True)
@@ -409,7 +410,7 @@ def empleado_inventario():
         **empleado_service.build_empleado_inventario_context(
             active_tab=request.args.get("tab") or CATEGORIAS[0],
             carrito=get_carrito(),
-            hoy=date.today().isoformat(),
+            hoy=today_local_iso(),
         ),
     )
 
@@ -422,7 +423,7 @@ def carrito_agregar():
     cantidad = request.form.get("cantidad", type=float) or 0
     ume = request.form.get("ume", "Unidad")
     tipo_inventario = request.form.get("tipo_inventario", "Diario")
-    fecha = request.form.get("fecha", date.today().isoformat())
+    fecha = request.form.get("fecha", today_local_iso())
     detalle = request.form.get("detalle", "")
 
     if not producto:
@@ -534,7 +535,7 @@ def empleado_averiado():
             cantidad_es_invalida = True
         ume       = request.form.get("ume", "Unidad")
         detalle   = (request.form.get("detalle") or "").strip()
-        fecha     = request.form.get("fecha", date.today().isoformat())
+        fecha     = request.form.get("fecha", today_local_iso())
 
         if not producto:
             flash("Selecciona un producto.", "warning")
@@ -597,7 +598,7 @@ def empleado_vencimiento():
         ume              = request.form.get("ume", "Unidad")
         fecha_venc       = (request.form.get("fecha_vencimiento") or "").strip()
         detalle          = (request.form.get("detalle") or "").strip()
-        fecha            = request.form.get("fecha", date.today().isoformat())
+        fecha            = request.form.get("fecha", today_local_iso())
 
         if not producto:
             flash("Selecciona un producto.", "warning")
@@ -708,7 +709,7 @@ def empleado_delivery():
     if request.method == "POST":
         producto_id = request.form.get("producto_id", type=int)
         cantidad = request.form.get("cantidad", type=int) or 1
-        fecha = request.form.get("fecha", date.today().isoformat())
+        fecha = request.form.get("fecha", today_local_iso())
         if producto_id is None:
             flash("Selecciona un producto antes de registrar la venta.", "warning")
             return redirect(url_for("empleado_delivery"))
@@ -980,11 +981,15 @@ def admin_usuarios():
 def usuario_crear():
     cliente_id = get_cliente_filtro()
     username = (request.form.get("username") or "").strip()
+    contrasena = request.form.get("contrasena") or ""
     rol = (request.form.get("rol") or "empleado").strip()
     tienda_id = (request.form.get("tienda_id") or "").strip()
 
     if not username:
         set_view_notice(session, "admin_usuarios_notice", "El nombre de usuario es obligatorio.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-crear")
+    if len(contrasena) < 6:
+        set_view_notice(session, "admin_usuarios_notice", "La contrasena debe tener al menos 6 caracteres.", "error")
         return redirect(url_for("admin_usuarios") + "#usuarios-crear")
     if rol not in ("empleado", "administrador"):
         set_view_notice(session, "admin_usuarios_notice", "Rol no valido.", "error")
@@ -999,7 +1004,13 @@ def usuario_crear():
         set_view_notice(session, "admin_usuarios_notice", "Selecciona una tienda para el empleado.", "error")
         return redirect(url_for("admin_usuarios") + "#usuarios-crear")
 
-    db.session.add(Usuario(username=username, cliente_id=cliente_id, rol=rol, tienda_id=tienda_id))
+    db.session.add(Usuario(
+        username=username,
+        password_hash=generate_password_hash(contrasena),
+        cliente_id=cliente_id,
+        rol=rol,
+        tienda_id=tienda_id,
+    ))
     db.session.commit()
     set_view_notice(session, "admin_usuarios_notice", f"Usuario '{username}' creado correctamente.", "success")
     return redirect(url_for("admin_usuarios") + "#usuarios-list")
@@ -1101,8 +1112,8 @@ def admin_sincronizacion():
         total_pendientes += pendientes
         filas.append({
             "tienda": t.nombre, "tienda_id": t.id, "activa": t.activa,
-            "ultimo_envio": ultimo_envio.timestamp.strftime("%d/%m/%y %H:%M") if ultimo_envio else None,
-            "ultima_recepcion": ultima_recepcion.timestamp.strftime("%d/%m/%y %H:%M") if ultima_recepcion else None,
+            "ultimo_envio": format_utc_naive_to_local(ultimo_envio.timestamp) if ultimo_envio else None,
+            "ultima_recepcion": format_utc_naive_to_local(ultima_recepcion.timestamp) if ultima_recepcion else None,
             "pendientes": pendientes,
         })
     return render_template("admin_sync_estado.html", filas=filas,

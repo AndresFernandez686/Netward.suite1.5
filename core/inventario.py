@@ -5,8 +5,8 @@ Flujo completo:
   1. Admin sube .xls/.xlsx de inventario + elige tienda y rango de fechas.
   2. Sistema limpia columnas irrelevantes y filtra grupos no relevantes.
   3. Regla de continuidad quincenal:
-       - Si existe snapshot previo del mismo mes/tienda → usa su stock_final como SI.
-       - Si no → usa el stock cargado por el empleado en InventarioItem.
+      - Si existe stock cargado por el empleado en el sistema → usa ese valor como SI.
+      - Si no existe en sistema y hay snapshot previo del mismo mes/tienda → usa su stock_final como SI.
   4. Reemplaza ventas reales con DeliveryVenta del período.
   5. Recalcula venta teórica y diferencia.
   6. Agrega columnas: separador vacío | unid_por_caja | unid_por_bulto.
@@ -203,10 +203,10 @@ def _leer_excel(contenido: bytes, filename: str) -> list:
 # ---------------------------------------------------------------------------
 
 def _stock_map(tienda_id: str) -> dict:
-    """Retorna {nombre_norm: cantidad} desde InventarioItem sincronizados."""
+    """Retorna {nombre_norm: cantidad} desde InventarioItem (pendiente o sincronizado)."""
     from core.models import InventarioItem
     result = {}
-    for item in InventarioItem.query.filter_by(tienda_id=tienda_id, sinc_estado="sincronizado").all():
+    for item in InventarioItem.query.filter_by(tienda_id=tienda_id).all():
         k = _norm(item.producto)
         result[k] = result.get(k, 0.0) + _f(item.cantidad)
     return result
@@ -306,13 +306,13 @@ def _procesar_filas(filas_raw: list, stock_map: dict, ventas_map: dict,
 
         key = _norm(nombre)
 
-        # ── Stock inicial: snapshot > sistema > Excel original ─────────────
-        if prev_snapshot and key in prev_snapshot:
-            fila[layout["si"]] = prev_snapshot[key]
-            n_si_snap += 1
-        elif key in stock_map:
+        # ── Stock inicial: sistema > snapshot > Excel original ─────────────
+        if key in stock_map:
             fila[layout["si"]] = stock_map[key]
             n_si_sys += 1
+        elif prev_snapshot and key in prev_snapshot:
+            fila[layout["si"]] = prev_snapshot[key]
+            n_si_snap += 1
         # else: se conserva el valor del Excel
 
         # ── Ventas reales ──────────────────────────────────────────────────

@@ -7,7 +7,7 @@
 <div id="usuarios-list"></div>
 <div class="banner banner--warning">
   <div>
-    <strong>Modo Beta</strong> — cualquier contraseña es válida para todos los usuarios.
+    <strong>Modo Beta</strong> — al crear un usuario debes asignarle su contraseña para que pueda iniciar sesión.
   </div>
 </div>
 
@@ -66,6 +66,10 @@
       <label class="field">
         <span class="field__label">Nombre de usuario</span>
         <input type="text" name="username" required placeholder="ej. maria" />
+      </label>
+      <label class="field">
+        <span class="field__label">Contrasena</span>
+        <input type="password" name="contrasena" required minlength="6" placeholder="Minimo 6 caracteres" autocomplete="new-password" />
       </label>
       <label class="field">
         <span class="field__label">Rol</span>

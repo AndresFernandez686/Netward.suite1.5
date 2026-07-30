@@ -12,6 +12,7 @@ from core.models import (
     DeliveryProducto, DeliveryVenta,
 )
 from core.seed_data import CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME, ESTADOS_BALDE
+from core.time_utils import today_local_iso, now_local_time_str, format_utc_naive_to_local
 
 
 def _safe_inv_tab(tab_value):
@@ -70,7 +71,7 @@ def add_carrito_item(*, carrito: list, categoria: str, producto: str, cantidad: 
         "tipo_inventario": tipo_inventario,
         "fecha": fecha,
         "detalle": detalle,
-        "hora": __import__("datetime").datetime.now().strftime("%H:%M:%S"),
+        "hora": now_local_time_str(),
     })
     nombre_display = producto if ume == "Unidad" else __import__("re").sub(r"\s+x\s+un(?:idad|\.?|)\s*$", "", producto, flags=__import__("re").IGNORECASE)
     msg = f"{nombre_display} agregado ({cantidad:g} {ume})"
@@ -89,7 +90,7 @@ def remove_carrito_item(carrito: list, idx: int):
 def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str):
     if not carrito:
         return 0
-    fecha_snapshot = carrito[0].get("fecha") or __import__("datetime").date.today().isoformat()
+    fecha_snapshot = carrito[0].get("fecha") or today_local_iso()
     guardados = 0
     grupos = defaultdict(lambda: {"entradas": [], "total_unidades": 0.0})
     for entrada in carrito:
@@ -154,7 +155,7 @@ def build_averiado_context(*, tienda_id: str):
         "productos": get_productos_db(),
         "categorias": CATEGORIAS,
         "recientes": RegistroAveriado.query.filter_by(tienda_id=tienda_id).order_by(RegistroAveriado.creado.desc()).limit(30).all(),
-        "hoy": __import__("datetime").date.today().isoformat(),
+        "hoy": today_local_iso(),
     }
 
 
@@ -164,7 +165,7 @@ def registrar_averiado(*, tienda_id: str, usuario: str, categoria: str, producto
     db.session.add(RegistroAveriado(
         cliente_id=session.get("cliente_id", "C001"),
         tienda_id=tienda_id, fecha=fecha,
-        hora=__import__("datetime").datetime.now().strftime("%H:%M:%S"),
+        hora=now_local_time_str(),
         usuario=usuario, categoria=categoria,
         producto=producto, cantidad=cantidad,
         cantidad_unidades=cu, ume=ume,
@@ -179,7 +180,7 @@ def build_vencimiento_context(*, tienda_id: str):
         "productos": get_productos_db(),
         "categorias": CATEGORIAS,
         "recientes": RegistroVencimiento.query.filter_by(tienda_id=tienda_id).order_by(RegistroVencimiento.creado.desc()).limit(30).all(),
-        "hoy": __import__("datetime").date.today().isoformat(),
+        "hoy": today_local_iso(),
     }
 
 
@@ -190,7 +191,7 @@ def registrar_vencimiento(*, tienda_id: str, usuario: str, categoria: str, produ
     db.session.add(RegistroVencimiento(
         cliente_id=session.get("cliente_id", "C001"),
         tienda_id=tienda_id, fecha=fecha,
-        hora=__import__("datetime").datetime.now().strftime("%H:%M:%S"),
+        hora=now_local_time_str(),
         usuario=usuario, categoria=categoria,
         producto=producto, cantidad=cantidad,
         cantidad_unidades=cu, ume=ume,
@@ -220,7 +221,7 @@ def sync_ultimo_envio_empleado():
     r = (SincronizacionLog.query
          .filter_by(usuario=u, tienda_id=t, tipo="envio")
          .order_by(SincronizacionLog.timestamp.desc()).first())
-    return r.timestamp.strftime("%d/%m/%y %H:%M") if r else None
+    return format_utc_naive_to_local(r.timestamp) if r else None
 
 
 def sync_ultima_recepcion_empleado():
@@ -228,7 +229,7 @@ def sync_ultima_recepcion_empleado():
     r = (SincronizacionLog.query
          .filter_by(usuario=u, tienda_id=t, tipo="recepcion")
          .order_by(SincronizacionLog.timestamp.desc()).first())
-    return r.timestamp.strftime("%d/%m/%y %H:%M") if r else None
+    return format_utc_naive_to_local(r.timestamp) if r else None
 
 
 def procesar_sincronizacion(*, cliente_id: str, tienda_id: str, usuario: str, accion: str):
@@ -295,7 +296,7 @@ def build_historial_context(*, tienda_id: str, usuario: str):
 
 
 def build_delivery_context(*, tienda_id: str):
-    hoy = __import__("datetime").date.today().isoformat()
+    hoy = today_local_iso()
     activos = DeliveryProducto.query.filter_by(activo=True).all()
     ventas_hoy = DeliveryVenta.query.filter_by(
         tienda_id=tienda_id,
@@ -319,7 +320,7 @@ def registrar_venta_delivery(*, tienda_id: str, usuario: str, producto_id: int, 
     db.session.add(DeliveryVenta(
         cliente_id=session.get("cliente_id", "C001"),
         fecha=fecha,
-        hora=__import__("datetime").datetime.now().strftime("%H:%M:%S"),
+        hora=now_local_time_str(),
         producto=producto.nombre,
         cantidad=cantidad,
         precio_unitario=producto.precio,

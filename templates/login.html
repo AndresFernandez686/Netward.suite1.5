@@ -20,7 +20,7 @@
 
     <div class="auth__note">
       <strong>Modo Beta</strong>
-      <span>Admins: <code>admin123</code> &nbsp;|&nbsp; Empleados: <code>emp123</code></span>
+      <span>Cada usuario inicia con la contrasena asignada por el administrador.</span>
     </div>
   </div>
 
@@ -48,7 +48,7 @@
 
         <label class="field">
           <span class="field__label">Contrasena</span>
-          <input type="password" name="contrasena" placeholder="Cualquier contrasena (modo beta)" required />
+          <input type="password" name="contrasena" placeholder="Ingresa tu contrasena" required />
         </label>
 
         <button type="submit" class="btn btn--primary btn--block">Ingresar</button>
@@ -58,9 +58,8 @@
         <span class="auth__users-title">Usuarios disponibles</span>
         <div class="chips">
           {% for u in usuarios %}
-            <button type="button" class="chip" data-user="{{ u.username }}" data-pwd="{{ 'admin123' if u.rol == 'administrador' else 'emp123' }}">
+            <button type="button" class="chip" data-user="{{ u.username }}">
               {{ u.username }}<small>{{ 'Admin' if u.rol == 'administrador' else 'Empleado' }}</small>
-              <span class="chip__pwd">{{ 'admin123' if u.rol == 'administrador' else 'emp123' }}</span>
             </button>
           {% endfor %}
         </div>
@@ -73,7 +72,7 @@
   document.querySelectorAll('.chip').forEach(function (c) {
     c.addEventListener('click', function () {
       document.querySelector('input[name="usuario"]').value = c.dataset.user;
-      document.querySelector('input[name="contrasena"]').value = c.dataset.pwd;
+      document.querySelector('input[name="contrasena"]').value = '';
       document.querySelector('input[name="contrasena"]').focus();
     });
   });
