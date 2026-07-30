@@ -8,7 +8,7 @@
   <section class="card card--skip-collapse">
     <h3 class="panel__title">Registrar nueva venta</h3>
     {% if activos %}
-      <form method="post" action="{{ url_for('empleado_delivery') }}" class="form">
+      <form method="post" action="{{ url_for('empleado_delivery') }}" class="form" data-submit-delay="10000" data-loading-text="Registrando venta...">
         <input type="hidden" name="fecha" value="{{ hoy }}" />
         <label class="field">
           <span class="field__label">Producto</span>

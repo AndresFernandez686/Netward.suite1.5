@@ -60,7 +60,7 @@
   </div>
 
   <div style="display:flex;justify-content:flex-end;margin-top:18px;">
-    <form method="post" action="{{ url_for('admin_sincronizar_forzar') }}"
+    <form method="post" action="{{ url_for('admin_sincronizar_forzar') }}" data-submit-delay="5000" data-loading-text="Forzando sincronizacion..."
           onsubmit="return confirm('¿Forzar la sincronización completa de todas las tiendas? Los ítems pendientes se marcarán como sincronizados.')">
       <button type="submit" class="btn btn--primary" {{ 'disabled' if total_pendientes == 0 }}>
         Forzar sincronización completa

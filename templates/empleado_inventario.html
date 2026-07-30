@@ -39,7 +39,7 @@
 {% for cat in categorias %}
 <section class="tab-panel card {{ 'is-active' if cat == active_tab else '' }}" data-panel="{{ cat }}">
   <h3 class="panel__title">Producto de {{ cat }}</h3>
-  <form method="post" action="{{ url_for('carrito_agregar') }}" class="inv-form">
+  <form method="post" action="{{ url_for('carrito_agregar') }}" class="inv-form" data-submit-delay="5000" data-loading-text="Agregando al carrito...">
     <input type="hidden" name="categoria" value="{{ cat }}" />
     <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
     <input type="hidden" name="anchor" value="sec-carga" />
@@ -181,7 +181,7 @@
     </div>
 
     <div class="cart__actions action-group">
-      <form method="post" action="{{ url_for('carrito_guardar') }}">
+      <form method="post" action="{{ url_for('carrito_guardar') }}" data-submit-delay="5000" data-loading-text="Guardando inventario...">
         <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
         <input type="hidden" name="anchor" value="sec-carrito" />
         <button class="btn btn--success">Guardar inventario</button>

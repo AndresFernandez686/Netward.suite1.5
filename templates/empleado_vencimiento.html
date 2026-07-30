@@ -7,7 +7,7 @@
 <section class="card card--skip-collapse">
   <h3 class="panel__title">Nuevo registro</h3>
 
-  <form method="post" action="{{ url_for('empleado_vencimiento') }}" id="form-venc">
+  <form method="post" action="{{ url_for('empleado_vencimiento') }}" id="form-venc" data-submit-delay="5000" data-loading-text="Guardando...">
     <div class="venc-form-grid">
 
       {# Producto #}

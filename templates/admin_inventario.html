@@ -5,7 +5,7 @@
 
 {% block content %}
 <div class="inventory-page">
-  <form method="get" class="filters card card--skip-collapse inventory-filters">
+  <form method="get" class="filters card card--skip-collapse inventory-filters" data-submit-delay="5000" data-loading-text="Filtrando...">
     {% if alerta_filtro != 'Todos' %}
     <input type="hidden" name="alerta" value="{{ alerta_filtro }}" />
     {% endif %}

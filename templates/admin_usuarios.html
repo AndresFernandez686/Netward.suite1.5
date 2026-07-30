@@ -43,7 +43,7 @@
           </td>
           <td style="text-align:right;">
             {% if u.username != sesion_usuario %}
-            <form method="post" action="{{ url_for('usuario_eliminar', usuario_id=u.id) }}"
+            <form method="post" action="{{ url_for('usuario_eliminar', usuario_id=u.id) }}" data-submit-delay="5000" data-loading-text="Eliminando..."
                   onsubmit="return confirm('¿Eliminar al usuario {{ u.username }}? Esta acción no se puede deshacer.')"
                   style="display:inline;">
               <button type="submit" class="btn btn--ghost" style="color:var(--danger);">Eliminar</button>
@@ -62,7 +62,7 @@
 
   <section class="panel" id="usuarios-crear">
     <div class="panel__head"><h3>Crear nuevo usuario</h3></div>
-    <form method="post" action="{{ url_for('usuario_crear') }}" style="display:flex;flex-direction:column;gap:14px;">
+    <form method="post" action="{{ url_for('usuario_crear') }}" data-submit-delay="5000" data-loading-text="Creando usuario..." style="display:flex;flex-direction:column;gap:14px;">
       <label class="field">
         <span class="field__label">Nombre de usuario</span>
         <input type="text" name="username" required placeholder="ej. maria" />

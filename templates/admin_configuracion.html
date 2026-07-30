@@ -8,7 +8,7 @@
 {# ── Formularios de eliminacion (vacios, ocultos del flujo flex) ── #}
 <div hidden>
 {% for p in productos_impulsivo + productos_extras + productos_kilos %}
-<form id="delf-{{ p.id }}" method="post"
+<form id="delf-{{ p.id }}" method="post" data-submit-delay="5000" data-loading-text="Eliminando..."
   action="{{ url_for('producto_eliminar', producto_id=p.id) }}">
   <input type="hidden" name="active_tab" value="{{ active_tab }}" class="js-active-tab-value" />
 </form>
