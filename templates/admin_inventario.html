@@ -4,7 +4,7 @@
 {% block subheading %}Visualizacion y control por sucursal{% endblock %}
 
 {% block content %}
-<div class="inventory-page">
+<div class="inventory-page" data-cat-filtro="{{ categoria_filtro }}" data-alerta-filtro="{{ alerta_filtro }}">
   <form method="get" class="filters card card--skip-collapse inventory-filters" data-submit-delay="5000" data-loading-text="Filtrando...">
     {% if alerta_filtro != 'Todos' %}
     <input type="hidden" name="alerta" value="{{ alerta_filtro }}" />
@@ -57,7 +57,7 @@
         'Extras': '#7c3aed'
       } %}
       {% for cat in categorias %}
-      <article class="inventory-summary-card js-summary-card {{ 'is-active' if categoria_filtro == cat }}" data-category="{{ cat }}" style="--accent: {{ card_styles.get(cat, '#2563eb') }};">
+      <article class="inventory-summary-card js-summary-card {{ 'is-active' if categoria_filtro == cat }}" data-category="{{ cat }}" data-accent="{{ card_styles.get(cat, '#2563eb') }}">
         <div class="inventory-summary-card__top">
           <span class="inventory-summary-card__eyebrow">{{ cat }}</span>
           <span class="inventory-summary-card__chip">{{ resumen[cat].porcentaje }}% cargado</span>
@@ -76,7 +76,7 @@
           <span>Stock total: {{ resumen[cat].stock_total_fmt }} {{ 'kg' if cat == 'Por Kilos' else 'unidades' }}</span>
           <span>{{ resumen[cat].cargados }} cargados</span>
         </div>
-        <div class="inventory-summary-card__bar"><span style="width: {{ resumen[cat].porcentaje }}%"></span></div>
+        <div class="inventory-summary-card__bar"><span data-width="{{ resumen[cat].porcentaje }}"></span></div>
         <button type="button" class="inventory-summary-card__link js-ver-detalle" data-category="{{ cat }}" aria-label="Ver detalle de {{ cat }}">
           Ver detalle <span aria-hidden="true">›</span>
         </button>
@@ -195,13 +195,23 @@
     });
   });
 
-  {% if categoria_filtro != 'Todas' %}
-  openCategory('{{ categoria_filtro }}');
-  {% endif %}
-  {% if alerta_filtro != 'Todos' %}
-  detailPanels.forEach(function (p) { p.style.display = ''; });
-  show(detailSection); hide(placeholder);
-  {% endif %}
+  var page = document.querySelector('.inventory-page');
+  var catFiltro = page ? page.dataset.catFiltro : '';
+  var alertaFiltro = page ? page.dataset.alertaFiltro : '';
+
+  if (catFiltro && catFiltro !== 'Todas') openCategory(catFiltro);
+  if (alertaFiltro && alertaFiltro !== 'Todos') {
+    detailPanels.forEach(function (p) { p.style.display = ''; });
+    show(detailSection); hide(placeholder);
+  }
+
+  // Aplicar --accent y anchos de barra desde data attributes
+  summaryCards.forEach(function (card) {
+    if (card.dataset.accent) card.style.setProperty('--accent', card.dataset.accent);
+  });
+  document.querySelectorAll('.inventory-summary-card__bar [data-width]').forEach(function (el) {
+    el.style.width = el.dataset.width + '%';
+  });
 })();
 </script>
 {% endblock %}

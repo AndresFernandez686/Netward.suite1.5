@@ -149,7 +149,7 @@ def retroalimentar_periodo_desde_items(periodo: InventarioPeriodo) -> int:
         from collections import defaultdict
         # Agrupar por producto tomando el movimiento más reciente (último snapshot gana).
         # Se prioriza snapshot_id DESC cuando existe; si no, se usa (fecha DESC, creado DESC).
-        por_producto: dict[str, dict] = {}
+        por_producto = {}
         for m in movimientos:
             k = m.producto
             if k not in por_producto:

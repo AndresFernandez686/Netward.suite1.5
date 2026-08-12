@@ -165,6 +165,7 @@ def build_admin_inventory_context(
         valor_total_general += valor_total
         bajo_stock_total += bajo_stock
 
+    tiendas = list(tiendas)
     tienda_label = "Todas las tiendas" if tienda_id == "ALL" else next((t.nombre for t in tiendas if t.id == tienda_id), tienda_id)
     tienda_export_id = tienda_id if tienda_id != "ALL" else (tiendas[0].id if tiendas else "T001")
     tienda_historial_id = tienda_id if tienda_id != "ALL" else (tiendas[0].id if tiendas else "T001")

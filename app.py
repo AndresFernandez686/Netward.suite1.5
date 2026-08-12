@@ -2163,9 +2163,13 @@ def admin_auditoria_exportar(periodo_id):
                 cell.fill = fill
 
     # Ajustar ancho de columnas
+    from openpyxl.utils import get_column_letter
     for col in ws.columns:
         max_len = max((len(str(c.value)) for c in col if c.value), default=10)
-        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 60)
+        if col[0].column is None:
+            continue
+        col_letter = get_column_letter(col[0].column)
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 60)
 
     stream = io.BytesIO()
     wb.save(stream)
