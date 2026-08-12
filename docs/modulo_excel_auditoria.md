@@ -47,7 +47,7 @@
 | Diferencia | ✅ | `Diferencia` |
 | Tipo Diferencia (Faltante/Sobrante/Correcto) | ✅ | `Tipo Diferencia` |
 | Impacto Económico | ✅ | `Impacto` |
-| Severidad | ❌ No incluida como columna | *(solo usada para colorear filas)* |
+| Severidad | ✅ Implementado | `Severidad` |
 | Alerta Continuidad | ✅ | `Alerta Continuidad` |
 
 ---
@@ -72,8 +72,8 @@
 
 | Columna | Estado | Observación |
 |---|---|---|
-| Justificación Manual | ❌ No incluida | `jus.justificacion` — se consulta en el código pero **no se agrega a la fila** |
-| Observación | ❌ No incluida | `jus.observacion` — mismo problema |
+| Justificación Manual | ✅ Implementado | `jus.causa` |
+| Observación | ✅ Implementado | `jus.observacion` |
 | Estado Auditoría | ✅ | `Estado Auditoría` |
 
 **Bug confirmado:** en `admin_auditoria_exportar()` (`app.py` ~línea 2140), `jus` se consulta con:
@@ -117,11 +117,11 @@ Esto habilita los filtros nativos de Excel en todas las columnas sin cambiar el 
 
 | # | Problema | Dificultad |
 |---|---|---|
-| 1 | Agregar columna `Severidad` | Baja — agregar a `HEADERS` y `row[]` |
-| 2 | Agregar `Fecha Conteo` | Baja — verificar campo en `AuditoriaResultado` |
-| 3 | Agregar `Justificación Manual` y `Observación` desde `jus` | Baja — el query ya existe, solo falta escribir los valores |
-| 4 | Agregar `Usuario Justificación` y `Fecha Justificación` | Baja — desde `jus.usuario` y `jus.fecha` si existen |
-| 5 | Activar AutoFilter nativo de Excel | Mínima — una línea de código |
+| 1 | ~~Agregar columna `Severidad`~~ | ✅ Hecho |
+| 2 | Agregar `Fecha Conteo` | Campo no existe en el modelo `AuditoriaResultado` — requiere migración |
+| 3 | ~~Agregar `Justificación Manual` y `Observación` desde `jus`~~ | ✅ Hecho |
+| 4 | ~~Agregar `Usuario Justificación` y `Fecha Justificación`~~ | ✅ Hecho |
+| 5 | ~~Activar AutoFilter nativo de Excel~~ | ✅ Hecho |
 | 6 | Filtros pre-export por causa/confianza/tipo | Media — parámetros GET + filtro en query |
 
 ---

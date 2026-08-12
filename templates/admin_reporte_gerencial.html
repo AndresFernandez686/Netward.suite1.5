@@ -30,11 +30,53 @@
     <div class="kpi-value">{{ alertas_criticas|length }}</div>
     <div class="kpi-label">Alertas críticas</div>
   </div>
+  {% if causa_dominante %}
+  <div class="kpi-card kpi-card--warning">
+    <div class="kpi-value" style="font-size:1rem;">{{ causa_dominante.nombre }}</div>
+    <div class="kpi-label">Principal causa</div>
+    <div class="kpi-sub">Impacto: Gs.&nbsp;{{ "{:,.0f}".format(causa_dominante.importe).replace(",", ".") }}</div>
+  </div>
+  {% else %}
   <div class="kpi-card kpi-card--info">
     <div class="kpi-value">{{ periodo.dias_periodo }} días</div>
     <div class="kpi-label">Duración del período</div>
   </div>
+  {% endif %}
 </div>
+
+{# ── Comparación contra período anterior ── #}
+{% if comparacion %}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Comparación contra período anterior (Inv. #{{ comparacion.periodo_anterior.numero }})</h2></div>
+  <div class="card__body">
+    <div class="kpi-grid">
+      <div class="kpi-card kpi-card--{{ comparacion.clase }}">
+        <div class="kpi-value">
+          {{ comparacion.flecha }}
+          {% if comparacion.porcentaje is not none %}
+            {{ comparacion.porcentaje }}%
+          {% elif comparacion.delta != 0 %}
+            Gs.&nbsp;{{ "{:,.0f}".format(comparacion.delta | abs).replace(",", ".") }}
+          {% else %}Sin cambio{% endif %}
+        </div>
+        <div class="kpi-label">Pérdida {{ comparacion.tendencia }} vs período anterior</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">Gs.&nbsp;{{ "{:,.0f}".format(comparacion.perdida_anterior).replace(",", ".") }}</div>
+        <div class="kpi-label">Pérdida período anterior</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">Gs.&nbsp;{{ "{:,.0f}".format(total_perdida).replace(",", ".") if total_perdida else "0" }}</div>
+        <div class="kpi-label">Pérdida período actual</div>
+      </div>
+      <div class="kpi-card kpi-card--{{ comparacion.clase }}">
+        <div class="kpi-value" style="font-size:1.1rem;text-transform:capitalize;">{{ comparacion.flecha }} {{ comparacion.tendencia }}</div>
+        <div class="kpi-label">Tendencia</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {# ── Alertas críticas ── #}
 {% if alertas_criticas %}
@@ -199,6 +241,7 @@
 .kpi-card--info    { border-color:#3b82f6; }
 .kpi-value { font-size:1.6rem; font-weight:700; color:#111; margin-bottom:.25rem; }
 .kpi-label { font-size:.8rem; color:#666; }
+.kpi-sub   { font-size:.75rem; color:#888; margin-top:.15rem; }
 .kpi-card--danger  .kpi-value { color:#dc2626; }
 .kpi-card--warning .kpi-value { color:#b45309; }
 .border-danger { border-left:4px solid #ef4444; }

@@ -538,10 +538,56 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
 
     alertas_criticas = [r for r in resultados if r.severidad == "Crítico"]
 
+    # KPI causa dominante: la causa con mayor importe acumulado
+    causa_dominante = None
+    if por_causa:
+        top_causa = max(por_causa.items(), key=lambda x: x[1]["importe"])
+        causa_dominante = {"nombre": top_causa[0], "importe": top_causa[1]["importe"], "cantidad": top_causa[1]["cantidad"]}
+    periodo_anterior = (
+        InventarioPeriodo.query
+        .filter(
+            InventarioPeriodo.cliente_id == periodo.cliente_id,
+            InventarioPeriodo.tienda_id == periodo.tienda_id,
+            InventarioPeriodo.id != periodo.id,
+            InventarioPeriodo.fecha_desde < periodo.fecha_desde,
+        )
+        .order_by(InventarioPeriodo.fecha_desde.desc())
+        .first()
+    )
+    comparacion = None
+    if periodo_anterior:
+        res_ant = (
+            AuditoriaResultado.query
+            .filter_by(periodo_id=periodo_anterior.id)
+            .filter(AuditoriaResultado.tipo_diferencia == "faltante")
+            .all()
+        )
+        perdida_anterior = sum(r.impacto for r in res_ant)
+        delta = total_perdida - perdida_anterior
+        if delta > 0:
+            tendencia, flecha, clase = "empeoró", "↑", "danger"
+        elif delta < 0:
+            tendencia, flecha, clase = "mejoró", "↓", "success"
+        else:
+            tendencia, flecha, clase = "igual", "=", "secondary"
+        porcentaje = round(abs(delta) / perdida_anterior * 100, 1) if perdida_anterior else None
+        comparacion = {
+            "periodo_anterior": periodo_anterior,
+            "perdida_anterior": perdida_anterior,
+            "faltantes_anterior": len(res_ant),
+            "delta": delta,
+            "porcentaje": porcentaje,
+            "tendencia": tendencia,
+            "flecha": flecha,
+            "clase": clase,
+        }
+
     return {
         "periodo": periodo,
         "faltantes": resultados,
         "total_perdida": total_perdida,
         "por_causa": por_causa,
+        "causa_dominante": causa_dominante,
         "alertas_criticas": alertas_criticas,
+        "comparacion": comparacion,
     }

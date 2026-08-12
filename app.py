@@ -2091,6 +2091,7 @@ def admin_auditoria_exportar(periodo_id):
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
     except ImportError:
         flash("openpyxl no está instalado. Ejecutá: pip install openpyxl", "error")
         return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
@@ -2111,11 +2112,12 @@ def admin_auditoria_exportar(periodo_id):
         "Compras", "Promedio Compras Histórico", "Factor Desvío Compra",
         "Ventas (Excel oficial)", "Ventas Delivery (info)", "Otros Ingresos", "Otras Salidas", "Stock Final Excel",
         "Stock Esperado Sistema", "Conteo Empleado", "Ajuste Admin",
-        "Conteo Final", "Diferencia", "Tipo Diferencia",
+        "Conteo Final", "Diferencia", "Tipo Diferencia", "Severidad",
         "Costo Unitario", "Fuente Costo", "Impacto",
         "Cantidad Merma", "Cantidad Vencida", "Diferencia Anterior Compensada",
         "Posible Causa Principal", "Evidencia", "Nivel de Confianza",
         "Estado Auditoría", "Usuario Conteo", "Usuario Ajuste", "Fecha Ajuste",
+        "Justificación Manual", "Observación", "Usuario Justificación", "Fecha Justificación",
     ]
 
     header_fill = PatternFill("solid", fgColor="1E40AF")
@@ -2125,6 +2127,7 @@ def admin_auditoria_exportar(periodo_id):
     critico_fill = PatternFill("solid", fgColor="FCA5A5")
 
     ws.append(HEADERS)
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(HEADERS))}1"
     for cell in ws[1]:
         cell.fill = header_fill
         cell.font = header_font
@@ -2143,11 +2146,15 @@ def admin_auditoria_exportar(periodo_id):
             r.compras, r.promedio_compras_historico, r.factor_desvio_compra,
             r.ventas, r.ventas_delivery, r.otros_ingresos, r.otras_salidas, r.stock_final_excel,
             r.stock_esperado, r.conteo_empleado, r.ajuste_admin,
-            r.conteo_final, r.diferencia, r.tipo_diferencia,
+            r.conteo_final, r.diferencia, r.tipo_diferencia, r.severidad,
             r.costo_unitario, r.fuente_costo, r.impacto,
             r.cantidad_merma, r.cantidad_vencida, r.diferencia_anterior_compensada,
             r.causa_sugerida, r.evidencia, r.nivel_confianza,
             r.estado_auditoria, r.usuario_conteo, r.usuario_ajuste, r.fecha_ajuste,
+            jus.causa if jus else "",
+            jus.observacion if jus else "",
+            jus.usuario if jus else "",
+            str(jus.fecha.date()) if jus and jus.fecha else "",
         ]
         ws.append(row)
         data_row = ws.max_row
@@ -2163,7 +2170,6 @@ def admin_auditoria_exportar(periodo_id):
                 cell.fill = fill
 
     # Ajustar ancho de columnas
-    from openpyxl.utils import get_column_letter
     for col in ws.columns:
         max_len = max((len(str(c.value)) for c in col if c.value), default=10)
         if col[0].column is None:
