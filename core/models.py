@@ -78,6 +78,8 @@ class Producto(BaseModel):
     nombre = db.Column(db.String(160), nullable=False)
     categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Por Kilos | Extras
     visible_empleado = db.Column(db.Boolean, default=True, nullable=False)
+    # Código estable del sistema externo — clave principal de vinculación con el Excel oficial
+    codigo_articulo = db.Column(db.String(40), nullable=True, index=True)
 
     __table_args__ = (db.UniqueConstraint("nombre", "categoria", name="uq_producto_categoria"),)
 
@@ -119,6 +121,8 @@ class HistorialMovimiento(BaseModel):
     tipo_inventario = db.Column(db.String(20), default="Diario")
     detalle = db.Column(db.String(255), default="")
     tienda_id = db.Column(db.String(10), default="T001")
+    # FK explícita al snapshot de la sesión de carga (evita ambigüedad si mismo usuario carga 2 veces/día)
+    snapshot_id = db.Column(db.Integer, db.ForeignKey("inventario_snapshots.id"), nullable=True, index=True)
     creado = db.Column(db.DateTime, default=datetime.utcnow)
 
 
@@ -175,6 +179,8 @@ class StockThreshold(BaseModel):
     id = db.Column(db.Integer, primary_key=True)
     cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     producto = db.Column(db.String(160), unique=True, nullable=False)
+    # FK opcional; permite lookup por ID además del match por nombre
+    producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=True, index=True)
     critico = db.Column(db.Float, default=0)
     medio = db.Column(db.Float, default=0)
 
@@ -186,6 +192,8 @@ class ProductoPrecio(BaseModel):
     id = db.Column(db.Integer, primary_key=True)
     cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     producto_nombre = db.Column(db.String(160), unique=True, nullable=False)
+    # FK opcional; permite lookup por ID además del match por nombre
+    producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=True, index=True)
     categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Extras
     precio = db.Column(db.Float, nullable=True)
     unidades_por_caja = db.Column(db.Float, nullable=True)
@@ -266,3 +274,244 @@ class SincronizacionLog(BaseModel):
     tipo = db.Column(db.String(20), nullable=False)   # "envio" | "recepcion"
     accion = db.Column(db.String(30), default="")     # "solo_enviar" | "enviar_recibir"
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MÓDULO DE AUDITORÍA — Nuevos modelos para inventario correlativo
+# ─────────────────────────────────────────────────────────────────────────────
+
+class InventarioPeriodo(BaseModel):
+    """Período de inventario semanal/quincenal con ciclo de vida completo."""
+    __tablename__ = "inventario_periodos"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    tienda_id = db.Column(db.String(10), nullable=False)
+    numero = db.Column(db.Integer, nullable=False)          # correlativo por tienda
+    fecha_desde = db.Column(db.String(20), nullable=False)
+    fecha_hasta = db.Column(db.String(20), nullable=False)
+    dias_periodo = db.Column(db.Integer, default=7)
+    # Abierto | Pendiente | Sincronizado | Cerrado | Conciliado | Auditado
+    estado = db.Column(db.String(20), default="Abierto")
+    usuario_creador = db.Column(db.String(80), nullable=False)
+    fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_cierre = db.Column(db.DateTime, nullable=True)
+    observacion = db.Column(db.String(500), default="")
+
+    conteos = db.relationship("ConteoDetalle", backref="periodo", lazy=True,
+                               cascade="all, delete-orphan")
+    ajustes = db.relationship("AjusteInventario", backref="periodo", lazy=True,
+                               cascade="all, delete-orphan")
+    excel_importados = db.relationship("ExcelImportado", backref="periodo", lazy=True,
+                                        cascade="all, delete-orphan")
+    auditoria = db.relationship("AuditoriaResultado", backref="periodo", lazy=True,
+                                 cascade="all, delete-orphan")
+
+    __table_args__ = (
+        db.UniqueConstraint("tienda_id", "numero", name="uq_periodo_tienda_numero"),
+    )
+
+
+class ConteoDetalle(BaseModel):
+    """Conteo de un producto en un período de inventario."""
+    __tablename__ = "conteo_detalle"
+
+    id = db.Column(db.Integer, primary_key=True)
+    periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=False)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    tienda_id = db.Column(db.String(10), nullable=False)
+    usuario = db.Column(db.String(80), nullable=False)
+    producto_nombre = db.Column(db.String(160), nullable=False)
+    categoria = db.Column(db.String(40), nullable=False)
+    cantidad_unidad = db.Column(db.Float, default=0)
+    cantidad_caja = db.Column(db.Float, default=0)
+    cantidad_bulto = db.Column(db.Float, default=0)
+    total_unidad_base = db.Column(db.Float, default=0)  # siempre en unidades
+    fue_cargado = db.Column(db.Boolean, default=True)   # False = NULL/sin cargar
+    observacion = db.Column(db.String(255), default="")
+    primera_carga = db.Column(db.DateTime, default=datetime.utcnow)  # jamás se sobreescribe
+    fecha_carga = db.Column(db.DateTime, default=datetime.utcnow)     # última sincronización
+    # Regla: último gana. Este contador registra cuántas veces se sincronizó en el período.
+    veces_sincronizado = db.Column(db.Integer, default=1)
+
+    __table_args__ = (
+        db.UniqueConstraint("periodo_id", "tienda_id", "producto_nombre",
+                             name="uq_conteo_periodo_producto"),
+    )
+
+
+class AjusteInventario(BaseModel):
+    """Ajuste administrativo posterior al conteo del empleado."""
+    __tablename__ = "ajustes_inventario"
+
+    id = db.Column(db.Integer, primary_key=True)
+    periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=False)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    producto_nombre = db.Column(db.String(160), nullable=False)
+    usuario_admin = db.Column(db.String(80), nullable=False)
+    cantidad_ajustada = db.Column(db.Float, default=0)      # puede ser negativo
+    # Producto encontrado | Caja no contada | Corrección de carga | Producto mal ubicado | Otro
+    motivo = db.Column(db.String(80), default="Otro")
+    observacion = db.Column(db.String(500), default="")
+    # False = solo trazabilidad; no modifica conteo_final (evita doble descuento con mermas/vencidos)
+    impacta_stock = db.Column(db.Boolean, default=True)
+    fecha_ajuste = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ExcelImportado(BaseModel):
+    """Cabecera de un Excel oficial importado del sistema externo."""
+    __tablename__ = "excel_importados"
+
+    id = db.Column(db.Integer, primary_key=True)
+    periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=False)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    nombre_archivo = db.Column(db.String(255), nullable=False)
+    fecha_importacion = db.Column(db.DateTime, default=datetime.utcnow)
+    usuario_importador = db.Column(db.String(80), nullable=False)
+    # ok | errores | pendiente_vinculacion
+    estado_validacion = db.Column(db.String(40), default="ok")
+    productos_nuevos = db.Column(db.Integer, default=0)  # productos sin mapear
+
+    detalles = db.relationship("ExcelDetalle", backref="excel_importado", lazy=True,
+                                cascade="all, delete-orphan")
+
+
+class ExcelDetalle(BaseModel):
+    """Fila del Excel oficial (una por producto)."""
+    __tablename__ = "excel_detalles"
+
+    id = db.Column(db.Integer, primary_key=True)
+    excel_id = db.Column(db.Integer, db.ForeignKey("excel_importados.id"), nullable=False)
+    articulo = db.Column(db.String(40), nullable=False)     # código estable del sistema externo
+    artdescrip = db.Column(db.String(255), default="")
+    artcosto = db.Column(db.Float, nullable=True)
+    stockinicial = db.Column(db.Float, default=0)
+    compras = db.Column(db.Float, default=0)
+    otrosingresos = db.Column(db.Float, default=0)
+    otrassalidas = db.Column(db.Float, default=0)
+    stockfinal = db.Column(db.Float, default=0)
+    ventateorica = db.Column(db.Float, default=0)
+    ventareal = db.Column(db.Float, default=0)
+    diferencia = db.Column(db.Float, default=0)
+    importedesvio = db.Column(db.Float, default=0)
+    kilos = db.Column(db.Float, default=0)
+    unidades = db.Column(db.Float, default=0)
+    grupo = db.Column(db.String(120), default="")
+    grudescrip = db.Column(db.String(120), default="")
+    # Vínculo con el producto interno
+    producto_nombre_interno = db.Column(db.String(160), nullable=True)  # descriptivo
+    producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=True, index=True)
+    # vinculado | pendiente | sin_producto | excluido
+    estado_vinculacion = db.Column(db.String(20), default="pendiente")
+    # Fila excluida de la auditoría (canjes, congelados, etc.)
+    excluido_auditoria = db.Column(db.Boolean, default=False)
+    motivo_exclusion = db.Column(db.String(120), nullable=True)
+
+
+class AuditoriaResultado(BaseModel):
+    """Resultado del motor de auditoría por producto por período."""
+    __tablename__ = "auditoria_resultados"
+
+    id = db.Column(db.Integer, primary_key=True)
+    periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=False)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    producto_nombre = db.Column(db.String(160), nullable=False)
+    categoria = db.Column(db.String(40), default="")
+    articulo_codigo = db.Column(db.String(40), default="")   # código del Excel externo
+
+    stock_inicial_anterior = db.Column(db.Float, default=0)
+    stock_inicial_excel = db.Column(db.Float, default=0)
+    alerta_continuidad = db.Column(db.Boolean, default=False)
+    compras = db.Column(db.Float, default=0)
+    promedio_compras_historico = db.Column(db.Float, default=0)
+    ventas = db.Column(db.Float, default=0)
+    otros_ingresos = db.Column(db.Float, default=0)
+    otras_salidas = db.Column(db.Float, default=0)
+    stock_final_excel = db.Column(db.Float, default=0)
+    stock_esperado = db.Column(db.Float, default=0)
+    conteo_empleado = db.Column(db.Float, default=0)
+    ajuste_admin = db.Column(db.Float, default=0)
+    conteo_final = db.Column(db.Float, default=0)
+    diferencia = db.Column(db.Float, default=0)
+    # faltante | sobrante | correcto
+    tipo_diferencia = db.Column(db.String(20), default="correcto")
+    costo_unitario = db.Column(db.Float, nullable=True)
+    impacto = db.Column(db.Float, default=0)
+    # Inconsistencia de continuidad | Compra mal cargada | Error de conteo |
+    # Producto vencido | Merma o averiado | Canje no registrado |
+    # Producto relacionado incoherente | Pendiente de revisión
+    causa_sugerida = db.Column(db.String(80), default="Pendiente de revisión")
+    evidencia = db.Column(db.Text, default="")
+    # Alto | Medio | Bajo
+    nivel_confianza = db.Column(db.String(20), default="Bajo")
+    # Correcto | Observación | Revisar | Crítico
+    severidad = db.Column(db.String(20), default="Correcto")
+    # Pendiente | Sugerido | Justificado | Revisado | Sin diferencia
+    estado_auditoria = db.Column(db.String(20), default="Pendiente")
+    # Excel oficial | Precio interno | Sin costo
+    fuente_costo = db.Column(db.String(20), default="Sin costo")
+    # Evidencia estructurada (datos crudos que construyen el texto de evidencia)
+    factor_desvio_compra = db.Column(db.Float, default=0)            # compras / promedio
+    diferencia_anterior_compensada = db.Column(db.Float, default=0)  # dif. período anterior
+    cantidad_merma = db.Column(db.Float, default=0)                  # de registros_averiados
+    cantidad_vencida = db.Column(db.Float, default=0)                # de registros_vencimiento
+    cantidad_averiada = db.Column(db.Float, default=0)               # alias de cantidad_merma
+    # Informativo: ventas del módulo delivery en el período (NO reemplaza ventareal del Excel)
+    ventas_delivery = db.Column(db.Float, default=0)
+    usuario_conteo = db.Column(db.String(80), default="")
+    usuario_ajuste = db.Column(db.String(80), default="")
+    fecha_ajuste = db.Column(db.String(20), default="")
+    creado = db.Column(db.DateTime, default=datetime.utcnow)
+
+    justificaciones = db.relationship("Justificacion", backref="resultado", lazy=True,
+                                       cascade="all, delete-orphan")
+
+    __table_args__ = (
+        db.UniqueConstraint("periodo_id", "producto_nombre", name="uq_auditoria_periodo_producto"),
+    )
+
+
+class Justificacion(BaseModel):
+    """Justificación manual de una diferencia en auditoría."""
+    __tablename__ = "justificaciones"
+
+    id = db.Column(db.Integer, primary_key=True)
+    resultado_id = db.Column(db.Integer, db.ForeignKey("auditoria_resultados.id"), nullable=False)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    # Error de conteo | Compra mal cargada | Canje no registrado |
+    # Producto vencido | Merma o averiado | Pendiente de revisión
+    causa = db.Column(db.String(80), nullable=False)
+    cantidad_justificada = db.Column(db.Float, default=0)
+    importe_justificado = db.Column(db.Float, default=0)
+    observacion = db.Column(db.String(500), nullable=False)
+    usuario = db.Column(db.String(80), nullable=False)
+    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ProductoRelacionado(BaseModel):
+    """Relación de consumo entre productos (para alertas de auditoría)."""
+    __tablename__ = "productos_relacionados"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    producto_principal = db.Column(db.String(160), nullable=False)
+    producto_relacionado = db.Column(db.String(160), nullable=False)
+    ratio_esperado = db.Column(db.Float, default=1.0)   # unidades_relacionado / unidades_principal
+    tolerancia = db.Column(db.Float, default=0.1)        # 10 %
+    activo = db.Column(db.Boolean, default=True)
+
+
+class ConfiguracionSistema(BaseModel):
+    """Par clave-valor de configuración por cliente."""
+    __tablename__ = "configuracion_sistema"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    clave = db.Column(db.String(80), nullable=False)    # ej: autoclose_horas
+    valor = db.Column(db.String(255), nullable=False)   # ej: 24
+    descripcion = db.Column(db.String(255), default="")
+    actualizado = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("cliente_id", "clave", name="uq_config_cliente_clave"),
+    )

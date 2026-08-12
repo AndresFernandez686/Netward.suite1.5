@@ -98,6 +98,24 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str):
         grupos[key]["entradas"].append(entrada)
         grupos[key]["total_unidades"] += float(entrada.get("cantidad_unidades", entrada["cantidad"]) or 0)
 
+    # Crear o actualizar snapshot ANTES de insertar historial (para tener su ID)
+    snapshot = InventarioSnapshot.query.filter_by(
+        fecha=fecha_snapshot, tienda_id=tienda_id, usuario=usuario).first()
+    if snapshot:
+        snapshot.total_items = len(grupos)
+        snapshot.tipo_inventario = carrito[0].get("tipo_inventario", "Diario")
+    else:
+        snapshot = InventarioSnapshot(
+            cliente_id=session.get("cliente_id", "C001"),
+            fecha=fecha_snapshot,
+            tienda_id=tienda_id,
+            usuario=usuario,
+            tipo_inventario=carrito[0].get("tipo_inventario", "Diario"),
+            total_items=len(grupos),
+        )
+        db.session.add(snapshot)
+    db.session.flush()  # necesario para obtener snapshot.id antes de crear historial
+
     for (categoria, producto), grupo in grupos.items():
         cantidad_total = round(grupo["total_unidades"], 3)
         primera = grupo["entradas"][0]
@@ -114,6 +132,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str):
                 tipo_inventario=tipo_inv,
                 detalle=det_e, tienda_id=tienda_id,
                 cliente_id=session.get("cliente_id", "C001"),
+                snapshot_id=snapshot.id,
             ))
 
         item = InventarioItem.query.filter_by(
@@ -133,20 +152,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str):
                 sinc_estado="pendiente"))
         guardados += 1
 
-    snapshot = InventarioSnapshot.query.filter_by(
-        fecha=fecha_snapshot, tienda_id=tienda_id, usuario=usuario).first()
-    if snapshot:
-        snapshot.total_items = guardados
-        snapshot.tipo_inventario = carrito[0].get("tipo_inventario", "Diario")
-    else:
-        db.session.add(InventarioSnapshot(
-            cliente_id=session.get("cliente_id", "C001"),
-            fecha=fecha_snapshot,
-            tienda_id=tienda_id,
-            usuario=usuario,
-            tipo_inventario=carrito[0].get("tipo_inventario", "Diario"),
-            total_items=guardados,
-        ))
+    snapshot.total_items = guardados
     return guardados
 
 
@@ -284,9 +290,21 @@ def build_historial_context(*, tienda_id: str, usuario: str):
     selected_snapshot = snapshots[0] if snapshots else None
     detalle = []
     if selected_snapshot is not None:
-        detalle = HistorialMovimiento.query.filter_by(
-            tienda_id=tienda_id, usuario=usuario, fecha=selected_snapshot.fecha
-        ).order_by(HistorialMovimiento.categoria, HistorialMovimiento.producto).all()
+        # Preferir FK directa; fallback por (tienda_id, usuario, fecha) para registros legacy
+        detalle = (
+            HistorialMovimiento.query
+            .filter(
+                (HistorialMovimiento.snapshot_id == selected_snapshot.id)
+                | (
+                    (HistorialMovimiento.snapshot_id.is_(None))
+                    & (HistorialMovimiento.tienda_id == tienda_id)
+                    & (HistorialMovimiento.usuario == usuario)
+                    & (HistorialMovimiento.fecha == selected_snapshot.fecha)
+                )
+            )
+            .order_by(HistorialMovimiento.categoria, HistorialMovimiento.producto)
+            .all()
+        )
 
     return {
         "snapshots": snapshots,

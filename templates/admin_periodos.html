@@ -1,0 +1,96 @@
+{% extends "admin_base.html" %}
+{% block title %}Períodos de Inventario — {{ app_nombre }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Auditoría — Períodos de Inventario</h1>
+  <p class="page-sub">
+    Cada período cubre 7–8 días. El stock final de un período es el stock inicial del siguiente.
+    <br>
+    <small class="text-muted">
+      Auto-cierre: <strong>{{ autoclose_horas | int }} h</strong> tras la fecha fin
+      · Job de revisión cada 30 min ·
+      <a href="{{ url_for('admin_config_autoclose') }}">Cambiar</a>
+    </small>
+  </p>
+</div>
+
+{# ── Crear nuevo período ── #}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Crear nuevo período</h2></div>
+  <div class="card__body">
+    <form method="post" action="{{ url_for('admin_periodo_crear') }}" class="form-inline-grid">
+      <div class="form-group">
+        <label class="form-label">Tienda</label>
+        <select name="tienda_id" class="form-control" required>
+          {% for t in tiendas %}<option value="{{ t.id }}">{{ t.nombre }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Fecha desde</label>
+        <input type="date" name="fecha_desde" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Fecha hasta</label>
+        <input type="date" name="fecha_hasta" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Observación (opcional)</label>
+        <input type="text" name="observacion" class="form-control" maxlength="200">
+      </div>
+      <div class="form-group form-group--action">
+        <button type="submit" class="btn btn-primary">Crear período</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Lista de períodos ── #}
+<div class="card">
+  <div class="card__header"><h2 class="card__title">Períodos registrados</h2></div>
+  <div class="card__body p-0">
+    {% if not periodos %}
+      <p class="empty-state">No hay períodos creados aún.</p>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>#</th><th>Tienda</th><th>Desde</th><th>Hasta</th>
+            <th>Días</th><th>Estado</th><th>Creado por</th><th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in periodos %}
+          <tr>
+            <td>{{ p.numero }}</td>
+            <td>{{ p.tienda_id }}</td>
+            <td>{{ p.fecha_desde }}</td>
+            <td>{{ p.fecha_hasta }}</td>
+            <td>{{ p.dias_periodo }}</td>
+            <td>
+              <span class="badge
+                {%- if p.estado == 'Abierto' %} badge--info
+                {%- elif p.estado == 'Cerrado' %} badge--warning
+                {%- elif p.estado == 'Excel Importado' %} badge--secondary
+                {%- elif p.estado in ('Conciliado','Auditado') %} badge--success
+                {%- else %} badge--secondary
+                {%- endif %}">{{ p.estado }}</span>
+            </td>
+            <td>{{ p.usuario_creador }}</td>
+            <td class="actions">
+              <a href="{{ url_for('admin_periodo_detalle', periodo_id=p.id) }}" class="btn btn-sm btn-secondary">Ver</a>
+              {% if p.estado in ('Cerrado','Conciliado','Auditado') %}
+              <a href="{{ url_for('admin_auditoria', periodo_id=p.id) }}" class="btn btn-sm btn-primary">Auditoría</a>
+              <a href="{{ url_for('admin_reporte_gerencial', periodo_id=p.id) }}" class="btn btn-sm btn-secondary">Reporte</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

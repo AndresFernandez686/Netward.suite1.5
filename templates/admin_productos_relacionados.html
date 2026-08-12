@@ -1,0 +1,110 @@
+{% extends "admin_base.html" %}
+{% block title %}Productos relacionados — {{ app_nombre }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Productos relacionados</h1>
+  <p class="page-sub">
+    Define qué productos se consumen juntos (ej: Batido → vaso, tapa, pajita).
+    <br><strong>Solo generan alertas de auditoría — nunca bloquean el inventario.</strong>
+  </p>
+</div>
+
+{# ── Crear relación ── #}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Nueva relación</h2></div>
+  <div class="card__body">
+    <form method="post" action="{{ url_for('admin_producto_relacionado_crear') }}" class="form-inline-grid">
+      <div class="form-group">
+        <label class="form-label">Producto principal</label>
+        <input type="text" name="producto_principal" class="form-control"
+               list="productos-list" required placeholder="Ej: Batido">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Producto relacionado (consumido juntos)</label>
+        <input type="text" name="producto_relacionado" class="form-control"
+               list="productos-list" required placeholder="Ej: Vaso de batido">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ratio esperado
+          <small class="text-muted">(unidades relacionado / unidades principal)</small>
+        </label>
+        <input type="number" name="ratio_esperado" class="form-control"
+               step="0.01" min="0.01" value="1" required style="max-width:100px">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tolerancia <small class="text-muted">(0.1 = 10%)</small></label>
+        <input type="number" name="tolerancia" class="form-control"
+               step="0.01" min="0" max="1" value="0.1" required style="max-width:100px">
+      </div>
+      <div class="form-group form-group--action">
+        <button type="submit" class="btn btn-primary">Agregar relación</button>
+      </div>
+    </form>
+
+    <datalist id="productos-list">
+      {% for p in productos %}<option value="{{ p.nombre }}">{% endfor %}
+    </datalist>
+
+    <p class="text-muted mt-2" style="font-size:.83em">
+      Ejemplos: Batido → Vaso de batido (ratio 1, tol 10%) ·
+      Helado servido → Cucurucho (ratio 1) · Promoción combo → Producto incluido (ratio 1)
+    </p>
+  </div>
+</div>
+
+{# ── Lista de relaciones ── #}
+<div class="card">
+  <div class="card__header">
+    <h2 class="card__title">Relaciones configuradas</h2>
+    <span class="badge badge--info">{{ relaciones|length }}</span>
+  </div>
+  <div class="card__body p-0">
+    {% if not relaciones %}
+      <p class="empty-state">No hay relaciones configuradas.</p>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Producto principal</th>
+            <th>Producto relacionado</th>
+            <th>Ratio</th>
+            <th>Tolerancia</th>
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in relaciones %}
+          <tr {% if not r.activo %}style="opacity:.5"{% endif %}>
+            <td><strong>{{ r.producto_principal }}</strong></td>
+            <td>{{ r.producto_relacionado }}</td>
+            <td>{{ r.ratio_esperado }}×</td>
+            <td>{{ (r.tolerancia * 100) | int }}%</td>
+            <td>
+              <span class="badge {{ 'badge--success' if r.activo else 'badge--secondary' }}">
+                {{ 'Activa' if r.activo else 'Inactiva' }}
+              </span>
+            </td>
+            <td class="actions">
+              <form method="post" action="{{ url_for('admin_producto_relacionado_toggle', rel_id=r.id) }}" style="display:inline">
+                <button class="btn btn-sm btn-secondary">
+                  {{ 'Desactivar' if r.activo else 'Activar' }}
+                </button>
+              </form>
+              <form method="post" action="{{ url_for('admin_producto_relacionado_eliminar', rel_id=r.id) }}"
+                    style="display:inline"
+                    onsubmit="return confirm('¿Eliminar esta relación?')">
+                <button class="btn btn-sm btn-secondary">Eliminar</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

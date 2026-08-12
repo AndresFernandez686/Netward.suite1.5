@@ -8,3 +8,6 @@ Werkzeug>=3.0.0
 xlrd>=2.0.1
 # Servidor WSGI para produccion
 gunicorn>=22.0.0
+# Scheduler de tareas en segundo plano
+APScheduler>=3.10.0
+Flask-APScheduler>=1.13.0

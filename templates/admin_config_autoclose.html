@@ -1,0 +1,59 @@
+{% extends "admin_base.html" %}
+{% block title %}Configurar auto-cierre — {{ app_nombre }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Cierre automático de períodos</h1>
+  <p class="page-sub">
+    El sistema cierra automáticamente cualquier período cuya fecha de fin ya pasó
+    hace más del tiempo configurado abajo.
+    El job de revisión corre cada 30 minutos.
+  </p>
+</div>
+
+<a href="{{ url_for('admin_periodos') }}" class="btn btn-sm btn-secondary mb-3">← Volver a períodos</a>
+
+<div class="card" style="max-width:480px">
+  <div class="card__header"><h2 class="card__title">Configuración actual</h2></div>
+  <div class="card__body">
+    <p>
+      Valor actual:
+      <strong>{{ horas_actual | int if horas_actual == horas_actual | int else horas_actual }} hora(s)</strong>
+      tras la fecha fin del período.
+    </p>
+
+    <form method="post" action="{{ url_for('admin_config_autoclose') }}" class="mt-3">
+      <div class="form-group">
+        <label class="form-label">Horas tras fecha de fin para cerrar automáticamente</label>
+        <input
+          type="number"
+          name="horas"
+          class="form-control"
+          min="1"
+          max="720"
+          step="1"
+          value="{{ horas_actual | int }}"
+          required
+          style="max-width:160px"
+        >
+        <small class="text-muted">
+          Mínimo 1 h · Máximo 720 h (30 días) · Default: 24 h
+        </small>
+      </div>
+
+      <div class="mt-3">
+        <button type="submit" class="btn btn-primary">Guardar configuración</button>
+      </div>
+    </form>
+
+    <hr class="mt-4">
+    <h3 class="card__title mt-3">Ejemplos habituales</h3>
+    <table class="table" style="font-size:.85em;max-width:340px">
+      <tr><td>Cierre el mismo día de fin</td><td><strong>0 h</strong> — no recomendado</td></tr>
+      <tr><td>Cierre al día siguiente</td><td><strong>24 h</strong></td></tr>
+      <tr><td>Cierre a los 2 días</td><td><strong>48 h</strong></td></tr>
+      <tr><td>Cierre a la semana</td><td><strong>168 h</strong></td></tr>
+    </table>
+  </div>
+</div>
+{% endblock %}

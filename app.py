@@ -24,8 +24,17 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     HistorialMovimiento, InventarioSnapshot, DeliveryProducto,
                     DeliveryVenta, StockThreshold, ProductoPrecio,
                     InventarioDescSnapshot, RegistroAveriado, RegistroVencimiento,
-                    SincronizacionLog)
-from core.catalogo import get_productos_db as catalogo_get_productos_db, activar_catalogo_pendiente_empleado
+                    SincronizacionLog,
+                    InventarioPeriodo, ConteoDetalle, AjusteInventario,
+                    ExcelImportado, ExcelDetalle, AuditoriaResultado,
+                    Justificacion, ProductoRelacionado, ConfiguracionSistema)
+from core.auditoria import ejecutar_auditoria, build_reporte_gerencial
+from core.excel_importer import importar_excel
+from core.sync_bridge import propagar_conteo_a_periodo, retroalimentar_periodo_desde_items
+from core.scheduler import job_autoclose_periodos, get_autoclose_horas, set_autoclose_horas
+from core.catalogo import (get_productos_db as catalogo_get_productos_db,
+                           activar_catalogo_pendiente_empleado,
+                           resolver_producto_id, backfill_producto_ids)
 from core.seed_data import (PRODUCTOS_BASE, CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME,
                        ESTADOS_BALDE, CLIENTES_DEFAULT, TIENDAS_DEFAULT, USUARIOS_DEFAULT,
                        STOCK_THRESHOLDS_DEFAULT, DELIVERY_DEFAULT, stock_status)
@@ -186,6 +195,49 @@ def ensure_multitenant_schema():
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tiendas_cliente_id ON tiendas(cliente_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id)")
 
+        # Nuevas tablas del módulo de auditoría (creadas por SQLAlchemy en init_db,
+        # aquí solo migramos columnas faltantes si la tabla ya existía)
+        audit_tables = [
+            "inventario_periodos", "conteo_detalle", "ajustes_inventario",
+            "excel_importados", "excel_detalles", "auditoria_resultados",
+            "justificaciones", "productos_relacionados", "configuracion_sistema",
+        ]
+        for tbl in audit_tables:
+            _add_column_if_missing(conn, tbl, "cliente_id VARCHAR(10) NOT NULL DEFAULT 'C001'", "cliente_id")
+        _add_column_if_missing(conn, "ajustes_inventario",
+                               "impacta_stock BOOLEAN NOT NULL DEFAULT 1", "impacta_stock")
+        for col_sql, col_name in [
+            ("primera_carga TIMESTAMP",                      "primera_carga"),
+            ("veces_sincronizado INTEGER NOT NULL DEFAULT 1", "veces_sincronizado"),
+        ]:
+            _add_column_if_missing(conn, "conteo_detalle", col_sql, col_name)
+        _add_column_if_missing(conn, "stock_thresholds",
+                               "producto_id INTEGER REFERENCES productos(id)", "producto_id")
+        _add_column_if_missing(conn, "producto_precios",
+                               "producto_id INTEGER REFERENCES productos(id)", "producto_id")
+        _add_column_if_missing(conn, "productos",
+                               "codigo_articulo VARCHAR(40)", "codigo_articulo")
+        _add_column_if_missing(conn, "historial",
+                               "snapshot_id INTEGER REFERENCES inventario_snapshots(id)", "snapshot_id")
+        for col_sql, col_name in [
+            ("producto_id INTEGER REFERENCES productos(id)", "producto_id"),
+            ("estado_vinculacion VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "estado_vinculacion"),
+            ("excluido_auditoria BOOLEAN NOT NULL DEFAULT 0",            "excluido_auditoria"),
+            ("motivo_exclusion VARCHAR(120)",                            "motivo_exclusion"),
+        ]:
+            _add_column_if_missing(conn, "excel_detalles", col_sql, col_name)
+        _add_column_if_missing(conn, "auditoria_resultados",
+                               "fuente_costo VARCHAR(20) NOT NULL DEFAULT 'Sin costo'", "fuente_costo")
+        for col_sql, col_name in [
+            ("factor_desvio_compra REAL NOT NULL DEFAULT 0",           "factor_desvio_compra"),
+            ("diferencia_anterior_compensada REAL NOT NULL DEFAULT 0", "diferencia_anterior_compensada"),
+            ("cantidad_merma REAL NOT NULL DEFAULT 0",                 "cantidad_merma"),
+            ("cantidad_vencida REAL NOT NULL DEFAULT 0",               "cantidad_vencida"),
+            ("cantidad_averiada REAL NOT NULL DEFAULT 0",              "cantidad_averiada"),
+            ("ventas_delivery REAL NOT NULL DEFAULT 0",                "ventas_delivery"),
+        ]:
+            _add_column_if_missing(conn, "auditoria_resultados", col_sql, col_name)
+
 
 # --------------------------------------------------------------------------- #
 #  Inicializacion / seed de base de datos
@@ -246,6 +298,8 @@ def init_db():
                                             es_promocion=d["es_promocion"], activo=d["activo"]))
 
     db.session.commit()
+    # Rellena producto_id FK donde falte (silencioso si no hay registros)
+    backfill_producto_ids()
 
 
 def get_thresholds():
@@ -662,10 +716,34 @@ def sync_ultima_recepcion_empleado():
 @login_required(rol="empleado")
 def empleado_sincronizar():
     accion    = request.form.get("accion", "solo_enviar")
-    next_url  = request.form.get("_next", url_for("empleado_inventario"))
     cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
+
+    # 1. ¿Hay items pendientes?
+    pendientes = InventarioItem.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente"
+    ).count()
+    if pendientes == 0:
+        flash("No hay datos pendientes de sincronización.", "warning")
+        return redirect(url_for("empleado_sincronizar_page"))
+
+    # 2. ¿El período activo está en estado válido para recibir datos?
+    periodo_activo = (
+        InventarioPeriodo.query
+        .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
+        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+        .order_by(InventarioPeriodo.id.desc())
+        .first()
+    )
+    if periodo_activo is None:
+        # No hay período abierto — la sincronización de inventario operativo sigue funcionando
+        # pero el empleado debe saberlo
+        flash("No hay un período de auditoría activo. Los datos se sincronizan normalmente pero no se registrarán en ningún período de inventario.", "info")
+    elif periodo_activo.estado in ("Cerrado", "Excel Importado", "Conciliado", "Auditado"):
+        flash(f"El período #{periodo_activo.numero} ya está cerrado. Pedí al administrador que abra un nuevo período.", "warning")
+        return redirect(url_for("empleado_sincronizar_page"))
+
     resumen = empleado_service.procesar_sincronizacion(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, accion=accion)
     if accion == "enviar_recibir":
         flash((
@@ -679,6 +757,12 @@ def empleado_sincronizar():
             "success",
         )
     db.session.commit()
+    # Propagar conteo al período de auditoría activo (si existe)
+    try:
+        propagar_conteo_a_periodo(tienda_id=tienda_id, cliente_id=cliente_id, usuario=usuario)
+        db.session.commit()
+    except Exception:
+        pass  # No bloquear la sincronización si el módulo de auditoría falla
     return redirect(url_for("empleado_sincronizar_page"))
 
 
@@ -913,8 +997,11 @@ def admin_precios():
                 continue
             rec = ProductoPrecio.query.filter_by(producto_nombre=producto.nombre).first()
             if rec is None:
-                rec = ProductoPrecio(producto_nombre=producto.nombre, categoria=producto.categoria)
+                rec = ProductoPrecio(producto_nombre=producto.nombre, categoria=producto.categoria,
+                                     producto_id=producto.id)
                 db.session.add(rec)
+            elif rec.producto_id is None:
+                rec.producto_id = producto.id
             rec.precio = precio_val
             if producto.categoria in ("Impulsivo", "Extras"):
                 rec.unidades_por_caja = caja_val
@@ -1262,8 +1349,11 @@ def producto_precio_guardar():
             continue
         rec = ProductoPrecio.query.filter_by(producto_nombre=producto.nombre).first()
         if rec is None:
-            rec = ProductoPrecio(producto_nombre=producto.nombre, categoria=producto.categoria)
+            rec = ProductoPrecio(producto_nombre=producto.nombre, categoria=producto.categoria,
+                                 producto_id=producto.id)
             db.session.add(rec)
+        elif rec.producto_id is None:
+            rec.producto_id = producto.id
         rec.precio = precio_val
         rec.unidades_por_caja = caja_val
         rec.unidades_por_bulto = bulto_val
@@ -1294,7 +1384,8 @@ def producto_crear():
     if Producto.query.filter_by(nombre=nombre, categoria=categoria).first():
         _set_admin_config_notice("productos", f"Ya existe '{nombre}' en {categoria}.", "warning", active_tab)
         return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
-    db.session.add(Producto(nombre=nombre, categoria=categoria, visible_empleado=False))
+    db.session.add(Producto(nombre=nombre, categoria=categoria, visible_empleado=False,
+                            codigo_articulo=(request.form.get("codigo_articulo") or "").strip() or None))
     db.session.commit()
     _set_admin_config_notice("productos", f"Producto '{nombre}' agregado a {categoria}.", "success", active_tab)
     return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
@@ -1605,8 +1696,659 @@ def export_historial():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+# =========================================================================== #
+#  MÓDULO DE AUDITORÍA — Rutas de Inventario Periódico                         #
+# =========================================================================== #
+
+@app.route("/admin/periodos")
+@login_required(rol="administrador")
+def admin_periodos():
+    cliente_id = get_cliente_filtro()
+    tienda_sel = get_tienda_filtro()
+    tiendas = Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()
+    q = InventarioPeriodo.query.filter_by(cliente_id=cliente_id)
+    if tienda_sel != "ALL":
+        q = q.filter_by(tienda_id=tienda_sel)
+    periodos = q.order_by(InventarioPeriodo.id.desc()).all()
+    return render_template(
+        "admin_periodos.html",
+        periodos=periodos,
+        tiendas=tiendas,
+        autoclose_horas=get_autoclose_horas(cliente_id),
+    )
+
+
+@app.route("/admin/periodos/crear", methods=["POST"])
+@login_required(rol="administrador")
+def admin_periodo_crear():
+    cliente_id = get_cliente_filtro()
+    tienda_id = request.form.get("tienda_id", "").strip()
+    fecha_desde = request.form.get("fecha_desde", "").strip()
+    fecha_hasta = request.form.get("fecha_hasta", "").strip()
+    observacion = (request.form.get("observacion") or "").strip()
+
+    if not tienda_id or not fecha_desde or not fecha_hasta:
+        flash("Completá todos los campos para crear el período.", "warning")
+        return redirect(url_for("admin_periodos"))
+
+    try:
+        d_desde = date.fromisoformat(fecha_desde)
+        d_hasta = date.fromisoformat(fecha_hasta)
+        dias = (d_hasta - d_desde).days
+        if dias <= 0:
+            raise ValueError("Rango inválido")
+    except ValueError:
+        flash("Fechas inválidas.", "error")
+        return redirect(url_for("admin_periodos"))
+
+    ultimo = (InventarioPeriodo.query
+              .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
+              .order_by(InventarioPeriodo.numero.desc())
+              .first())
+    numero = (ultimo.numero + 1) if ultimo else 1
+
+    p = InventarioPeriodo(
+        cliente_id=cliente_id,
+        tienda_id=tienda_id,
+        numero=numero,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        dias_periodo=dias,
+        estado="Abierto",
+        usuario_creador=session["usuario"],
+        observacion=observacion,
+    )
+    db.session.add(p)
+    db.session.flush()  # necesitamos p.id antes de retroalimentar
+
+    # Jalar cargas existentes dentro del rango (por si el empleado ya había cargado)
+    importados = retroalimentar_periodo_desde_items(p)
+    db.session.commit()
+
+    msg = f"Período #{numero} creado."
+    if importados:
+        msg += f" Se importaron {importados} producto(s) de cargas previas dentro del rango."
+    flash(msg, "success")
+    return redirect(url_for("admin_periodo_detalle", periodo_id=p.id))
+
+
+@app.route("/admin/periodos/<int:periodo_id>")
+@login_required(rol="administrador")
+def admin_periodo_detalle(periodo_id):
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    conteos = ConteoDetalle.query.filter_by(periodo_id=periodo_id).order_by(
+        ConteoDetalle.categoria, ConteoDetalle.producto_nombre).all()
+    ajustes = AjusteInventario.query.filter_by(periodo_id=periodo_id).order_by(
+        AjusteInventario.fecha_ajuste.desc()).all()
+    excel_imp = (ExcelImportado.query.filter_by(periodo_id=periodo_id)
+                 .order_by(ExcelImportado.id.desc()).first())
+    auditoria = (AuditoriaResultado.query.filter_by(periodo_id=periodo_id)
+                 .order_by(AuditoriaResultado.severidad.desc(),
+                            AuditoriaResultado.impacto.desc()).all())
+
+    return render_template(
+        "admin_periodo_detalle.html",
+        periodo=periodo,
+        conteos=conteos,
+        ajustes=ajustes,
+        excel_imp=excel_imp,
+        auditoria=auditoria,
+    )
+
+
+@app.route("/admin/periodos/<int:periodo_id>/cerrar", methods=["POST"])
+@login_required(rol="administrador")
+def admin_periodo_cerrar(periodo_id):
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    # Validar: fue_cargado=False significa producto pendiente, no cero confirmado
+    sin_cargar_q = ConteoDetalle.query.filter_by(
+        periodo_id=periodo_id, fue_cargado=False
+    ).all()
+    sin_cargar = [c.producto_nombre for c in sin_cargar_q]
+
+    if sin_cargar and not request.form.get("forzar"):
+        flash(
+            f"No se puede cerrar: {len(sin_cargar)} producto(s) pendiente(s) de carga. "
+            f"Cargálos con cantidad 0 para confirmar que no hay stock, "
+            f"o usá 'Forzar cierre'.",
+            "warning",
+        )
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+    periodo.estado = "Cerrado"
+    periodo.fecha_cierre = datetime.utcnow()
+    db.session.commit()
+    flash("Período cerrado correctamente.", "success")
+    return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+
+@app.route("/admin/periodos/<int:periodo_id>/ajuste", methods=["POST"])
+@login_required(rol="administrador")
+def admin_periodo_ajuste(periodo_id):
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    producto_nombre = (request.form.get("producto_nombre") or "").strip()
+    try:
+        cantidad = float(request.form.get("cantidad", 0))
+    except (ValueError, TypeError):
+        flash("Cantidad inválida.", "error")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+    motivo = request.form.get("motivo", "Otro")
+    observacion = (request.form.get("observacion") or "").strip()
+    impacta_stock = request.form.get("impacta_stock", "1") != "0"
+
+    if not producto_nombre:
+        flash("Seleccioná un producto.", "warning")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+    aj = AjusteInventario(
+        periodo_id=periodo_id,
+        cliente_id=cliente_id,
+        producto_nombre=producto_nombre,
+        usuario_admin=session["usuario"],
+        cantidad_ajustada=cantidad,
+        motivo=motivo,
+        observacion=observacion,
+        impacta_stock=impacta_stock,
+    )
+    db.session.add(aj)
+    db.session.commit()
+    flash(f"Ajuste de {cantidad:+.1f} agregado a '{producto_nombre}'.", "success")
+    return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+
+@app.route("/admin/periodos/<int:periodo_id>/excel/importar", methods=["POST"])
+@login_required(rol="administrador")
+def admin_periodo_excel_importar(periodo_id):
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    archivo = request.files.get("archivo_excel")
+    if not archivo or not archivo.filename:
+        flash("Seleccioná un archivo Excel.", "warning")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+    contenido = archivo.read()
+    try:
+        ei, advertencias = importar_excel(
+            periodo_id=periodo_id,
+            cliente_id=cliente_id,
+            usuario=session["usuario"],
+            filename=archivo.filename,
+            contenido=contenido,
+        )
+        periodo.estado = "Excel Importado"
+        db.session.commit()
+        if advertencias:
+            for w in advertencias[:5]:
+                flash(w, "warning")
+            if len(advertencias) > 5:
+                flash(f"... y {len(advertencias) - 5} advertencia(s) más.", "warning")
+        flash(
+            f"Excel importado: {ei.id} | Productos nuevos sin vincular: {ei.productos_nuevos}",
+            "success" if ei.productos_nuevos == 0 else "warning",
+        )
+    except Exception as exc:
+        db.session.rollback()
+        flash(f"Error al importar: {exc}", "error")
+
+    return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+
+@app.route("/admin/periodos/<int:periodo_id>/excel/<int:excel_id>/vincular", methods=["POST"])
+@login_required(rol="administrador")
+def admin_excel_vincular(periodo_id, excel_id):
+    """Vincula manualmente una fila del Excel con un producto interno."""
+    cliente_id = get_cliente_filtro()
+    ed = db.session.get(ExcelDetalle, int(request.form.get("detalle_id", 0)))
+    nombre_interno = (request.form.get("nombre_interno") or "").strip()
+    if ed and nombre_interno:
+        ed.producto_nombre_interno = nombre_interno
+        # Resolver producto_id por nombre para mantener FK estable
+        p = Producto.query.filter(
+            db.func.lower(Producto.nombre) == nombre_interno.lower()
+        ).first()
+        if p:
+            ed.producto_id = p.id
+            ed.estado_vinculacion = "vinculado"
+            if ed.articulo and not p.codigo_articulo:
+                p.codigo_articulo = ed.articulo
+        else:
+            ed.estado_vinculacion = "pendiente"
+        db.session.commit()
+        flash(f"'{ed.artdescrip}' vinculado a '{nombre_interno}'.", "success")
+    return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+
+@app.route("/admin/periodos/<int:periodo_id>/auditoria/ejecutar", methods=["POST"])
+@login_required(rol="administrador")
+def admin_auditoria_ejecutar(periodo_id):
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    # Bloquear si hay productos sin vincular (a menos que se fuerce)
+    forzar = request.form.get("forzar")
+    excel_imp = (ExcelImportado.query.filter_by(periodo_id=periodo_id)
+                 .order_by(ExcelImportado.id.desc()).first())
+    if excel_imp and excel_imp.estado_validacion == "pendiente_vinculacion" and not forzar:
+        flash(
+            f"{excel_imp.productos_nuevos} producto(s) del Excel sin vincular. "
+            f"Vinculálos primero o usá \"Forzar\" para ejecutar auditoría incompleta.",
+            "warning",
+        )
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+    try:
+        resultados = ejecutar_auditoria(periodo)
+        db.session.commit()
+        faltantes = sum(1 for r in resultados if r.tipo_diferencia == "faltante")
+        aviso_incompleta = " (auditoría incompleta: hay productos sin vincular)" if forzar else ""
+        flash(
+            f"Auditoría ejecutada: {len(resultados)} producto(s) evaluados, "
+            f"{faltantes} con faltante{aviso_incompleta}.",
+            "success" if not forzar else "warning",
+        )
+    except Exception as exc:
+        db.session.rollback()
+        flash(f"Error en el motor de auditoría: {exc}", "error")
+
+    return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
+
+
+@app.route("/admin/periodos/<int:periodo_id>/auditoria")
+@login_required(rol="administrador")
+def admin_auditoria(periodo_id):
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    filtro = request.args.get("filtro", "todos")
+    q = AuditoriaResultado.query.filter_by(periodo_id=periodo_id)
+    if filtro == "faltante":
+        q = q.filter_by(tipo_diferencia="faltante")
+    elif filtro == "sobrante":
+        q = q.filter_by(tipo_diferencia="sobrante")
+    elif filtro == "critico":
+        q = q.filter_by(severidad="Crítico")
+    elif filtro == "pendiente":
+        q = q.filter_by(estado_auditoria="Pendiente")
+
+    resultados = q.order_by(
+        AuditoriaResultado.severidad.desc(),
+        AuditoriaResultado.impacto.desc(),
+    ).all()
+
+    total_impacto = sum(r.impacto for r in resultados if r.tipo_diferencia == "faltante")
+    causas_disponibles = [
+        "Error de conteo", "Compra mal cargada", "Canje no registrado",
+        "Producto vencido", "Merma o averiado", "Pendiente de revisión",
+    ]
+    return render_template(
+        "admin_auditoria.html",
+        periodo=periodo,
+        resultados=resultados,
+        filtro=filtro,
+        total_impacto=total_impacto,
+        causas_disponibles=causas_disponibles,
+    )
+
+
+@app.route("/admin/periodos/<int:periodo_id>/justificar/<int:resultado_id>", methods=["POST"])
+@login_required(rol="administrador")
+def admin_justificar(periodo_id, resultado_id):
+    cliente_id = get_cliente_filtro()
+    resultado = db.session.get(AuditoriaResultado, resultado_id)
+    if not resultado or resultado.cliente_id != cliente_id:
+        abort(404)
+
+    causa = (request.form.get("causa") or "").strip()
+    cantidad = float(request.form.get("cantidad_justificada", 0) or 0)
+    observacion = (request.form.get("observacion") or "").strip()
+
+    if not causa:
+        flash("Seleccioná una causa.", "warning")
+        return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
+    if causa == "Canje no registrado" and not observacion:
+        flash("Para 'Canje no registrado' la observación es obligatoria.", "warning")
+        return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
+
+    importe = cantidad * (resultado.costo_unitario or 0)
+    j = Justificacion(
+        resultado_id=resultado_id,
+        cliente_id=cliente_id,
+        causa=causa,
+        cantidad_justificada=cantidad,
+        importe_justificado=importe,
+        observacion=observacion,
+        usuario=session["usuario"],
+    )
+    db.session.add(j)
+    resultado.estado_auditoria = "Justificado"
+    # Si ya no quedan diferencias Pendientes ni Sugeridas, el período pasa a Auditado
+    pendientes = AuditoriaResultado.query.filter(
+        AuditoriaResultado.periodo_id == periodo_id,
+        AuditoriaResultado.estado_auditoria.in_(["Pendiente", "Sugerido"]),
+        AuditoriaResultado.tipo_diferencia != "correcto",
+    ).count()
+    if pendientes == 0:
+        periodo_obj = db.session.get(InventarioPeriodo, periodo_id)
+        if periodo_obj and periodo_obj.estado == "Conciliado":
+            periodo_obj.estado = "Auditado"
+    db.session.commit()
+    flash("Justificación guardada.", "success")
+    return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
+
+
+@app.route("/admin/periodos/<int:periodo_id>/revisar/<int:resultado_id>", methods=["POST"])
+@login_required(rol="administrador")
+def admin_marcar_revisado(periodo_id, resultado_id):
+    """Marca un resultado como Revisado sin agregar justificación formal."""
+    cliente_id = get_cliente_filtro()
+    resultado = db.session.get(AuditoriaResultado, resultado_id)
+    if resultado and resultado.cliente_id == cliente_id:
+        resultado.estado_auditoria = "Revisado"
+        db.session.commit()
+        flash("Marcado como revisado.", "success")
+    return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
+
+
+@app.route("/admin/periodos/<int:periodo_id>/reporte")
+@login_required(rol="administrador")
+def admin_reporte_gerencial(periodo_id):
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+    ctx = build_reporte_gerencial(periodo)
+    return render_template("admin_reporte_gerencial.html", **ctx)
+
+
+@app.route("/admin/periodos/<int:periodo_id>/exportar")
+@login_required(rol="administrador")
+def admin_auditoria_exportar(periodo_id):
+    """Exporta el resultado de auditoría a Excel con todas las columnas definidas."""
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        flash("openpyxl no está instalado. Ejecutá: pip install openpyxl", "error")
+        return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
+
+    resultados = (AuditoriaResultado.query.filter_by(periodo_id=periodo_id)
+                  .order_by(AuditoriaResultado.impacto.desc()).all())
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    if ws is None:
+        ws = wb.create_sheet()
+    ws.title = f"Auditoría Inv.{periodo.numero}"
+
+    HEADERS = [
+        "Inventario", "Fecha Desde", "Fecha Hasta",
+        "Código Producto", "Producto", "Categoría",
+        "Stock Inicial Anterior", "Stock Inicial Excel", "Alerta Continuidad",
+        "Compras", "Promedio Compras Histórico", "Factor Desvío Compra",
+        "Ventas (Excel oficial)", "Ventas Delivery (info)", "Otros Ingresos", "Otras Salidas", "Stock Final Excel",
+        "Stock Esperado Sistema", "Conteo Empleado", "Ajuste Admin",
+        "Conteo Final", "Diferencia", "Tipo Diferencia",
+        "Costo Unitario", "Fuente Costo", "Impacto",
+        "Cantidad Merma", "Cantidad Vencida", "Diferencia Anterior Compensada",
+        "Posible Causa Principal", "Evidencia", "Nivel de Confianza",
+        "Estado Auditoría", "Usuario Conteo", "Usuario Ajuste", "Fecha Ajuste",
+    ]
+
+    header_fill = PatternFill("solid", fgColor="1E40AF")
+    header_font = Font(bold=True, color="FFFFFF")
+    faltante_fill = PatternFill("solid", fgColor="FEE2E2")
+    sobrante_fill = PatternFill("solid", fgColor="DCFCE7")
+    critico_fill = PatternFill("solid", fgColor="FCA5A5")
+
+    ws.append(HEADERS)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    for r in resultados:
+        # Justificación manual (última)
+        jus = (Justificacion.query.filter_by(resultado_id=r.id)
+               .order_by(Justificacion.id.desc()).first())
+
+        row = [
+            periodo.numero, periodo.fecha_desde, periodo.fecha_hasta,
+            r.articulo_codigo, r.producto_nombre, r.categoria,
+            r.stock_inicial_anterior, r.stock_inicial_excel,
+            "SÍ" if r.alerta_continuidad else "No",
+            r.compras, r.promedio_compras_historico, r.factor_desvio_compra,
+            r.ventas, r.ventas_delivery, r.otros_ingresos, r.otras_salidas, r.stock_final_excel,
+            r.stock_esperado, r.conteo_empleado, r.ajuste_admin,
+            r.conteo_final, r.diferencia, r.tipo_diferencia,
+            r.costo_unitario, r.fuente_costo, r.impacto,
+            r.cantidad_merma, r.cantidad_vencida, r.diferencia_anterior_compensada,
+            r.causa_sugerida, r.evidencia, r.nivel_confianza,
+            r.estado_auditoria, r.usuario_conteo, r.usuario_ajuste, r.fecha_ajuste,
+        ]
+        ws.append(row)
+        data_row = ws.max_row
+        fill = None
+        if r.severidad == "Crítico":
+            fill = critico_fill
+        elif r.tipo_diferencia == "faltante":
+            fill = faltante_fill
+        elif r.tipo_diferencia == "sobrante":
+            fill = sobrante_fill
+        if fill:
+            for cell in ws[data_row]:
+                cell.fill = fill
+
+    # Ajustar ancho de columnas
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) for c in col if c.value), default=10)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 60)
+
+    stream = io.BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+    return send_file(
+        stream,
+        as_attachment=True,
+        download_name=f"auditoria_inv{periodo.numero}_{periodo.fecha_desde}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/admin/periodos/<int:periodo_id>/conteo/manual", methods=["POST"])
+@login_required(rol="administrador")
+def admin_conteo_manual(periodo_id):
+    """Permite que el admin cargue un conteo directamente (sin pasar por el empleado)."""
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    producto_nombre = (request.form.get("producto_nombre") or "").strip()
+    categoria = (request.form.get("categoria") or "").strip()
+    try:
+        cantidad = float(request.form.get("cantidad", 0))
+    except (ValueError, TypeError):
+        flash("Cantidad inválida.", "error")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+    if not producto_nombre:
+        flash("Seleccioná un producto.", "warning")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+    # Upsert: si ya existe, actualiza
+    cd = ConteoDetalle.query.filter_by(
+        periodo_id=periodo_id, producto_nombre=producto_nombre).first()
+    if cd:
+        cd.total_unidad_base = cantidad
+        cd.cantidad_unidad = cantidad
+        cd.fue_cargado = True
+        cd.fecha_carga = datetime.utcnow()
+    else:
+        cd = ConteoDetalle(
+            periodo_id=periodo_id,
+            cliente_id=cliente_id,
+            tienda_id=periodo.tienda_id,
+            usuario=session["usuario"],
+            producto_nombre=producto_nombre,
+            categoria=categoria,
+            cantidad_unidad=cantidad,
+            total_unidad_base=cantidad,
+            fue_cargado=True,
+        )
+        db.session.add(cd)
+
+    if periodo.estado == "Abierto":
+        periodo.estado = "Pendiente"
+    db.session.commit()
+    flash(f"Conteo de '{producto_nombre}': {cantidad:.1f} unidades guardado.", "success")
+    return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+
+@app.route("/admin/periodos/config/autoclose", methods=["GET", "POST"])
+@login_required(rol="administrador")
+def admin_config_autoclose():
+    cliente_id = get_cliente_filtro()
+    horas_actual = get_autoclose_horas(cliente_id)
+
+    if request.method == "POST":
+        try:
+            horas = float(request.form.get("horas", 24))
+            if horas < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            flash("Ingresá un valor válido mayor a 0.", "error")
+            return redirect(url_for("admin_config_autoclose"))
+
+        set_autoclose_horas(cliente_id, horas)
+        flash(
+            f"Auto-cierre configurado a {horas:g} hora(s) tras la fecha de fin del período.",
+            "success",
+        )
+        return redirect(url_for("admin_periodos"))
+
+    return render_template("admin_config_autoclose.html", horas_actual=horas_actual)
+
+
+@app.route("/admin/productos-relacionados")
+@login_required(rol="administrador")
+def admin_productos_relacionados():
+    cliente_id = get_cliente_filtro()
+    relaciones = (ProductoRelacionado.query
+                  .filter_by(cliente_id=cliente_id)
+                  .order_by(ProductoRelacionado.producto_principal).all())
+    productos = Producto.query.filter_by(visible_empleado=True).order_by(Producto.nombre).all()
+    return render_template("admin_productos_relacionados.html",
+                           relaciones=relaciones, productos=productos)
+
+
+@app.route("/admin/productos-relacionados/crear", methods=["POST"])
+@login_required(rol="administrador")
+def admin_producto_relacionado_crear():
+    cliente_id = get_cliente_filtro()
+    principal = (request.form.get("producto_principal") or "").strip()
+    relacionado = (request.form.get("producto_relacionado") or "").strip()
+    try:
+        ratio = float(request.form.get("ratio_esperado", 1))
+        tolerancia = float(request.form.get("tolerancia", 0.1))
+    except (ValueError, TypeError):
+        flash("Ratio y tolerancia deben ser números.", "error")
+        return redirect(url_for("admin_productos_relacionados"))
+
+    if not principal or not relacionado or principal == relacionado:
+        flash("Seleccioná dos productos distintos.", "warning")
+        return redirect(url_for("admin_productos_relacionados"))
+
+    existente = ProductoRelacionado.query.filter_by(
+        cliente_id=cliente_id,
+        producto_principal=principal,
+        producto_relacionado=relacionado,
+    ).first()
+    if existente:
+        flash("Ya existe esa relación.", "warning")
+        return redirect(url_for("admin_productos_relacionados"))
+
+    db.session.add(ProductoRelacionado(
+        cliente_id=cliente_id,
+        producto_principal=principal,
+        producto_relacionado=relacionado,
+        ratio_esperado=ratio,
+        tolerancia=tolerancia,
+        activo=True,
+    ))
+    db.session.commit()
+    flash(f"Relación creada: {principal} → {relacionado} (ratio {ratio}x, tolerancia {tolerancia*100:.0f}%).", "success")
+    return redirect(url_for("admin_productos_relacionados"))
+
+
+@app.route("/admin/productos-relacionados/<int:rel_id>/toggle", methods=["POST"])
+@login_required(rol="administrador")
+def admin_producto_relacionado_toggle(rel_id):
+    cliente_id = get_cliente_filtro()
+    rel = db.session.get(ProductoRelacionado, rel_id)
+    if rel and rel.cliente_id == cliente_id:
+        rel.activo = not rel.activo
+        db.session.commit()
+        estado = "activada" if rel.activo else "desactivada"
+        flash(f"Relación {estado}.", "success")
+    return redirect(url_for("admin_productos_relacionados"))
+
+
+@app.route("/admin/productos-relacionados/<int:rel_id>/eliminar", methods=["POST"])
+@login_required(rol="administrador")
+def admin_producto_relacionado_eliminar(rel_id):
+    cliente_id = get_cliente_filtro()
+    rel = db.session.get(ProductoRelacionado, rel_id)
+    if rel and rel.cliente_id == cliente_id:
+        db.session.delete(rel)
+        db.session.commit()
+        flash("Relación eliminada.", "info")
+    return redirect(url_for("admin_productos_relacionados"))
+
+
 with app.app_context():
     init_db()
+
+# ── APScheduler: cierre automático de períodos ────────────────────────────────
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    _scheduler = BackgroundScheduler(daemon=True)
+    _scheduler.add_job(
+        func=job_autoclose_periodos,
+        args=[app],
+        trigger="interval",
+        minutes=30,
+        id="autoclose_periodos",
+        replace_existing=True,
+        misfire_grace_time=120,
+    )
+    _scheduler.start()
+except Exception as _e:
+    import logging
+    logging.getLogger(__name__).warning("APScheduler no pudo iniciarse: %s", _e)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,12 @@
         <a href="{{ url_for('desc.admin_desc') }}" class="nav__link {{ 'is-active' if request.endpoint and request.endpoint.startswith('desc.') }}">
           <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Desc.
         </a>
+        <a href="{{ url_for('admin_periodos') }}" class="nav__link {{ 'is-active' if request.endpoint and 'periodo' in (request.endpoint or '') or 'auditoria' in (request.endpoint or '') }}">
+          <span class="nav__icon">{% include 'icons/chart.svg' %}</span> Auditoría
+        </a>
+        <a href="{{ url_for('admin_productos_relacionados') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_productos_relacionados' }}">
+          <span class="nav__icon">{% include 'icons/box.svg' %}</span> Prod. relacionados
+        </a>
 
         <span class="nav__label">Catálogo</span>
         <a href="{{ url_for('admin_configuracion') }}#sec-productos" class="nav__link {{ 'is-active' if request.endpoint == 'admin_configuracion' }}">

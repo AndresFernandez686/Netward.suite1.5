@@ -1,0 +1,209 @@
+{% extends "admin_base.html" %}
+{% block title %}Reporte Gerencial — Período #{{ periodo.numero }} — {{ app_nombre }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Reporte Gerencial — Período #{{ periodo.numero }}</h1>
+  <p class="page-sub">{{ periodo.fecha_desde }} → {{ periodo.fecha_hasta }} · {{ periodo.tienda_id }}</p>
+</div>
+
+<div class="d-flex gap-2 mb-3">
+  <a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn-sm btn-secondary">← Auditoría</a>
+  <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn-sm btn-secondary">Exportar Excel completo</a>
+</div>
+
+{# ── Resumen ejecutivo ── #}
+<div class="kpi-grid mb-4">
+  <div class="kpi-card kpi-card--danger">
+    <div class="kpi-value">
+      {% if total_perdida %}
+        Gs.&nbsp;{{ "{:,.0f}".format(total_perdida).replace(",", ".") }}
+      {% else %}Gs. 0{% endif %}
+    </div>
+    <div class="kpi-label">Total pérdida estimada</div>
+  </div>
+  <div class="kpi-card kpi-card--warning">
+    <div class="kpi-value">{{ faltantes|length }}</div>
+    <div class="kpi-label">Productos con faltante</div>
+  </div>
+  <div class="kpi-card kpi-card--danger">
+    <div class="kpi-value">{{ alertas_criticas|length }}</div>
+    <div class="kpi-label">Alertas críticas</div>
+  </div>
+  <div class="kpi-card kpi-card--info">
+    <div class="kpi-value">{{ periodo.dias_periodo }} días</div>
+    <div class="kpi-label">Duración del período</div>
+  </div>
+</div>
+
+{# ── Alertas críticas ── #}
+{% if alertas_criticas %}
+<div class="card mb-4 border-danger">
+  <div class="card__header"><h2 class="card__title text-danger">⚠ Alertas críticas</h2></div>
+  <div class="card__body p-0">
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Producto</th><th>Faltante</th><th>Impacto</th>
+            <th>Causa sugerida</th><th>Confianza</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in alertas_criticas %}
+          <tr style="background:#fff1f2">
+            <td><strong>{{ r.producto_nombre }}</strong></td>
+            <td class="text-danger">{{ r.diferencia }} unid.</td>
+            <td class="text-danger">
+              {% if r.impacto %}Gs. {{ "{:,.0f}".format(r.impacto).replace(",", ".") }}{% else %}—{% endif %}
+            </td>
+            <td><span class="badge badge--warning">{{ r.causa_sugerida }}</span></td>
+            <td>
+              <span class="badge
+                {% if r.nivel_confianza == 'Alto' %}badge--success
+                {% elif r.nivel_confianza == 'Medio' %}badge--warning
+                {% else %}badge--secondary{% endif %}">
+                {{ r.nivel_confianza }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Resumen por causa ── #}
+{% if por_causa %}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Resumen por causa</h2></div>
+  <div class="card__body p-0">
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr><th>Causa</th><th>Cantidad de productos</th><th>Importe total</th></tr>
+        </thead>
+        <tbody>
+          {% for causa, datos in por_causa|dictsort(by='value', reverse=True, attribute='importe') %}
+          <tr>
+            <td>{{ causa }}</td>
+            <td>{{ datos.cantidad }}</td>
+            <td>
+              {% if datos.importe %}
+                Gs. {{ "{:,.0f}".format(datos.importe).replace(",", ".") }}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700">
+            <td>Total</td>
+            <td>{{ faltantes|length }}</td>
+            <td class="text-danger">
+              {% if total_perdida %}Gs. {{ "{:,.0f}".format(total_perdida).replace(",", ".") }}{% else %}—{% endif %}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Detalle de faltantes ── #}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Detalle de productos con faltante</h2></div>
+  <div class="card__body p-0">
+    {% if not faltantes %}
+      <p class="empty-state">No se registraron faltantes en este período.</p>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Faltante (unid.)</th>
+            <th>Costo unit.</th>
+            <th>Valor perdido</th>
+            <th>Causa</th>
+            <th>Evidencia</th>
+            <th>Confianza</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in faltantes %}
+          <tr {% if r.severidad == 'Crítico' %}style="background:#fff1f2"{% endif %}>
+            <td>
+              <strong>{{ r.producto_nombre }}</strong>
+              {% if r.categoria %}<br><small class="text-muted">{{ r.categoria }}</small>{% endif %}
+            </td>
+            <td class="text-danger text-right">{{ r.diferencia }}</td>
+            <td class="text-right">
+              {% if r.costo_unitario %}Gs. {{ "{:,.0f}".format(r.costo_unitario).replace(",", ".") }}{% else %}—{% endif %}
+            </td>
+            <td class="text-right {% if r.impacto > 0 %}text-danger{% endif %}">
+              {% if r.impacto %}Gs. {{ "{:,.0f}".format(r.impacto).replace(",", ".") }}{% else %}—{% endif %}
+            </td>
+            <td>
+              <span class="badge badge--warning" style="font-size:.75em">{{ r.causa_sugerida }}</span>
+            </td>
+            <td style="font-size:.8em;max-width:240px">{{ r.evidencia | truncate(120) }}</td>
+            <td>
+              <span class="badge
+                {% if r.nivel_confianza == 'Alto' %}badge--success
+                {% elif r.nivel_confianza == 'Medio' %}badge--warning
+                {% else %}badge--secondary{% endif %}">
+                {{ r.nivel_confianza }}
+              </span>
+            </td>
+            <td>
+              <span class="badge
+                {% if r.estado_auditoria == 'Justificado' %}badge--success
+                {% elif r.estado_auditoria == 'Sin diferencia' %}badge--info
+                {% else %}badge--warning{% endif %}">
+                {{ r.estado_auditoria }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700;background:#f8f8f8">
+            <td>TOTAL</td>
+            <td class="text-danger text-right">
+              {{ faltantes | sum(attribute='diferencia') | abs | round(1) }} unid.
+            </td>
+            <td>—</td>
+            <td class="text-danger text-right">
+              {% if total_perdida %}Gs. {{ "{:,.0f}".format(total_perdida).replace(",", ".") }}{% else %}Gs. 0{% endif %}
+            </td>
+            <td colspan="4"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:1rem; }
+.kpi-card { background:#fff; border-radius:10px; padding:1.2rem 1rem; text-align:center;
+            box-shadow:0 1px 6px rgba(0,0,0,.08); border-top:4px solid #e5e7eb; }
+.kpi-card--danger  { border-color:#ef4444; }
+.kpi-card--warning { border-color:#f59e0b; }
+.kpi-card--info    { border-color:#3b82f6; }
+.kpi-value { font-size:1.6rem; font-weight:700; color:#111; margin-bottom:.25rem; }
+.kpi-label { font-size:.8rem; color:#666; }
+.kpi-card--danger  .kpi-value { color:#dc2626; }
+.kpi-card--warning .kpi-value { color:#b45309; }
+.border-danger { border-left:4px solid #ef4444; }
+.d-flex { display:flex; } .gap-2 { gap:.5rem; } .mb-3 { margin-bottom:1rem; } .mb-4 { margin-bottom:1.5rem; }
+.text-right { text-align:right; } .text-danger { color:#dc2626; }
+.empty-state { padding:2rem; text-align:center; color:#888; }
+</style>
+{% endblock %}

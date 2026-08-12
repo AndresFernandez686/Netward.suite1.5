@@ -1,0 +1,259 @@
+{% extends "admin_base.html" %}
+{% block title %}Período #{{ periodo.numero }} — {{ app_nombre }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Período #{{ periodo.numero }} — {{ periodo.tienda_id }}</h1>
+  <p class="page-sub">{{ periodo.fecha_desde }} → {{ periodo.fecha_hasta }} ({{ periodo.dias_periodo }} días)
+    &nbsp;·&nbsp; Estado:
+    <span class="badge {% if periodo.estado == 'Abierto' %}badge--info{% elif periodo.estado == 'Cerrado' %}badge--warning{% elif periodo.estado in ('Conciliado','Auditado') %}badge--success{% else %}badge--secondary{% endif %}">
+      {{ periodo.estado }}
+    </span>
+  </p>
+</div>
+<a href="{{ url_for('admin_periodos') }}" class="btn btn-sm btn-secondary mb-3">← Volver a períodos</a>
+
+{# ── Barra de acciones ── #}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Acciones del período</h2></div>
+  <div class="card__body d-flex flex-wrap gap-2">
+    {% if periodo.estado not in ('Cerrado','Conciliado','Auditado') %}
+    <form method="post" action="{{ url_for('admin_periodo_cerrar', periodo_id=periodo.id) }}" style="display:inline">
+      <button type="submit" class="btn btn-warning"
+        onclick="return confirm('¿Cerrar el período? No podrá ser editado por el empleado.')">
+        Cerrar período
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('admin_periodo_cerrar', periodo_id=periodo.id) }}" style="display:inline">
+      <input type="hidden" name="forzar" value="1">
+      <button type="submit" class="btn btn-secondary">Forzar cierre</button>
+    </form>
+    {% endif %}
+    {% if periodo.estado in ('Cerrado','Excel Importado','Conciliado','Auditado') %}
+    <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline">
+      <button type="submit" class="btn btn-primary"
+        onclick="return confirm('¿Ejecutar auditoría automática?')">
+        Ejecutar auditoría
+      </button>
+    </form>
+    {% if periodo.estado == 'Excel Importado' %}
+    <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline">
+      <input type="hidden" name="forzar" value="1">
+      <button type="submit" class="btn btn-secondary"
+        onclick="return confirm('¿Ejecutar auditoría con productos sin vincular? Los resultados pueden estar incompletos.')">
+        Forzar (incompleta)
+      </button>
+    </form>
+    {% endif %}
+    <a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn-secondary">Ver auditoría</a>
+    <a href="{{ url_for('admin_reporte_gerencial', periodo_id=periodo.id) }}" class="btn btn-secondary">Reporte gerencial</a>
+    <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn-secondary">Exportar Excel</a>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Productos pendientes de carga ── #}
+{% set sin_cargar = conteos | selectattr('fue_cargado', 'equalto', false) | list %}
+{% if sin_cargar %}
+<div class="alert alert-warning mb-3">
+  <strong>⚠ {{ sin_cargar|length }} producto(s) pendiente(s) de carga</strong>
+  — bloquean el cierre del período.<br>
+  <small>Cargalos con cantidad <strong>0</strong> para confirmar que no hay stock,
+  o usá "Forzar cierre".</small>
+  <br><span style="font-size:.85em">{{ sin_cargar | map(attribute='producto_nombre') | join(', ') | truncate(200) }}</span>
+</div>
+{% endif %}
+
+{# ── Importar Excel oficial ── #}
+{% if periodo.estado in ('Cerrado','Conciliado','Auditado') %}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Importar Excel oficial</h2></div>
+  <div class="card__body">
+    {% if excel_imp %}
+    <p class="text-success">✓ Excel importado: <strong>{{ excel_imp.nombre_archivo }}</strong>
+      ({{ excel_imp.fecha_importacion.strftime('%d/%m/%Y %H:%M') }})
+      {% if excel_imp.productos_nuevos > 0 %}
+      — <span class="text-warning">{{ excel_imp.productos_nuevos }} producto(s) sin vincular</span>
+      {% endif %}
+    </p>
+    {% endif %}
+    <form method="post" action="{{ url_for('admin_periodo_excel_importar', periodo_id=periodo.id) }}"
+          enctype="multipart/form-data" class="form-inline-grid">
+      <div class="form-group">
+        <label class="form-label">Archivo Excel (.xlsx / .xls)</label>
+        <input type="file" name="archivo_excel" class="form-control" accept=".xlsx,.xls" required>
+      </div>
+      <div class="form-group form-group--action">
+        <button type="submit" class="btn btn-primary">Importar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# ── Carga manual de conteos ── #}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Registrar conteo manual</h2></div>
+  <div class="card__body">
+    <form method="post" action="{{ url_for('admin_conteo_manual', periodo_id=periodo.id) }}" class="form-inline-grid">
+      <div class="form-group">
+        <label class="form-label">Producto</label>
+        <input type="text" name="producto_nombre" class="form-control" list="productos-list" required placeholder="Nombre del producto">
+        <datalist id="productos-list">
+          {% for c in conteos %}<option value="{{ c.producto_nombre }}">{% endfor %}
+        </datalist>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Categoría</label>
+        <input type="text" name="categoria" class="form-control" placeholder="Impulsivo / Por Kilos / Extras">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Cantidad (unidades)</label>
+        <input type="number" name="cantidad" step="0.01" min="0" class="form-control" required>
+      </div>
+      <div class="form-group form-group--action">
+        <button type="submit" class="btn btn-primary">Guardar conteo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Ajustes administrativos ── #}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Agregar ajuste administrativo</h2>
+    <small class="text-muted">No sobrescribe el conteo original del empleado</small>
+  </div>
+  <div class="card__body">
+    <form method="post" action="{{ url_for('admin_periodo_ajuste', periodo_id=periodo.id) }}" class="form-inline-grid">
+      <div class="form-group">
+        <label class="form-label">Producto</label>
+        <input type="text" name="producto_nombre" class="form-control" list="productos-list" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Cantidad (+ o −)</label>
+        <input type="number" name="cantidad" step="0.01" class="form-control" required placeholder="+24 / -5">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Motivo</label>
+        <select name="motivo" class="form-control">
+          <option>Producto encontrado luego del conteo</option>
+          <option>Caja no contada inicialmente</option>
+          <option>Corrección de carga</option>
+          <option>Producto mal ubicado</option>
+          <option>Otro</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Observación</label>
+        <input type="text" name="observacion" class="form-control" maxlength="200">
+      </div>
+      <div class="form-group" style="align-self:end;padding-bottom:.3rem">
+        <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:.88em">
+          <input type="checkbox" name="impacta_stock" value="1" checked>
+          Impacta stock (desmarcar si ya está explicado por merma o vencido)
+        </label>
+      </div>
+      <div class="form-group form-group--action">
+        <button type="submit" class="btn btn-secondary">Agregar ajuste</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Tabla de conteos ── #}
+<div class="card mb-4">
+  <div class="card__header">
+    <h2 class="card__title">Conteos registrados</h2>
+    <span class="badge badge--info">{{ conteos|length }} producto(s)</span>
+  </div>
+  <div class="card__body p-0">
+    {% if not conteos %}
+    <p class="empty-state">No hay conteos aún.</p>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Estado</th><th>Producto</th><th>Categoría</th>
+            <th>Total (unid.)</th><th>Sincs</th><th>Primera carga</th><th>Última carga</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in conteos %}
+          <tr {% if not c.fue_cargado %}style="background:#fff7ed"{% endif %}>
+            <td>
+              {% if not c.fue_cargado %}
+                <span class="badge badge--danger" title="Empleado no registró este producto">⚠ Sin cargar</span>
+              {% elif c.total_unidad_base == 0 %}
+                <span class="badge badge--secondary" title="Empleado confirmó que no hay stock">0 — Sin stock</span>
+              {% else %}
+                <span class="badge badge--success">✓ {{ c.total_unidad_base }}</span>
+              {% endif %}
+            </td>
+            <td>{{ c.producto_nombre }}</td>
+            <td>{{ c.categoria }}</td>
+            <td>
+              {% if c.fue_cargado %}
+                <strong>{{ c.total_unidad_base }}</strong>
+              {% else %}
+                <em class="text-muted">—</em>
+              {% endif %}
+            </td>
+            <td>
+              {% set sincs = c.veces_sincronizado or 1 %}
+              {% if sincs > 1 %}
+                <span class="badge badge--warning" title="Último valor tomado ({{ sincs }} sincronizaciones)">{{ sincs }}×</span>
+              {% else %}1{% endif %}
+            </td>
+            <td style="font-size:.8em;color:#888">{{ c.primera_carga.strftime('%d/%m %H:%M') if c.primera_carga else '—' }}</td>
+            <td style="font-size:.8em">{{ c.fecha_carga.strftime('%d/%m %H:%M') if c.fecha_carga else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {# Leyenda #}
+    <div style="font-size:.8em;color:#666;padding:.5rem 1rem;border-top:1px solid #eee">
+      <span class="badge badge--success">✓ N</span> Cargado con cantidad &nbsp;·&nbsp;
+      <span class="badge badge--secondary">0 — Sin stock</span> Confirmado sin stock (válido para cierre) &nbsp;·&nbsp;
+      <span class="badge badge--danger">⚠ Sin cargar</span> Pendiente — <strong>bloquea el cierre</strong>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Tabla de ajustes ── #}
+{% if ajustes %}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Ajustes administrativos</h2></div>
+  <div class="card__body p-0">
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr><th>Producto</th><th>Ajuste</th><th>Motivo</th><th>Observación</th><th>Impacta stock</th><th>Admin</th><th>Fecha</th></tr>
+        </thead>
+        <tbody>
+          {% for a in ajustes %}
+          <tr {% if not a.impacta_stock %}style="opacity:.65"{% endif %}>
+            <td>{{ a.producto_nombre }}</td>
+            <td><strong>{{ '%+.1f'|format(a.cantidad_ajustada) }}</strong></td>
+            <td>{{ a.motivo }}</td>
+            <td>{{ a.observacion }}</td>
+            <td>
+              {% if a.impacta_stock %}
+                <span class="badge badge--success">Sí</span>
+              {% else %}
+                <span class="badge badge--secondary" title="Solo trazabilidad, no modifica conteo_final">No</span>
+              {% endif %}
+            </td>
+            <td>{{ a.usuario_admin }}</td>
+            <td>{{ a.fecha_ajuste.strftime('%d/%m/%Y') if a.fecha_ajuste else '' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
