@@ -27,7 +27,8 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     SincronizacionLog,
                     InventarioPeriodo, ConteoDetalle, AjusteInventario,
                     ExcelImportado, ExcelDetalle, AuditoriaResultado,
-                    Justificacion, ProductoRelacionado, ConfiguracionSistema)
+                    Justificacion, ProductoRelacionado, ConfiguracionSistema,
+                    NotificacionUsuario)
 from core.auditoria import ejecutar_auditoria, build_reporte_gerencial
 from core.excel_importer import importar_excel
 from core.sync_bridge import propagar_conteo_a_periodo, retroalimentar_periodo_desde_items
@@ -101,6 +102,49 @@ def get_active_bind():
     return "empleado"
 
 
+def _periodo_abierto_mas_reciente(cliente_id: str, tienda_id: str):
+    return (
+        InventarioPeriodo.query
+        .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
+        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+        .order_by(InventarioPeriodo.id.desc())
+        .first()
+    )
+
+
+def _notificar_nuevo_periodo(periodo: InventarioPeriodo) -> int:
+    """Crea una notificación por empleado de la misma tienda/cliente."""
+    empleados = Usuario.query.filter_by(
+        cliente_id=periodo.cliente_id,
+        rol="empleado",
+        tienda_id=periodo.tienda_id,
+    ).all()
+
+    creadas = 0
+    for u in empleados:
+        existe = NotificacionUsuario.query.filter_by(
+            cliente_id=periodo.cliente_id,
+            username=u.username,
+            tipo="periodo_abierto",
+            referencia_id=periodo.id,
+        ).first()
+        if existe:
+            continue
+
+        db.session.add(NotificacionUsuario(
+            cliente_id=periodo.cliente_id,
+            username=u.username,
+            tipo="periodo_abierto",
+            referencia_id=periodo.id,
+            titulo=f"Nuevo período abierto #{periodo.numero}",
+            mensaje=f"Se abrió un nuevo período para tu tienda ({periodo.fecha_desde} a {periodo.fecha_hasta}).",
+            leida=False,
+        ))
+        creadas += 1
+
+    return creadas
+
+
 @app.before_request
 def select_database_for_request():
     """Asigna la base de datos adecuada antes de cada peticion."""
@@ -113,6 +157,38 @@ def select_database_for_request():
             tiendas_validas = {t.id for t in Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()}
             if tienda_arg == "ALL" or tienda_arg in tiendas_validas:
                 session["admin_tienda_id"] = tienda_arg
+
+    if session.get("rol") == "empleado" and session.get("usuario") and session.get("tienda_id"):
+        try:
+            cliente_id = get_cliente_filtro()
+            tienda_id = str(session.get("tienda_id") or "")
+            if not tienda_id:
+                return
+            usuario = Usuario.query.filter_by(cliente_id=cliente_id, username=session.get("usuario")).first()
+            periodo_reciente = _periodo_abierto_mas_reciente(cliente_id, tienda_id)
+            if usuario and periodo_reciente and periodo_reciente.id > int(usuario.ultimo_periodo_notificado_id or 0):
+                ultimo_flash = session.get("ultimo_periodo_flash_id")
+                if ultimo_flash != periodo_reciente.id:
+                    flash(
+                        f"Nuevo período abierto para tu tienda: #{periodo_reciente.numero} ({periodo_reciente.fecha_desde} a {periodo_reciente.fecha_hasta}).",
+                        "info",
+                    )
+                    session["ultimo_periodo_flash_id"] = periodo_reciente.id
+
+            # Aviso de campana: mostrar una vez por notificación no leída más reciente
+            notif = (
+                NotificacionUsuario.query
+                .filter_by(cliente_id=cliente_id, username=session.get("usuario"), leida=False)
+                .order_by(NotificacionUsuario.id.desc())
+                .first()
+            )
+            if notif is not None:
+                ultimo_notif_flash = session.get("ultimo_notif_empleado_flash_id")
+                if ultimo_notif_flash != notif.id:
+                    flash(notif.titulo, "info")
+                    session["ultimo_notif_empleado_flash_id"] = notif.id
+        except Exception:
+            pass
 
 
 def get_tienda_filtro():
@@ -189,6 +265,8 @@ def ensure_multitenant_schema():
                                "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
         _add_column_if_missing(conn, "usuarios",
                                "password_hash VARCHAR(256)", "password_hash")
+        _add_column_if_missing(conn, "usuarios",
+                       "ultimo_periodo_notificado_id INTEGER NOT NULL DEFAULT 0", "ultimo_periodo_notificado_id")
         _add_column_if_missing(conn, "productos",
                        "visible_empleado BOOLEAN NOT NULL DEFAULT 1", "visible_empleado")
 
@@ -341,6 +419,8 @@ def inject_globals():
         "notif_averiados": 0,
         "notif_vencimientos": 0,
         "sync_pendientes": 0,
+        "notif_periodo_abierto": 0,
+        "notif_empleado_unread": 0,
     }
     if session.get("rol") == "empleado" and session.get("usuario"):
         cliente_id = get_cliente_filtro()
@@ -359,6 +439,19 @@ def inject_globals():
             ctx["sync_ultima_recepcion"]  = _last("recepcion")
             ctx["sync_pendientes"] = InventarioItem.query.filter_by(
                 cliente_id=cliente_id, tienda_id=t, sinc_estado="pendiente").count()
+            usuario = Usuario.query.filter_by(cliente_id=cliente_id, username=u).first()
+            periodo_reciente = _periodo_abierto_mas_reciente(cliente_id, t)
+            if usuario and periodo_reciente and periodo_reciente.id > int(usuario.ultimo_periodo_notificado_id or 0):
+                ctx["notif_periodo_abierto"] = 1
+
+            unread = NotificacionUsuario.query.filter_by(
+                cliente_id=cliente_id,
+                username=u,
+                leida=False,
+            ).count()
+            ctx["notif_empleado_unread"] = unread
+            if unread > 0:
+                ctx["notif_periodo_abierto"] = unread
         except Exception:
             pass
     # Solo consultar notificaciones si hay sesion activa de administrador
@@ -453,12 +546,55 @@ def _safe_inv_tab(tab_value):
 def _redirect_inventario_context(default_anchor="sec-carga"):
     active_tab = _safe_inv_tab(request.form.get("active_tab"))
     anchor = (request.form.get("anchor") or default_anchor).strip() or default_anchor
-    return redirect(url_for("empleado_inventario", tab=active_tab) + f"#{anchor}")
+    return redirect(url_for("empleado_periodo_abierto", tab=active_tab) + f"#{anchor}")
+
+
+def _periodos_abiertos_empleado(cliente_id: str, tienda_id: str):
+    return (
+        InventarioPeriodo.query
+        .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
+        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+        .order_by(InventarioPeriodo.id.desc())
+        .all()
+    )
+
+
+def _resolve_periodo_seleccionado_empleado(cliente_id: str, tienda_id: str):
+    abiertos = _periodos_abiertos_empleado(cliente_id, tienda_id)
+    if not abiertos:
+        session.pop("empleado_periodo_id", None)
+        return None, []
+
+    selected_id = request.args.get("periodo_id", type=int) or session.get("empleado_periodo_id")
+    seleccionado = next((p for p in abiertos if p.id == selected_id), None)
+    if seleccionado is None:
+        seleccionado = abiertos[0]
+    session["empleado_periodo_id"] = seleccionado.id
+    return seleccionado, abiertos
 
 
 @app.route("/empleado/inventario")
 @login_required(rol="empleado")
 def empleado_inventario():
+    return redirect(url_for("empleado_periodo_abierto", tab=request.args.get("tab") or CATEGORIAS[0]))
+
+
+@app.route("/empleado/periodo-abierto")
+@login_required(rol="empleado")
+def empleado_periodo_abierto():
+    cliente_id = get_cliente_filtro()
+    tienda_id = session["tienda_id"]
+    periodo_activo, periodos_abiertos = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
+
+    if periodo_activo is None:
+        flash("No hay período abierto asignado para tu tienda. Solicita al administrador crear uno.", "warning")
+    else:
+        usuario = Usuario.query.filter_by(cliente_id=cliente_id, username=session.get("usuario")).first()
+        if usuario and int(usuario.ultimo_periodo_notificado_id or 0) < int(periodo_activo.id):
+            usuario.ultimo_periodo_notificado_id = periodo_activo.id
+            db.session.commit()
+        session["ultimo_periodo_flash_id"] = periodo_activo.id
+
     return render_template(
         "empleado_inventario.html",
         **empleado_service.build_empleado_inventario_context(
@@ -466,12 +602,120 @@ def empleado_inventario():
             carrito=get_carrito(),
             hoy=today_local_iso(),
         ),
+        periodo_activo=periodo_activo,
+        periodos_abiertos=periodos_abiertos,
     )
+
+
+@app.route("/empleado/periodo-abierto/seleccionar", methods=["POST"])
+@login_required(rol="empleado")
+def empleado_periodo_seleccionar():
+    cliente_id = get_cliente_filtro()
+    tienda_id = session["tienda_id"]
+    periodo_id = request.form.get("periodo_id", type=int)
+    abiertos = _periodos_abiertos_empleado(cliente_id, tienda_id)
+    seleccionado = next((p for p in abiertos if p.id == periodo_id), None)
+    if not seleccionado:
+        flash("El período seleccionado no está disponible o ya fue cerrado.", "warning")
+        return redirect(url_for("empleado_periodo_abierto"))
+
+    session["empleado_periodo_id"] = seleccionado.id
+    usuario = Usuario.query.filter_by(cliente_id=cliente_id, username=session.get("usuario")).first()
+    if usuario and int(usuario.ultimo_periodo_notificado_id or 0) < int(seleccionado.id):
+        usuario.ultimo_periodo_notificado_id = seleccionado.id
+        db.session.commit()
+    session["ultimo_periodo_flash_id"] = seleccionado.id
+    flash(f"Período #{seleccionado.numero} seleccionado.", "success")
+    return redirect(url_for("empleado_periodo_abierto"))
+
+
+@app.route("/empleado/notificaciones")
+@login_required(rol="empleado")
+def empleado_notificaciones():
+    cliente_id = get_cliente_filtro()
+    username = session.get("usuario")
+    notificaciones = (
+        NotificacionUsuario.query
+        .filter_by(cliente_id=cliente_id, username=username)
+        .order_by(NotificacionUsuario.id.desc())
+        .limit(120)
+        .all()
+    )
+    return render_template("empleado_notificaciones.html", notificaciones=notificaciones)
+
+
+@app.route("/empleado/notificaciones/marcar-todas", methods=["POST"])
+@login_required(rol="empleado")
+def empleado_notificaciones_marcar_todas():
+    cliente_id = get_cliente_filtro()
+    username = session.get("usuario")
+    marcadas = (
+        NotificacionUsuario.query
+        .filter_by(cliente_id=cliente_id, username=username, leida=False)
+        .update({"leida": True}, synchronize_session=False)
+    )
+    db.session.commit()
+    if marcadas:
+        flash(f"Se marcaron {marcadas} notificaciones como leídas.", "success")
+    else:
+        flash("No había notificaciones nuevas para marcar.", "info")
+    return redirect(url_for("empleado_notificaciones"))
+
+
+@app.route("/empleado/notificaciones/<int:notif_id>/ir")
+@login_required(rol="empleado")
+def empleado_notificacion_ir(notif_id):
+    cliente_id = get_cliente_filtro()
+    username = session.get("usuario")
+    tienda_id = session.get("tienda_id")
+
+    notif = NotificacionUsuario.query.filter_by(
+        id=notif_id,
+        cliente_id=cliente_id,
+        username=username,
+    ).first()
+    if notif is None:
+        abort(404)
+
+    notif.leida = True
+    db.session.flush()
+
+    if notif.tipo == "periodo_abierto" and notif.referencia_id:
+        periodo = db.session.get(InventarioPeriodo, int(notif.referencia_id))
+        if periodo and periodo.cliente_id == cliente_id and periodo.tienda_id == tienda_id:
+            if periodo.estado in ("Abierto", "Pendiente"):
+                session["empleado_periodo_id"] = periodo.id
+                db.session.commit()
+                return redirect(url_for("empleado_periodo_abierto", periodo_id=periodo.id))
+
+            snapshot = (
+                InventarioSnapshot.query
+                .filter_by(cliente_id=cliente_id, tienda_id=tienda_id, usuario=username)
+                .filter(InventarioSnapshot.fecha >= periodo.fecha_desde)
+                .filter(InventarioSnapshot.fecha <= periodo.fecha_hasta)
+                .order_by(InventarioSnapshot.fecha.desc(), InventarioSnapshot.id.desc())
+                .first()
+            )
+            db.session.commit()
+            if snapshot:
+                return redirect(url_for("empleado_historial", fecha=snapshot.fecha))
+            flash("Ese período ya está cerrado y no se encontraron cargas en tu historial para ese rango.", "info")
+            return redirect(url_for("empleado_historial"))
+
+    db.session.commit()
+    return redirect(url_for("empleado_notificaciones"))
 
 
 @app.route("/empleado/carrito/agregar", methods=["POST"])
 @login_required(rol="empleado")
 def carrito_agregar():
+    cliente_id = get_cliente_filtro()
+    tienda_id = session["tienda_id"]
+    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
+    if periodo_activo is None:
+        flash("No puedes cargar inventario sin un período abierto activo.", "error")
+        return _redirect_inventario_context("sec-carga")
+
     categoria = request.form.get("categoria")
     producto = (request.form.get("producto") or "").strip()
     cantidad = request.form.get("cantidad", type=float) or 0
@@ -526,12 +770,18 @@ def carrito_limpiar():
 @app.route("/empleado/carrito/guardar", methods=["POST"])
 @login_required(rol="empleado")
 def carrito_guardar():
+    cliente_id = get_cliente_filtro()
+    tienda_id = session["tienda_id"]
+    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
+    if periodo_activo is None:
+        flash("No puedes guardar inventario fuera de un período abierto.", "error")
+        return _redirect_inventario_context("sec-carrito")
+
     carrito = get_carrito()
     if not carrito:
         flash("No hay productos en el carrito para guardar.", "warning")
         return _redirect_inventario_context("sec-carrito")
 
-    tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
     guardados = empleado_service.build_carrito_guardado(carrito, tienda_id, usuario)
 
@@ -728,21 +978,24 @@ def empleado_sincronizar():
         flash("No hay datos pendientes de sincronización.", "warning")
         return redirect(url_for("empleado_sincronizar_page"))
 
-    # 2. ¿El período activo está en estado válido para recibir datos?
-    periodo_activo = (
-        InventarioPeriodo.query
-        .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
-        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
-        .order_by(InventarioPeriodo.id.desc())
-        .first()
-    )
+    # 2. ¿El período activo (seleccionado por empleado) está disponible?
+    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
     if periodo_activo is None:
         # No hay período abierto — la sincronización de inventario operativo sigue funcionando
         # pero el empleado debe saberlo
         flash("No hay un período de auditoría activo. Los datos se sincronizan normalmente pero no se registrarán en ningún período de inventario.", "info")
-    elif periodo_activo.estado in ("Cerrado", "Excel Importado", "Conciliado", "Auditado"):
-        flash(f"El período #{periodo_activo.numero} ya está cerrado. Pedí al administrador que abra un nuevo período.", "warning")
-        return redirect(url_for("empleado_sincronizar_page"))
+
+    # Propagar al período ANTES de cambiar sinc_estado a sincronizado.
+    try:
+        propagar_conteo_a_periodo(
+            tienda_id=tienda_id,
+            cliente_id=cliente_id,
+            usuario=usuario,
+            periodo_id=session.get("empleado_periodo_id"),
+        )
+        db.session.flush()
+    except Exception:
+        pass  # No bloquear la sincronización si la propagación falla
 
     resumen = empleado_service.procesar_sincronizacion(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, accion=accion)
     if accion == "enviar_recibir":
@@ -757,12 +1010,6 @@ def empleado_sincronizar():
             "success",
         )
     db.session.commit()
-    # Propagar conteo al período de auditoría activo (si existe)
-    try:
-        propagar_conteo_a_periodo(tienda_id=tienda_id, cliente_id=cliente_id, usuario=usuario)
-        db.session.commit()
-    except Exception:
-        pass  # No bloquear la sincronización si el módulo de auditoría falla
     return redirect(url_for("empleado_sincronizar_page"))
 
 
@@ -1121,6 +1368,59 @@ def usuario_eliminar(usuario_id):
     return redirect(url_for("admin_usuarios") + "#usuarios-list")
 
 
+@app.route("/admin/usuarios/<int:usuario_id>/editar", methods=["POST"])
+@login_required(rol="administrador")
+def usuario_editar(usuario_id):
+    cliente_id = get_cliente_filtro()
+    usuario = db.session.get(Usuario, usuario_id)
+    if usuario is None:
+        abort(404)
+    if usuario.cliente_id != cliente_id:
+        abort(403)
+
+    username = (request.form.get("username") or "").strip()
+    rol = (request.form.get("rol") or "empleado").strip()
+    tienda_id = (request.form.get("tienda_id") or "").strip()
+    nueva_contrasena = request.form.get("contrasena") or ""
+
+    if not username:
+        set_view_notice(session, "admin_usuarios_notice", "El nombre de usuario es obligatorio.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-list")
+
+    if rol not in ("empleado", "administrador"):
+        set_view_notice(session, "admin_usuarios_notice", "Rol no valido.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-list")
+
+    if rol == "administrador":
+        tienda_id = "ALL"
+    elif not tienda_id:
+        set_view_notice(session, "admin_usuarios_notice", "Selecciona una tienda para el empleado.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-list")
+
+    if nueva_contrasena and len(nueva_contrasena) < 6:
+        set_view_notice(session, "admin_usuarios_notice", "La contrasena debe tener al menos 6 caracteres.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-list")
+
+    existente = Usuario.query.filter_by(cliente_id=cliente_id, username=username).filter(Usuario.id != usuario.id).first()
+    if existente:
+        set_view_notice(session, "admin_usuarios_notice", f"Ya existe el usuario '{username}'.", "warning")
+        return redirect(url_for("admin_usuarios") + "#usuarios-list")
+
+    if usuario.username == session.get("usuario") and rol != "administrador":
+        set_view_notice(session, "admin_usuarios_notice", "No puedes quitar privilegios de administrador a tu usuario activo.", "error")
+        return redirect(url_for("admin_usuarios") + "#usuarios-list")
+
+    usuario.username = username
+    usuario.rol = rol
+    usuario.tienda_id = tienda_id
+    if nueva_contrasena:
+        usuario.password_hash = generate_password_hash(nueva_contrasena)
+
+    db.session.commit()
+    set_view_notice(session, "admin_usuarios_notice", f"Usuario '{usuario.username}' actualizado correctamente.", "success")
+    return redirect(url_for("admin_usuarios") + "#usuarios-list")
+
+
 # --------------------------------------------------------------------------- #
 #  Admin - Alertas centralizadas
 # --------------------------------------------------------------------------- #
@@ -1305,6 +1605,9 @@ def admin_configuracion():
     tiendas = Tienda.query.filter_by(cliente_id=cliente_id).all()
     default = next((t.id for t in tiendas if t.es_default), None)
     local_notice = session.pop("admin_config_notice", None)
+    active_section = (request.args.get("section") or ((local_notice or {}).get("section")) or "productos").strip().lower()
+    if active_section not in ("productos", "tiendas"):
+        active_section = "productos"
     active_tab = _safe_config_tab(
         request.args.get("tab")
         or ((local_notice or {}).get("tab"))
@@ -1321,6 +1624,7 @@ def admin_configuracion():
                            productos_kilos=productos_kilos,
                            precios_map=precios_map,
                            active_tab=active_tab,
+                           active_section=active_section,
                            local_notice=local_notice,
                            hide_global_flash=True)
 
@@ -1377,18 +1681,18 @@ def producto_crear():
 
     if not nombre:
         _set_admin_config_notice("productos", "El nombre del producto es obligatorio.", "error", active_tab)
-        return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
+        return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
     if categoria not in ("Impulsivo", "Por Kilos", "Extras"):
         _set_admin_config_notice("productos", "Categoria no valida.", "error", active_tab)
-        return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
+        return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
     if Producto.query.filter_by(nombre=nombre, categoria=categoria).first():
         _set_admin_config_notice("productos", f"Ya existe '{nombre}' en {categoria}.", "warning", active_tab)
-        return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
+        return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
     db.session.add(Producto(nombre=nombre, categoria=categoria, visible_empleado=False,
                             codigo_articulo=(request.form.get("codigo_articulo") or "").strip() or None))
     db.session.commit()
     _set_admin_config_notice("productos", f"Producto '{nombre}' agregado a {categoria}.", "success", active_tab)
-    return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
+    return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
 
 
 @app.route("/admin/producto/<int:producto_id>/eliminar", methods=["POST"])
@@ -1406,7 +1710,7 @@ def producto_eliminar(producto_id):
     db.session.delete(producto)
     db.session.commit()
     _set_admin_config_notice("productos", f"Producto '{nombre}' eliminado.", "info", active_tab)
-    return redirect(url_for("admin_configuracion", tab=active_tab) + "#sec-productos")
+    return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
 
 
 @app.route("/admin/tienda/crear", methods=["POST"])
@@ -1417,14 +1721,14 @@ def tienda_crear():
     direccion = (request.form.get("direccion") or "").strip() or "Direccion no especificada"
     if not nombre:
         _set_admin_config_notice("tiendas", "El nombre de la tienda es obligatorio.", "error")
-        return redirect(url_for("admin_configuracion") + "#sec-tiendas")
+        return redirect(url_for("admin_configuracion", section="tiendas") + "#sec-tiendas")
 
     ids = [int(t.id[1:]) for t in Tienda.query.filter_by(cliente_id=cliente_id).all() if t.id.startswith("T") and t.id[1:].isdigit()]
     nuevo_id = f"T{(max(ids) + 1) if ids else 1:03d}"
     db.session.add(Tienda(id=nuevo_id, cliente_id=cliente_id, nombre=nombre, direccion=direccion, activa=True))
     db.session.commit()
     _set_admin_config_notice("tiendas", f"Tienda creada con ID {nuevo_id}.", "success")
-    return redirect(url_for("admin_configuracion") + "#sec-tiendas")
+    return redirect(url_for("admin_configuracion", section="tiendas") + "#sec-tiendas")
 
 
 @app.route("/admin/tienda/<tienda_id>/toggle", methods=["POST"])
@@ -1437,7 +1741,7 @@ def tienda_toggle(tienda_id):
     tienda.activa = not tienda.activa
     db.session.commit()
     _set_admin_config_notice("tiendas", f"Tienda {tienda.nombre} {'activada' if tienda.activa else 'desactivada'}.", "info")
-    return redirect(url_for("admin_configuracion") + "#sec-tiendas")
+    return redirect(url_for("admin_configuracion", section="tiendas") + "#sec-tiendas")
 
 
 @app.route("/admin/tienda/<tienda_id>/default", methods=["POST"])
@@ -1449,7 +1753,7 @@ def tienda_default(tienda_id):
         t.es_default = (t.id == tienda_id)
     db.session.commit()
     _set_admin_config_notice("tiendas", "Tienda predeterminada actualizada.", "success")
-    return redirect(url_for("admin_configuracion") + "#sec-tiendas")
+    return redirect(url_for("admin_configuracion", section="tiendas") + "#sec-tiendas")
 
 
 # --------------------------------------------------------------------------- #
@@ -1761,6 +2065,8 @@ def admin_periodo_crear():
     db.session.add(p)
     db.session.flush()  # necesitamos p.id antes de retroalimentar
 
+    notifs_creadas = _notificar_nuevo_periodo(p)
+
     # Jalar cargas existentes dentro del rango (por si el empleado ya había cargado)
     importados = retroalimentar_periodo_desde_items(p)
     db.session.commit()
@@ -1768,6 +2074,8 @@ def admin_periodo_crear():
     msg = f"Período #{numero} creado."
     if importados:
         msg += f" Se importaron {importados} producto(s) de cargas previas dentro del rango."
+    if notifs_creadas:
+        msg += f" Notificaciones enviadas: {notifs_creadas}."
     flash(msg, "success")
     return redirect(url_for("admin_periodo_detalle", periodo_id=p.id))
 

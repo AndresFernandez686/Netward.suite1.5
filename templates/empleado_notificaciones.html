@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}Notificaciones - {{ app_nombre }}{% endblock %}
+{% block heading %}Notificaciones{% endblock %}
+{% block subheading %}Avisos de períodos y eventos de tu tienda{% endblock %}
+
+{% block content %}
+<section class="card card--skip-collapse">
+  <div class="panel__head" style="margin-bottom:12px;">
+    <h3 class="panel__title">Centro de notificaciones</h3>
+    {% if notificaciones %}
+    <form method="post" action="{{ url_for('empleado_notificaciones_marcar_todas') }}">
+      <button type="submit" class="btn btn--ghost btn--sm">Marcar todas como leídas</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if notificaciones %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Estado</th>
+          <th>Título</th>
+          <th>Mensaje</th>
+          <th>Fecha</th>
+          <th style="text-align:right;">Acción</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for n in notificaciones %}
+        <tr {% if not n.leida %}style="background:#f8fbff;"{% endif %}>
+          <td>
+            {% if n.leida %}
+            <span class="badge-soft badge-soft--muted">Leída</span>
+            {% else %}
+            <span class="badge-soft badge-soft--warning">Nueva</span>
+            {% endif %}
+          </td>
+          <td><strong>{{ n.titulo }}</strong></td>
+          <td class="muted">{{ n.mensaje }}</td>
+          <td class="muted">{{ n.creada.strftime('%d/%m/%Y %H:%M') if n.creada else '—' }}</td>
+          <td style="text-align:right;">
+            <a href="{{ url_for('empleado_notificacion_ir', notif_id=n.id) }}" class="btn btn--ghost btn--sm">Ir al origen</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <p>No tienes notificaciones.</p>
+    <span class="muted">Aquí verás avisos nuevos de períodos para tu tienda.</span>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

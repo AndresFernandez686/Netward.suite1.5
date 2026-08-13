@@ -162,6 +162,19 @@
 <script>
   (function () {
     var tabsWrap = document.getElementById('precio-tabs');
+    var desiredSection = '{{ active_section|default("productos") }}' === 'tiendas' ? 'sec-tiendas' : 'sec-productos';
+
+    function focusSection() {
+      var target = document.getElementById(desiredSection);
+      if (!target) return;
+      // Retrasar un poco para no competir con la restauracion global de scroll.
+      setTimeout(function () {
+        target.scrollIntoView({ behavior: 'auto', block: 'start' });
+      }, 80);
+    }
+
+    focusSection();
+
     if (!tabsWrap) return;
 
     var activeTab = '{{ active_tab|default("tab-impulsivo") }}';

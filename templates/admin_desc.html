@@ -1,7 +1,7 @@
 ﻿{% extends 'admin_base.html' %}
 {% block title %}Desc. - {{ app_nombre }}{% endblock %}
 {% block heading %}Descarga de inventario{% endblock %}
-{% block subheading %}Procesamiento quincenal con continuidad automatica{% endblock %}
+{% block subheading %}Comparación Período vs Excel oficial{% endblock %}
 
 {% block content %}
 <div class="desc-layout">
@@ -14,7 +14,7 @@
     <article class="desc-kpi">
       <div class="desc-kpi__label">Último proceso</div>
       <div class="desc-kpi__value">{{ ultimo_snapshot.fecha_proceso if ultimo_snapshot else '—' }}</div>
-      <div class="desc-kpi__sub">{{ ultimo_snapshot.tienda_id if ultimo_snapshot else 'Sin datos' }}</div>
+      <div class="desc-kpi__sub">{{ tiendas_map.get(ultimo_snapshot.tienda_id, ultimo_snapshot.tienda_id) if ultimo_snapshot else 'Sin datos' }}</div>
     </article>
     <article class="desc-kpi">
       <div class="desc-kpi__label">Estado del servicio</div>
@@ -46,30 +46,24 @@
       <div class="desc-fields">
         <div class="form-row" style="margin-bottom:10px;">
           <label class="field">
-            <span class="field__label">Tienda</span>
-            <select name="tienda_id">
-              <option value="">— Sin tienda —</option>
-              {% for t in tiendas %}
-              <option value="{{ t.id }}">{{ t.nombre }} ({{ t.id }})</option>
+            <span class="field__label">Período abierto</span>
+            <select name="periodo_id" id="periodo-select" required>
+              {% for p in periodos_abiertos %}
+              <option value="{{ p.id }}" {{ 'selected' if periodo_seleccionado and p.id == periodo_seleccionado.id else '' }}>
+                #{{ p.numero }} · {{ tiendas_map.get(p.tienda_id, p.tienda_id) }} · {{ p.fecha_desde }} a {{ p.fecha_hasta }}
+              </option>
               {% endfor %}
             </select>
           </label>
-          <label class="field">
-            <span class="field__label">Fecha desde</span>
-            <input type="date" name="fecha_inicio" value="{{ primer_dia }}" />
-          </label>
-          <label class="field">
-            <span class="field__label">Fecha hasta</span>
-            <input type="date" name="fecha_fin" value="{{ hoy }}" />
-          </label>
-          <label class="field field--grow">
-            <span class="field__label">Etiqueta de período</span>
-            <input type="text" name="label_periodo" placeholder="Ej: Ventas 01 y 02" />
-          </label>
+          <div class="field field--grow" style="display:flex;align-items:flex-end;">
+            <button type="button" id="btn-ver-inventario" class="btn btn--ghost" style="width:100%;">
+              Ver Inventario cargado
+            </button>
+          </div>
         </div>
 
         <div class="desc-inline-kpis">
-          <div><strong>{{ total_productos }}</strong><span>Productos en catálogo</span></div>
+          <div><strong>{{ conteos_periodo|length if periodo_seleccionado else 0 }}</strong><span>Productos en período</span></div>
           <div><strong>{{ categorias_registradas }}</strong><span>Categorías registradas</span></div>
           <div><strong>{{ grupos_excluidos_count }}</strong><span>Exclusiones activas</span></div>
           <div><strong>{{ ultimo_snapshot.fecha_proceso if ultimo_snapshot else '—' }}</strong><span>Última carga</span></div>
@@ -84,6 +78,11 @@
         </div>
       </div>
     </form>
+    {% if not periodos_abiertos %}
+    <div class="banner banner--warning" style="margin-top:12px;">
+      <div>No hay períodos abiertos. Abre un período en Auditoría para procesar el Excel oficial.</div>
+    </div>
+    {% endif %}
   </section>
 
   <section class="desc-rules-grid">
@@ -104,6 +103,35 @@
     </article>
   </section>
 
+  <section class="card card--skip-collapse" id="inventario-cargado-card" style="display:none;">
+    <h3 class="panel__title">Datos cargados por empleado en el período</h3>
+    {% if periodo_seleccionado and conteos_periodo %}
+    <div class="table-wrap" style="margin-bottom:14px;">
+      <table class="table">
+        <thead>
+          <tr><th>Estado</th><th>Producto</th><th>Categoría</th><th>Total (unid.)</th><th>Última carga</th></tr>
+        </thead>
+        <tbody>
+          {% for c in conteos_periodo %}
+          <tr>
+            <td>{% if c.fue_cargado %}<span class="badge badge--green">Cargado</span>{% else %}<span class="badge badge--amber">Pendiente</span>{% endif %}</td>
+            <td>{{ c.producto_nombre }}</td>
+            <td>{{ c.categoria }}</td>
+            <td>{{ '%g'|format(c.total_unidad_base or 0) }}</td>
+            <td class="muted">{{ c.fecha_carga.strftime('%d/%m/%Y %H:%M') if c.fecha_carga else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% elif periodo_seleccionado %}
+    <div class="empty" style="margin-bottom:14px;"><p>El período seleccionado no tiene conteos aún.</p></div>
+    {% else %}
+    <div class="empty" style="margin-bottom:14px;"><p>Selecciona un período abierto para ver los datos cargados.</p></div>
+    {% endif %}
+
+  </section>
+
   <section class="card card--skip-collapse">
     <h3 class="panel__title">Procesamientos recientes</h3>
     {% if snapshots %}
@@ -116,7 +144,7 @@
           {% for s in snapshots %}
           {% set n_prods = s.stock_final_json | from_json | length %}
           <tr>
-            <td>{{ s.tienda_id }}</td>
+            <td>{{ tiendas_map.get(s.tienda_id, s.tienda_id) }}</td>
             <td>{{ s.mes }}</td>
             <td class="muted">{{ s.fecha_proceso }}</td>
             <td>{{ n_prods }}</td>
@@ -144,6 +172,9 @@
     var form = document.getElementById('proc-form');
     var fileInput = document.getElementById('file-input');
     var btn = document.getElementById('btn-proc');
+    var periodoSelect = document.getElementById('periodo-select');
+    var btnVerInventario = document.getElementById('btn-ver-inventario');
+    var inventarioCard = document.getElementById('inventario-cargado-card');
     var defaultLabel = 'Procesar y descargar';
 
     fileInput.addEventListener('change', function() {
@@ -157,6 +188,25 @@
     form.addEventListener('submit', function() {
       btn.textContent = 'Procesando inventario...';
     });
+
+    if (periodoSelect) {
+      periodoSelect.addEventListener('change', function() {
+        var url = new URL(window.location.href);
+        url.searchParams.set('periodo_id', periodoSelect.value);
+        window.location.href = url.toString();
+      });
+    }
+
+    if (btnVerInventario && inventarioCard) {
+      btnVerInventario.addEventListener('click', function() {
+        var hidden = inventarioCard.style.display === 'none';
+        inventarioCard.style.display = hidden ? 'block' : 'none';
+        btnVerInventario.textContent = hidden ? 'Ocultar Inventario cargado' : 'Ver Inventario cargado';
+        if (hidden) {
+          inventarioCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    }
   })();
 </script>
 {% endblock %}

@@ -88,6 +88,13 @@
   justify-content: center; padding: 0 4px; border: 2px solid var(--background);
 }
 
+/* ---------- Navegacion secundaria ---------- */
+.admin-back-nav {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+}
+
 /* ---------- KPI cards ---------- */
 .kpi-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -670,6 +677,526 @@
 .desc-rule--green { border-top: 3px solid #16a34a; }
 .desc-rule--violet { border-top: 3px solid #7c3aed; }
 
+/* ---------- Auditoria / Periodos ---------- */
+.periodos-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.periodos-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.periodos-hero__title {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: -.02em;
+}
+
+.periodos-hero__subtitle {
+  margin: 8px 0 10px;
+  color: var(--ink-2);
+  font-size: 1.03rem;
+}
+
+.periodos-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  color: var(--muted);
+  font-size: .9rem;
+}
+
+.periodos-meta a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.periodos-tips {
+  border: 1px solid #d7e3ff;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f8fbff, #fdfdff);
+  padding: 14px 16px;
+}
+
+.periodos-tips h3 {
+  margin: 0 0 8px;
+  color: #1d4ed8;
+  font-size: .95rem;
+}
+
+.periodos-tips ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-2);
+  font-size: .86rem;
+}
+
+.periodos-tips li + li {
+  margin-top: 6px;
+}
+
+.periodos-panel {
+  padding: 18px;
+}
+
+.periodos-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.periodos-panel__head h3 {
+  margin: 0;
+  color: #2563eb;
+  font-size: 1.05rem;
+}
+
+.periodos-help-btn {
+  border: 1px solid #d7e3ff;
+  background: #f8fbff;
+  color: #1d4ed8;
+  border-radius: 9px;
+  padding: 7px 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.periodos-help-btn:hover {
+  background: #eef4ff;
+}
+
+.periodos-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+.periodos-form__observacion {
+  min-width: 240px;
+}
+
+.periodos-form__action {
+  grid-column: 1 / -1;
+}
+
+.periodos-table-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.periodos-search input {
+  width: 220px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: .88rem;
+}
+
+.periodos-search input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.periodos-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.periodos-empty {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+  color: var(--muted);
+  padding: 34px 14px;
+  background: #fbfdff;
+}
+
+.periodos-empty strong {
+  display: block;
+  color: var(--ink-2);
+  margin-bottom: 4px;
+}
+
+.periodos-empty p {
+  margin: 0;
+}
+
+.periodos-help {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+}
+
+.periodos-help__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, .42);
+}
+
+.periodos-help__content {
+  position: relative;
+  width: min(560px, calc(100vw - 28px));
+  margin: 12vh auto 0;
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #dbeafe;
+  box-shadow: 0 22px 56px rgba(15, 23, 42, .24);
+  padding: 16px;
+}
+
+.periodos-help__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.periodos-help__head h4 {
+  margin: 0;
+  color: #1d4ed8;
+}
+
+.periodos-help__close {
+  border: 0;
+  background: #eff6ff;
+  color: #1d4ed8;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.periodos-help__content ol {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  color: var(--ink-2);
+}
+
+.periodos-help__content li + li {
+  margin-top: 7px;
+}
+
+body.periodos-help-open {
+  overflow: hidden;
+}
+
+/* ---------- Productos relacionados ---------- */
+.rel-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rel-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 16px;
+  align-items: start;
+}
+
+.rel-hero__title {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: -.02em;
+}
+
+.rel-hero__subtitle {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: 1.03rem;
+  line-height: 1.5;
+}
+
+.rel-info {
+  border: 1px solid #d7e3ff;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f8fbff, #fdfdff);
+  padding: 14px 16px;
+}
+
+.rel-info h3 {
+  margin: 0 0 8px;
+  color: #1d4ed8;
+  font-size: .95rem;
+}
+
+.rel-info p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: .88rem;
+}
+
+.rel-info p + p {
+  margin-top: 6px;
+}
+
+.rel-panel {
+  padding: 18px;
+}
+
+.rel-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.rel-panel__head h3 {
+  margin: 0;
+  color: #2563eb;
+  font-size: 1.05rem;
+}
+
+.rel-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.3fr) 1fr 1fr;
+  gap: 14px;
+  align-items: end;
+}
+
+.rel-field-note {
+  color: var(--muted);
+  font-size: .75rem;
+}
+
+.rel-form__action {
+  grid-column: 1 / -1;
+}
+
+.rel-examples {
+  margin: 14px 0 0;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: var(--ink-2);
+  font-size: .85rem;
+  padding: 10px 12px;
+}
+
+.rel-table-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rel-search input {
+  width: 240px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: .88rem;
+}
+
+.rel-search input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.rel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rel-actions form {
+  margin: 0;
+}
+
+.rel-empty {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+  color: var(--muted);
+  padding: 34px 14px;
+  background: #fbfdff;
+}
+
+.rel-empty strong {
+  display: block;
+  color: var(--ink-2);
+  margin-bottom: 4px;
+}
+
+.rel-empty p {
+  margin: 0;
+}
+
+/* ---------- Auditoria / Periodo detalle ---------- */
+.periodo-det-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.periodo-det-hero {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.periodo-det-hero__title {
+  margin: 0;
+  font-size: 1.35rem;
+  color: var(--ink);
+}
+
+.periodo-det-hero__sub {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: .93rem;
+}
+
+.periodo-det-panel {
+  padding: 18px;
+}
+
+.periodo-det-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.periodo-det-panel__head h3 {
+  margin: 0;
+  color: #2563eb;
+  font-size: 1.05rem;
+}
+
+.periodo-det-panel__head--split {
+  flex-wrap: wrap;
+}
+
+.periodo-det-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.periodo-det-alerta {
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #eef4ff, #f8fbff);
+  padding: 14px;
+}
+
+.periodo-det-alerta__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  color: #1d4ed8;
+}
+
+.periodo-det-alerta p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: .9rem;
+}
+
+.periodo-det-alerta__list {
+  margin-top: 8px !important;
+  font-size: .86rem !important;
+}
+
+.periodo-det-note-ok {
+  margin: 0 0 12px;
+  color: #166534;
+}
+
+.periodo-det-note-warn {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.periodo-det-inline-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.periodo-det-inline-form--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.periodo-det-inline-form__action {
+  grid-column: 1 / -1;
+}
+
+.periodo-det-check {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: .88rem;
+}
+
+.periodo-det-table-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.periodo-det-search input {
+  width: 220px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: .88rem;
+}
+
+.periodo-det-search input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.periodo-det-empty {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+  color: var(--muted);
+  padding: 28px 12px;
+  background: #fbfdff;
+}
+
+.periodo-det-empty strong {
+  color: var(--ink-2);
+}
+
+.periodo-det-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 @media (max-width: 1080px) {
   .desc-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -690,9 +1217,83 @@
   .desc-rules-grid {
     grid-template-columns: 1fr;
   }
+
+  .periodos-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .periodos-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .periodos-form__observacion {
+    grid-column: 1 / -1;
+  }
+
+  .rel-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .rel-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .periodo-det-inline-form,
+  .periodo-det-inline-form--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
   .topbar__date { display: none; }
   .kpi-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+
+  .periodos-hero__title {
+    font-size: 1.55rem;
+  }
+
+  .periodos-form {
+    grid-template-columns: 1fr;
+  }
+
+  .periodos-search input {
+    width: 100%;
+  }
+
+  .periodos-panel__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rel-hero__title {
+    font-size: 1.55rem;
+  }
+
+  .rel-form {
+    grid-template-columns: 1fr;
+  }
+
+  .rel-panel__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rel-search input {
+    width: 100%;
+  }
+
+  .periodo-det-panel__head,
+  .periodo-det-alerta__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .periodo-det-inline-form,
+  .periodo-det-inline-form--3 {
+    grid-template-columns: 1fr;
+  }
+
+  .periodo-det-search input {
+    width: 100%;
+  }
 }

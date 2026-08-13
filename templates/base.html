@@ -33,8 +33,11 @@
             <span class="nav__badge">{{ sync_pendientes }}</span>
             {% endif %}
           </a>
-          <a href="{{ url_for('empleado_inventario') }}" class="nav__link {{ 'is-active' if request.endpoint == 'empleado_inventario' }}">
-            <span class="nav__icon">{% include 'icons/box.svg' %}</span> Inventario
+          <a href="{{ url_for('empleado_periodo_abierto') }}" class="nav__link {{ 'is-active' if request.endpoint in ['empleado_periodo_abierto', 'empleado_inventario'] }}">
+            <span class="nav__icon">{% include 'icons/box.svg' %}</span> Periodo abierto
+            {% if notif_periodo_abierto > 0 %}
+            <span class="nav__badge">{{ notif_periodo_abierto }}</span>
+            {% endif %}
           </a>
           <a href="{{ url_for('empleado_averiado') }}" class="nav__link {{ 'is-active' if request.endpoint == 'empleado_averiado' }}">
             <span class="nav__icon">{% include 'icons/alert.svg' %}</span> Averiado
@@ -103,6 +106,14 @@
           <span class="store__dot"></span>
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;">{{ sesion_tienda }}</span>
         </div>
+        {% if sesion_rol == 'empleado' %}
+        <a href="{{ url_for('empleado_notificaciones') }}" class="topbar__bell" title="Notificaciones" aria-label="Notificaciones">
+          {% include 'icons/alert.svg' %}
+          {% if notif_empleado_unread > 0 %}
+          <span class="bell__badge">{{ notif_empleado_unread }}</span>
+          {% endif %}
+        </a>
+        {% endif %}
       </header>
 
       <main class="content">

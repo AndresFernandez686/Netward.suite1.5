@@ -212,6 +212,19 @@ def _stock_map(tienda_id: str) -> dict:
     return result
 
 
+def _stock_map_periodo(periodo_id: int) -> dict:
+    """Retorna {nombre_norm: cantidad} desde ConteoDetalle del período seleccionado."""
+    from core.models import ConteoDetalle
+    result = {}
+    conteos = ConteoDetalle.query.filter_by(periodo_id=periodo_id).all()
+    for c in conteos:
+        if not c.fue_cargado:
+            continue
+        k = _norm(c.producto_nombre)
+        result[k] = _f(c.total_unidad_base)
+    return result
+
+
 def _ventas_map(tienda_id: str, fecha_ini: str, fecha_fin: str) -> dict:
     """Retorna {nombre_norm: cantidad} desde DeliveryVenta en el período."""
     from core.models import DeliveryVenta
@@ -436,9 +449,33 @@ def _generar_xlsx(filas_procesadas: list, fecha_proceso: str,
 @desc_bp.route("/admin/desc", methods=["GET", "POST"])
 def admin_desc():
     _requiere_admin()
-    from core.models import Tienda, InventarioDescSnapshot, Producto
+    from core.models import Tienda, InventarioDescSnapshot, Producto, InventarioPeriodo, ConteoDetalle
 
-    tiendas = Tienda.query.all()
+    cliente_id = session.get("cliente_id", "C001")
+    tiendas = Tienda.query.filter_by(cliente_id=cliente_id).all()
+    tiendas_map = {str(t.id): t.nombre for t in tiendas}
+    periodos_abiertos = (
+        InventarioPeriodo.query
+        .filter_by(cliente_id=cliente_id)
+        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+        .order_by(InventarioPeriodo.id.desc())
+        .all()
+    )
+
+    periodo_id_arg = request.args.get("periodo_id", type=int)
+    periodo_seleccionado = next((p for p in periodos_abiertos if p.id == periodo_id_arg), None)
+    if periodo_seleccionado is None and periodos_abiertos:
+        periodo_seleccionado = periodos_abiertos[0]
+
+    conteos_periodo = []
+    if periodo_seleccionado is not None:
+        conteos_periodo = (
+            ConteoDetalle.query
+            .filter_by(periodo_id=periodo_seleccionado.id)
+            .order_by(ConteoDetalle.categoria, ConteoDetalle.producto_nombre)
+            .all()
+        )
+
     # Historial de snapshots para mostrar en la UI
     snapshots = (InventarioDescSnapshot.query
                  .order_by(InventarioDescSnapshot.creado.desc())
@@ -446,20 +483,31 @@ def admin_desc():
 
     if request.method == "POST":
         archivo       = request.files.get("archivo")
-        tienda_id     = (request.form.get("tienda_id") or "").strip()
-        fecha_ini     = request.form.get("fecha_inicio") or date.today().replace(day=1).isoformat()
-        fecha_fin     = request.form.get("fecha_fin")    or date.today().isoformat()
-        label_periodo = (request.form.get("label_periodo") or "").strip() or \
-                        f"Ventas {fecha_ini} / {fecha_fin}"
+        periodo_id    = request.form.get("periodo_id", type=int)
+
+        periodo = (
+            InventarioPeriodo.query
+            .filter_by(id=periodo_id, cliente_id=cliente_id)
+            .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+            .first()
+        )
+        if periodo is None:
+            flash("Selecciona un período abierto válido para procesar el Excel oficial.", "warning")
+            return redirect(url_for("desc.admin_desc"))
+
+        tienda_id = periodo.tienda_id
+        fecha_ini = periodo.fecha_desde
+        fecha_fin = periodo.fecha_hasta
+        label_periodo = f"Periodo #{periodo.numero}"
 
         if not archivo or not archivo.filename:
             flash("Selecciona un archivo Excel antes de continuar.", "error")
-            return redirect(url_for("desc.admin_desc"))
+            return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
 
         fname = archivo.filename
         if not (fname.lower().endswith(".xls") or fname.lower().endswith(".xlsx")):
             flash("Solo se permiten archivos .xlsx o .xls", "error")
-            return redirect(url_for("desc.admin_desc"))
+            return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
 
         try:
             contenido = archivo.read()
@@ -467,13 +515,13 @@ def admin_desc():
 
             if len(filas_raw) < 2:
                 flash("El archivo no contiene datos.", "error")
-                return redirect(url_for("desc.admin_desc"))
+                return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
 
             # Determinar mes para regla de continuidad
             mes = fecha_fin[:7]   # YYYY-MM
 
-            # Datos del sistema
-            sm   = _stock_map(tienda_id)   if tienda_id else {}
+            # Datos del período seleccionado (Periodo vs Excel oficial)
+            sm   = _stock_map_periodo(periodo.id)
             vm   = _ventas_map(tienda_id, fecha_ini, fecha_fin) if tienda_id else {}
             pm   = _precios_map()
             prev = _snapshot_anterior(tienda_id, mes) if tienda_id else None
@@ -484,7 +532,7 @@ def admin_desc():
 
             if not filas_proc:
                 flash("No se encontraron filas válidas para procesar.", "warning")
-                return redirect(url_for("desc.admin_desc"))
+                return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
 
             # Guardar snapshot
             if tienda_id and sf_dict:
@@ -498,7 +546,7 @@ def admin_desc():
             flash(
                 f"Procesadas {resumen['total']} filas "
                 f"({resumen['excluidos']} excluidas por grupo). "
-                f"SI desde {continuidad}: {resumen['si_snap'] + resumen['si_sys']} prods. "
+                f"SI desde período ({periodo.numero}) / {continuidad}: {resumen['si_snap'] + resumen['si_sys']} prods. "
                 f"VR desde sistema: {resumen['vr_sys']} prods.",
                 "success",
             )
@@ -513,11 +561,15 @@ def admin_desc():
 
         except Exception as exc:
             flash(f"Error al procesar: {exc}", "error")
-            return redirect(url_for("desc.admin_desc"))
+            return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
 
     return render_template(
         "admin_desc.html",
         tiendas=tiendas,
+        tiendas_map=tiendas_map,
+        periodos_abiertos=periodos_abiertos,
+        periodo_seleccionado=periodo_seleccionado,
+        conteos_periodo=conteos_periodo,
         snapshots=snapshots,
         inventarios_procesados=InventarioDescSnapshot.query.count(),
         ultimo_snapshot=(snapshots[0] if snapshots else None),

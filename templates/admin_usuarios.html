@@ -42,15 +42,49 @@
             {% if u.tienda_id == 'ALL' %}Todas las tiendas{% else %}{{ tiendas_map.get(u.tienda_id, u.tienda_id or '—') }}{% endif %}
           </td>
           <td style="text-align:right;">
+            <button type="button" class="btn btn--ghost btn--sm" onclick="toggleEditRow('{{ u.id }}')">Editar</button>
             {% if u.username != sesion_usuario %}
             <form method="post" action="{{ url_for('usuario_eliminar', usuario_id=u.id) }}" data-submit-delay="5000" data-loading-text="Eliminando..."
                   onsubmit="return confirm('¿Eliminar al usuario {{ u.username }}? Esta acción no se puede deshacer.')"
-                  style="display:inline;">
-              <button type="submit" class="btn btn--ghost" style="color:var(--danger);">Eliminar</button>
+                  style="display:inline; margin-left:6px;">
+              <button type="submit" class="btn btn--ghost btn--sm" style="color:var(--danger);">Eliminar</button>
             </form>
-            {% else %}
-            <span class="muted" style="font-size:.78rem;">Sesión activa</span>
             {% endif %}
+          </td>
+        </tr>
+
+        <tr id="edit-row-{{ u.id }}" hidden>
+          <td colspan="4" style="background:#f8fbff;">
+            <form method="post" action="{{ url_for('usuario_editar', usuario_id=u.id) }}" data-submit-delay="5000" data-loading-text="Guardando cambios..."
+                  style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end;padding:6px 0;">
+              <label class="field" style="gap:4px;">
+                <span class="field__label">Usuario</span>
+                <input type="text" name="username" value="{{ u.username }}" required />
+              </label>
+              <label class="field" style="gap:4px;">
+                <span class="field__label">Rol</span>
+                <select name="rol" onchange="toggleTiendaEdit(this, 'tienda-edit-{{ u.id }}')">
+                  <option value="empleado" {{ 'selected' if u.rol == 'empleado' else '' }}>Empleado</option>
+                  <option value="administrador" {{ 'selected' if u.rol == 'administrador' else '' }}>Administrador</option>
+                </select>
+              </label>
+              <label class="field" id="tienda-edit-{{ u.id }}" style="gap:4px; {{ 'display:none;' if u.rol == 'administrador' else '' }}">
+                <span class="field__label">Tienda</span>
+                <select name="tienda_id">
+                  {% for t in tiendas %}
+                  <option value="{{ t.id }}" {{ 'selected' if t.id == u.tienda_id else '' }}>{{ t.nombre }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="field" style="gap:4px;">
+                <span class="field__label">Nueva contrasena (opcional)</span>
+                <input type="password" name="contrasena" minlength="6" placeholder="Dejar vacío para no cambiar" autocomplete="new-password" />
+              </label>
+              <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button type="button" class="btn btn--ghost btn--sm" onclick="toggleEditRow('{{ u.id }}')">Cancelar</button>
+                <button type="submit" class="btn btn--primary btn--sm">Guardar</button>
+              </div>
+            </form>
           </td>
         </tr>
         {% else %}
@@ -96,6 +130,18 @@
 <script>
   function toggleTienda(rol) {
     document.getElementById('tiendaField').style.display = rol === 'administrador' ? 'none' : '';
+  }
+
+  function toggleTiendaEdit(selectEl, fieldId) {
+    var field = document.getElementById(fieldId);
+    if (!field) return;
+    field.style.display = selectEl.value === 'administrador' ? 'none' : '';
+  }
+
+  function toggleEditRow(userId) {
+    var row = document.getElementById('edit-row-' + userId);
+    if (!row) return;
+    row.hidden = !row.hidden;
   }
 </script>
 {% endblock %}

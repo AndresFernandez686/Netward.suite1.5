@@ -61,19 +61,29 @@ def propagar_conteo_a_periodo(
     tienda_id: str,
     cliente_id: str,
     usuario: str,
+    periodo_id: int | None = None,
 ) -> int:
     """
     Al sincronizar: toma los InventarioItem en estado 'pendiente' y los copia
     al período activo (Abierto o Pendiente) de la tienda.
     Retorna la cantidad de filas insertadas/actualizadas.
     """
-    periodo = (
-        InventarioPeriodo.query
-        .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
-        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
-        .order_by(InventarioPeriodo.id.desc())
-        .first()
-    )
+    if periodo_id is not None:
+        periodo = db.session.get(InventarioPeriodo, int(periodo_id))
+        if not periodo:
+            return 0
+        if periodo.cliente_id != cliente_id or periodo.tienda_id != tienda_id:
+            return 0
+        if periodo.estado not in ("Abierto", "Pendiente"):
+            return 0
+    else:
+        periodo = (
+            InventarioPeriodo.query
+            .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
+            .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+            .order_by(InventarioPeriodo.id.desc())
+            .first()
+        )
     if not periodo:
         return 0
 

@@ -4,6 +4,36 @@
 {% block subheading %}Carga de productos por categoria{% endblock %}
 
 {% block content %}
+<section class="card card--skip-collapse" id="sec-periodo">
+  <h3 class="panel__title" style="margin-bottom:10px;">Período abierto</h3>
+  {% if periodo_activo %}
+  <div class="form-row" style="align-items:end;">
+    <form method="post" action="{{ url_for('empleado_periodo_seleccionar') }}" class="field field--grow" style="margin:0;">
+      <span class="field__label">Período activo de tu tienda</span>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <select name="periodo_id" style="min-width:260px;">
+          {% for p in periodos_abiertos %}
+          <option value="{{ p.id }}" {{ 'selected' if p.id == periodo_activo.id else '' }}>
+            #{{ p.numero }} · {{ p.fecha_desde }} → {{ p.fecha_hasta }} · {{ p.estado }}
+          </option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn--ghost btn--sm">Seleccionar</button>
+      </div>
+    </form>
+    <div class="toolbar__hint" style="min-width:260px;">
+      Todo lo que cargues y sincronices se registra en este período.
+    </div>
+  </div>
+  {% else %}
+  <div class="banner banner--warning" style="margin:0;">
+    <div>No hay período abierto para tu tienda. No podrás cargar inventario hasta que administración abra uno.</div>
+  </div>
+  {% endif %}
+</section>
+
+{% if periodo_activo %}
+
 <div class="toolbar card card--skip-collapse" id="sec-carga">
   <label class="field field--inline">
     <span class="field__label">Fecha de carga</span>
@@ -199,6 +229,7 @@
     </div>
   {% endif %}
 </section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

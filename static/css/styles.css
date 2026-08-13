@@ -175,6 +175,38 @@ small { font-size: .78rem; }
 }
 .store__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
 
+.topbar__bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  transition: color .15s, border-color .15s;
+}
+.topbar__bell:hover { color: var(--brand); border-color: var(--brand); }
+.topbar__bell svg { width: 18px; height: 18px; }
+.bell__badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: var(--danger);
+  color: #fff;
+  font-size: .62rem;
+  font-weight: 700;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
 .content { padding: 28px; display: flex; flex-direction: column; gap: 20px; max-width: 1200px; width: 100%; }
 
 /* ---------- Cards ---------- */

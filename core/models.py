@@ -68,6 +68,22 @@ class Usuario(BaseModel):
     cliente_id = db.Column(db.String(10), db.ForeignKey("clientes.id"), nullable=False, default="C001", index=True)
     rol = db.Column(db.String(20), nullable=False)           # empleado | administrador
     tienda_id = db.Column(db.String(10), nullable=True)      # ALL para administradores
+    ultimo_periodo_notificado_id = db.Column(db.Integer, nullable=False, default=0)
+
+
+class NotificacionUsuario(BaseModel):
+    """Notificaciones persistentes por usuario (campana / centro de avisos)."""
+    __tablename__ = "notificaciones_usuario"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    username = db.Column(db.String(80), nullable=False, index=True)
+    tipo = db.Column(db.String(40), nullable=False, default="periodo_abierto")
+    referencia_id = db.Column(db.Integer, nullable=True)  # p.ej. InventarioPeriodo.id
+    titulo = db.Column(db.String(160), nullable=False)
+    mensaje = db.Column(db.String(300), nullable=False)
+    leida = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    creada = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
 
 class Producto(BaseModel):

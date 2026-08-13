@@ -1,44 +1,56 @@
 {% extends "admin_base.html" %}
 {% block title %}Productos relacionados — {{ app_nombre }}{% endblock %}
+{% block heading %}Productos relacionados{% endblock %}
+{% block subheading %}Relaciones de consumo para alertas de auditoría{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <h1 class="page-title">Productos relacionados</h1>
-  <p class="page-sub">
-    Define qué productos se consumen juntos (ej: Batido → vaso, tapa, pajita).
-    <br><strong>Solo generan alertas de auditoría — nunca bloquean el inventario.</strong>
-  </p>
-</div>
+<div class="rel-page">
+  <section class="rel-hero">
+    <div>
+      <h2 class="rel-hero__title">Productos relacionados</h2>
+      <p class="rel-hero__subtitle">
+        Define qué productos se consumen juntos (ej: Batido -> vaso, tapa, pajita).
+        <br><strong>Solo generan alertas de auditoría — nunca bloquean el inventario.</strong>
+      </p>
+    </div>
 
-{# ── Crear relación ── #}
-<div class="card mb-4">
-  <div class="card__header"><h2 class="card__title">Nueva relación</h2></div>
-  <div class="card__body">
-    <form method="post" action="{{ url_for('admin_producto_relacionado_crear') }}" class="form-inline-grid">
-      <div class="form-group">
-        <label class="form-label">Producto principal</label>
-        <input type="text" name="producto_principal" class="form-control"
-               list="productos-list" required placeholder="Ej: Batido">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Producto relacionado (consumido juntos)</label>
-        <input type="text" name="producto_relacionado" class="form-control"
-               list="productos-list" required placeholder="Ej: Vaso de batido">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Ratio esperado
-          <small class="text-muted">(unidades relacionado / unidades principal)</small>
-        </label>
-        <input type="number" name="ratio_esperado" class="form-control"
-               step="0.01" min="0.01" value="1" required style="max-width:100px">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Tolerancia <small class="text-muted">(0.1 = 10%)</small></label>
-        <input type="number" name="tolerancia" class="form-control"
-               step="0.01" min="0" max="1" value="0.1" required style="max-width:100px">
-      </div>
-      <div class="form-group form-group--action">
-        <button type="submit" class="btn btn-primary">Agregar relación</button>
+    <aside class="rel-info" aria-label="Información de relaciones">
+      <h3>Información</h3>
+      <p>Estas relaciones permiten detectar inconsistencias en auditorías.</p>
+      <p>No afectan el stock ni bloquean el inventario.</p>
+    </aside>
+  </section>
+
+  <section class="panel rel-panel" aria-labelledby="ttl-rel-nueva">
+    <div class="rel-panel__head">
+      <h3 id="ttl-rel-nueva">Nueva relación</h3>
+    </div>
+
+    <form method="post" action="{{ url_for('admin_producto_relacionado_crear') }}" class="rel-form">
+      <label class="field field--grow">
+        <span class="field__label">Producto principal</span>
+        <input type="text" name="producto_principal" list="productos-list" required placeholder="Buscar producto principal...">
+      </label>
+
+      <label class="field field--grow">
+        <span class="field__label">Producto relacionado (consumido juntos)</span>
+        <input type="text" name="producto_relacionado" list="productos-list" required placeholder="Buscar producto relacionado...">
+      </label>
+
+      <label class="field">
+        <span class="field__label">Ratio esperado</span>
+        <small class="rel-field-note">(unidades relacionado / unidades principal)</small>
+        <input type="number" name="ratio_esperado" step="0.01" min="0.01" value="1" required>
+      </label>
+
+      <label class="field">
+        <span class="field__label">Tolerancia</span>
+        <small class="rel-field-note">(0.1 = 10%)</small>
+        <input type="number" name="tolerancia" step="0.01" min="0" max="1" value="0.1" required>
+      </label>
+
+      <div class="rel-form__action">
+        <button type="submit" class="btn btn--primary">Agregar relación</button>
       </div>
     </form>
 
@@ -46,65 +58,116 @@
       {% for p in productos %}<option value="{{ p.nombre }}">{% endfor %}
     </datalist>
 
-    <p class="text-muted mt-2" style="font-size:.83em">
-      Ejemplos: Batido → Vaso de batido (ratio 1, tol 10%) ·
-      Helado servido → Cucurucho (ratio 1) · Promoción combo → Producto incluido (ratio 1)
+    <p class="rel-examples">
+      <strong>Ejemplos:</strong>
+      Batido -> Vaso de batido (ratio 1, tol 10%)
+      · Helado servido -> Cucurucho (ratio 1)
+      · Promoción combo -> Producto incluido (ratio 1)
     </p>
-  </div>
-</div>
+  </section>
 
-{# ── Lista de relaciones ── #}
-<div class="card">
-  <div class="card__header">
-    <h2 class="card__title">Relaciones configuradas</h2>
-    <span class="badge badge--info">{{ relaciones|length }}</span>
-  </div>
-  <div class="card__body p-0">
+  <section class="panel rel-panel" aria-labelledby="ttl-rel-configuradas">
+    <div class="rel-panel__head">
+      <h3 id="ttl-rel-configuradas">Relaciones configuradas</h3>
+      <div class="rel-table-tools">
+        <label class="rel-search" aria-label="Buscar relación">
+          <input type="text" id="relSearchInput" placeholder="Buscar relación...">
+        </label>
+        <span class="badge-soft badge-soft--muted">Total: {{ relaciones|length }} relaciones</span>
+      </div>
+    </div>
+
     {% if not relaciones %}
-      <p class="empty-state">No hay relaciones configuradas.</p>
+    <div class="rel-empty" id="relEmptyInitial">
+      <strong>No hay relaciones configuradas.</strong>
+      <p>Agrega la primera relación para comenzar.</p>
+    </div>
     {% else %}
-    <div class="table-responsive">
-      <table class="table">
+    <div class="table-wrap">
+      <table class="mini-table" id="relTable">
         <thead>
           <tr>
             <th>Producto principal</th>
             <th>Producto relacionado</th>
-            <th>Ratio</th>
+            <th>Ratio esperado</th>
             <th>Tolerancia</th>
+            <th>Última actualización</th>
             <th>Estado</th>
             <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
           {% for r in relaciones %}
-          <tr {% if not r.activo %}style="opacity:.5"{% endif %}>
+          <tr class="rel-row" {% if not r.activo %}style="opacity:.58"{% endif %}>
             <td><strong>{{ r.producto_principal }}</strong></td>
             <td>{{ r.producto_relacionado }}</td>
-            <td>{{ r.ratio_esperado }}×</td>
+            <td>{{ r.ratio_esperado }}x</td>
             <td>{{ (r.tolerancia * 100) | int }}%</td>
+            <td>{{ r.actualizado_en if r.actualizado_en else '-' }}</td>
             <td>
-              <span class="badge {{ 'badge--success' if r.activo else 'badge--secondary' }}">
+              <span class="badge-soft {{ 'badge-soft--success' if r.activo else 'badge-soft--muted' }}">
                 {{ 'Activa' if r.activo else 'Inactiva' }}
               </span>
             </td>
-            <td class="actions">
-              <form method="post" action="{{ url_for('admin_producto_relacionado_toggle', rel_id=r.id) }}" style="display:inline">
-                <button class="btn btn-sm btn-secondary">
-                  {{ 'Desactivar' if r.activo else 'Activar' }}
-                </button>
-              </form>
-              <form method="post" action="{{ url_for('admin_producto_relacionado_eliminar', rel_id=r.id) }}"
-                    style="display:inline"
-                    onsubmit="return confirm('¿Eliminar esta relación?')">
-                <button class="btn btn-sm btn-secondary">Eliminar</button>
-              </form>
+            <td>
+              <div class="rel-actions">
+                <form method="post" action="{{ url_for('admin_producto_relacionado_toggle', rel_id=r.id) }}">
+                  <button class="btn btn--ghost btn--sm" type="submit">{{ 'Desactivar' if r.activo else 'Activar' }}</button>
+                </form>
+                <form method="post" action="{{ url_for('admin_producto_relacionado_eliminar', rel_id=r.id) }}" onsubmit="return confirm('¿Eliminar esta relación?')">
+                  <button class="btn btn--ghost btn--sm" type="submit">Eliminar</button>
+                </form>
+              </div>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+
+    <div class="rel-empty rel-empty--filtered" id="relEmptyFiltered" hidden>
+      <strong>Sin resultados para la búsqueda.</strong>
+      <p>Probá con otro término o limpiá el filtro.</p>
+    </div>
     {% endif %}
-  </div>
+  </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  (function () {
+    var searchInput = document.getElementById('relSearchInput');
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.rel-row'));
+    var filteredEmpty = document.getElementById('relEmptyFiltered');
+
+    function normalize(value) {
+      return (value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function applySearch() {
+      if (!searchInput || rows.length === 0) return;
+      var query = normalize(searchInput.value);
+      var visibleCount = 0;
+
+      rows.forEach(function (row) {
+        var match = !query || normalize(row.textContent).indexOf(query) !== -1;
+        row.hidden = !match;
+        if (match) visibleCount += 1;
+      });
+
+      if (filteredEmpty) {
+        filteredEmpty.hidden = !query || visibleCount > 0;
+      }
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', applySearch);
+    }
+  })();
+</script>
 {% endblock %}

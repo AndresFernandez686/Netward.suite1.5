@@ -58,7 +58,7 @@
         </a>
 
         <span class="nav__label">Catálogo</span>
-        <a href="{{ url_for('admin_configuracion') }}#sec-productos" class="nav__link {{ 'is-active' if request.endpoint == 'admin_configuracion' }}">
+        <a href="{{ url_for('admin_configuracion', section='productos') }}#sec-productos" class="nav__link {{ 'is-active' if request.endpoint == 'admin_configuracion' and request.args.get('section', 'productos') != 'tiendas' }}">
           <span class="nav__icon">{% include 'icons/box.svg' %}</span> Productos
         </a>
         <a href="{{ url_for('admin_precios') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_precios' }}">
@@ -66,7 +66,7 @@
         </a>
 
         <span class="nav__label">Sistema</span>
-        <a href="{{ url_for('admin_configuracion') }}#sec-tiendas" class="nav__link">
+        <a href="{{ url_for('admin_configuracion', section='tiendas') }}#sec-tiendas" class="nav__link {{ 'is-active' if request.endpoint == 'admin_configuracion' and request.args.get('section') == 'tiendas' }}">
           <span class="nav__icon">{% include 'icons/settings.svg' %}</span> Tiendas
         </a>
         <a href="{{ url_for('admin_usuarios') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_usuarios' }}">
@@ -137,6 +137,15 @@
             {% endif %}
           {% endwith %}
         {% endif %}
+
+        {% block admin_back_button %}
+        <div class="admin-back-nav">
+          <a href="{{ url_for('admin_dashboard') }}" class="btn btn--ghost btn--sm"
+             onclick="if (window.history.length > 1) { window.history.back(); return false; }">
+            ← Volver atrás
+          </a>
+        </div>
+        {% endblock %}
 
         {% block content %}{% endblock %}
 

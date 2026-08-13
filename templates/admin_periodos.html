@@ -1,96 +1,233 @@
 {% extends "admin_base.html" %}
 {% block title %}Períodos de Inventario — {{ app_nombre }}{% endblock %}
+{% block heading %}Auditoría{% endblock %}
+{% block subheading %}Gestión de períodos de inventario{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <h1 class="page-title">Auditoría — Períodos de Inventario</h1>
-  <p class="page-sub">
-    Cada período cubre 7–8 días. El stock final de un período es el stock inicial del siguiente.
-    <br>
-    <small class="text-muted">
-      Auto-cierre: <strong>{{ autoclose_horas | int }} h</strong> tras la fecha fin
-      · Job de revisión cada 30 min ·
-      <a href="{{ url_for('admin_config_autoclose') }}">Cambiar</a>
-    </small>
-  </p>
-</div>
+<div class="periodos-page">
+  <section class="periodos-hero">
+    <div>
+      <h2 class="periodos-hero__title">Auditoría — Períodos de Inventario</h2>
+      <p class="periodos-hero__subtitle">
+        Cada período cubre 7-8 días. El stock final de un período es el stock inicial del siguiente.
+      </p>
+      <div class="periodos-meta">
+        <span>Auto-cierre: <strong>{{ autoclose_horas | int }} h</strong> tras la fecha fin</span>
+        <span>Job de revisión: cada 30 min</span>
+        <a href="{{ url_for('admin_config_autoclose') }}">Configurar</a>
+      </div>
+    </div>
 
-{# ── Crear nuevo período ── #}
-<div class="card mb-4">
-  <div class="card__header"><h2 class="card__title">Crear nuevo período</h2></div>
-  <div class="card__body">
-    <form method="post" action="{{ url_for('admin_periodo_crear') }}" class="form-inline-grid">
-      <div class="form-group">
-        <label class="form-label">Tienda</label>
-        <select name="tienda_id" class="form-control" required>
+    <aside class="periodos-tips" aria-label="Buenas prácticas">
+      <h3>Buenas prácticas</h3>
+      <ul>
+        <li>Definí períodos consecutivos sin superposición.</li>
+        <li>Confirmá fechas antes del auto-cierre.</li>
+        <li>Exportá y registrá resultados por período.</li>
+      </ul>
+    </aside>
+  </section>
+
+  <section class="panel periodos-panel" aria-labelledby="ttl-crear-periodo">
+    <div class="periodos-panel__head">
+      <h3 id="ttl-crear-periodo">Crear nuevo período</h3>
+      <button type="button" class="periodos-help-btn" id="periodosHelpBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="periodosHelpPopup">
+        Ayuda
+      </button>
+    </div>
+
+    <form method="post" action="{{ url_for('admin_periodo_crear') }}" class="periodos-form">
+      <label class="field field--grow">
+        <span class="field__label">Tienda</span>
+        <select name="tienda_id" required>
           {% for t in tiendas %}<option value="{{ t.id }}">{{ t.nombre }}</option>{% endfor %}
         </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Fecha desde</label>
-        <input type="date" name="fecha_desde" class="form-control" required>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Fecha hasta</label>
-        <input type="date" name="fecha_hasta" class="form-control" required>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Observación (opcional)</label>
-        <input type="text" name="observacion" class="form-control" maxlength="200">
-      </div>
-      <div class="form-group form-group--action">
-        <button type="submit" class="btn btn-primary">Crear período</button>
+      </label>
+
+      <label class="field field--grow">
+        <span class="field__label">Fecha desde</span>
+        <input type="date" name="fecha_desde" required>
+      </label>
+
+      <label class="field field--grow">
+        <span class="field__label">Fecha hasta</span>
+        <input type="date" name="fecha_hasta" required>
+      </label>
+
+      <label class="field periodos-form__observacion">
+        <span class="field__label">Observación (opcional)</span>
+        <input type="text" name="observacion" maxlength="200" placeholder="Agregar observación...">
+      </label>
+
+      <div class="periodos-form__action">
+        <button type="submit" class="btn btn--primary">Crear período</button>
       </div>
     </form>
-  </div>
-</div>
+  </section>
 
-{# ── Lista de períodos ── #}
-<div class="card">
-  <div class="card__header"><h2 class="card__title">Períodos registrados</h2></div>
-  <div class="card__body p-0">
+  <section class="panel periodos-panel" aria-labelledby="ttl-periodos-registrados">
+    <div class="periodos-panel__head">
+      <h3 id="ttl-periodos-registrados">Períodos registrados</h3>
+      <div class="periodos-table-tools">
+        <label class="periodos-search" aria-label="Buscar período">
+          <input type="text" id="periodosSearch" placeholder="Buscar período...">
+        </label>
+      </div>
+    </div>
+
     {% if not periodos %}
-      <p class="empty-state">No hay períodos creados aún.</p>
+    <div class="periodos-empty" id="periodosEmptyState">
+      <strong>No hay períodos registrados aún.</strong>
+      <p>Creá el primer período para comenzar.</p>
+    </div>
     {% else %}
-    <div class="table-responsive">
-      <table class="table">
+    <div class="table-wrap">
+      <table class="mini-table" id="periodosTable">
         <thead>
           <tr>
-            <th>#</th><th>Tienda</th><th>Desde</th><th>Hasta</th>
-            <th>Días</th><th>Estado</th><th>Creado por</th><th>Acciones</th>
+            <th>Período</th>
+            <th>Tienda</th>
+            <th>Inicio</th>
+            <th>Fin</th>
+            <th>Días</th>
+            <th>Estado</th>
+            <th>Última actualización</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
           {% for p in periodos %}
-          <tr>
-            <td>{{ p.numero }}</td>
+          <tr class="periodo-row">
+            <td><strong>#{{ p.numero }}</strong></td>
             <td>{{ p.tienda_id }}</td>
             <td>{{ p.fecha_desde }}</td>
             <td>{{ p.fecha_hasta }}</td>
             <td>{{ p.dias_periodo }}</td>
             <td>
-              <span class="badge
-                {%- if p.estado == 'Abierto' %} badge--info
-                {%- elif p.estado == 'Cerrado' %} badge--warning
-                {%- elif p.estado == 'Excel Importado' %} badge--secondary
-                {%- elif p.estado in ('Conciliado','Auditado') %} badge--success
-                {%- else %} badge--secondary
-                {%- endif %}">{{ p.estado }}</span>
+              <span class="badge-soft
+                {%- if p.estado == 'Abierto' %} badge-soft--success
+                {%- elif p.estado == 'Cerrado' %} badge-soft--warning
+                {%- elif p.estado in ('Conciliado','Auditado') %} badge-soft--danger
+                {%- else %} badge-soft--muted
+                {%- endif %}">
+                {{ p.estado }}
+              </span>
             </td>
-            <td>{{ p.usuario_creador }}</td>
-            <td class="actions">
-              <a href="{{ url_for('admin_periodo_detalle', periodo_id=p.id) }}" class="btn btn-sm btn-secondary">Ver</a>
-              {% if p.estado in ('Cerrado','Conciliado','Auditado') %}
-              <a href="{{ url_for('admin_auditoria', periodo_id=p.id) }}" class="btn btn-sm btn-primary">Auditoría</a>
-              <a href="{{ url_for('admin_reporte_gerencial', periodo_id=p.id) }}" class="btn btn-sm btn-secondary">Reporte</a>
-              {% endif %}
+            <td>{{ p.actualizado_en if p.actualizado_en else (p.fecha_hasta ~ ' 00:00') }}</td>
+            <td>
+              <div class="periodos-actions">
+                <a href="{{ url_for('admin_periodo_detalle', periodo_id=p.id) }}" class="btn btn--ghost btn--sm">Ver</a>
+                {% if p.estado in ('Cerrado','Conciliado','Auditado') %}
+                <a href="{{ url_for('admin_auditoria', periodo_id=p.id) }}" class="btn btn--primary btn--sm">Auditoría</a>
+                <a href="{{ url_for('admin_reporte_gerencial', periodo_id=p.id) }}" class="btn btn--ghost btn--sm">Reporte</a>
+                {% endif %}
+              </div>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+
+    <div class="periodos-empty periodos-empty--filtered" id="periodosEmptyFiltered" hidden>
+      <strong>Sin resultados para la búsqueda.</strong>
+      <p>Probá con otro término o limpiá el filtro.</p>
+    </div>
     {% endif %}
+  </section>
+</div>
+
+<div class="periodos-help" id="periodosHelpPopup" role="dialog" aria-modal="true" aria-labelledby="periodosHelpTitle" hidden>
+  <div class="periodos-help__backdrop" data-help-close="true"></div>
+  <div class="periodos-help__content">
+    <div class="periodos-help__head">
+      <h4 id="periodosHelpTitle">Cómo funciona Auditoría por períodos</h4>
+      <button type="button" class="periodos-help__close" data-help-close="true" aria-label="Cerrar ayuda">x</button>
+    </div>
+    <ol>
+      <li>Creás un período definiendo tienda, fecha desde y fecha hasta.</li>
+      <li>El sistema usa el stock final del período previo como base del nuevo.</li>
+      <li>Al cerrar o auditar un período, podés revisar diferencias y generar reportes.</li>
+      <li>Configurá el auto-cierre según tu operación para evitar atrasos.</li>
+    </ol>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  (function () {
+    var helpBtn = document.getElementById('periodosHelpBtn');
+    var helpPopup = document.getElementById('periodosHelpPopup');
+    var searchInput = document.getElementById('periodosSearch');
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.periodo-row'));
+    var filteredEmpty = document.getElementById('periodosEmptyFiltered');
+
+    function normalize(value) {
+      return (value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function openHelp() {
+      if (!helpPopup) return;
+      helpPopup.hidden = false;
+      if (helpBtn) helpBtn.setAttribute('aria-expanded', 'true');
+      document.body.classList.add('periodos-help-open');
+    }
+
+    function closeHelp() {
+      if (!helpPopup) return;
+      helpPopup.hidden = true;
+      if (helpBtn) helpBtn.setAttribute('aria-expanded', 'false');
+      document.body.classList.remove('periodos-help-open');
+    }
+
+    if (helpBtn) {
+      helpBtn.addEventListener('click', function () {
+        if (helpPopup && !helpPopup.hidden) {
+          closeHelp();
+        } else {
+          openHelp();
+        }
+      });
+    }
+
+    if (helpPopup) {
+      helpPopup.addEventListener('click', function (event) {
+        if (event.target && event.target.dataset && event.target.dataset.helpClose === 'true') {
+          closeHelp();
+        }
+      });
+    }
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && helpPopup && !helpPopup.hidden) {
+        closeHelp();
+      }
+    });
+
+    function applySearch() {
+      if (!searchInput || rows.length === 0) return;
+      var query = normalize(searchInput.value);
+      var visibleCount = 0;
+
+      rows.forEach(function (row) {
+        var match = !query || normalize(row.textContent).indexOf(query) !== -1;
+        row.hidden = !match;
+        if (match) visibleCount += 1;
+      });
+
+      if (filteredEmpty) {
+        filteredEmpty.hidden = !query || visibleCount > 0;
+      }
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', applySearch);
+    }
+  })();
+</script>
 {% endblock %}

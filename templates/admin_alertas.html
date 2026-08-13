@@ -4,11 +4,28 @@
 {% block subheading %}Centro de alertas de inventario, vencimientos y averiados{% endblock %}
 
 {% block content %}
-<section class="card" {{ 'data-collapsed=true' if not stock_bajo }}>
-  <h3 class="panel__title">
+{% set active_alerta_tab = 'alerta-stock' if stock_bajo else ('alerta-vencer' if por_vencer else ('alerta-averiados' if averiados else 'alerta-stock')) %}
+
+<div class="admin-tabs" role="tablist" aria-label="Tipos de alertas">
+  <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_alerta_tab == 'alerta-stock' else '' }}"
+          data-tabtarget="alerta-stock" aria-selected="{{ 'true' if active_alerta_tab == 'alerta-stock' else 'false' }}">
     Stock bajo
     <span class="badge-soft {{ 'badge-soft--danger' if stock_bajo else 'badge-soft--muted' }}" style="margin-left:8px;">{{ stock_bajo|length }}</span>
-  </h3>
+  </button>
+  <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_alerta_tab == 'alerta-vencer' else '' }}"
+          data-tabtarget="alerta-vencer" aria-selected="{{ 'true' if active_alerta_tab == 'alerta-vencer' else 'false' }}">
+    Próximos a vencer (≤ 15 días)
+    <span class="badge-soft {{ 'badge-soft--warning' if por_vencer else 'badge-soft--muted' }}" style="margin-left:8px;">{{ por_vencer|length }}</span>
+  </button>
+  <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_alerta_tab == 'alerta-averiados' else '' }}"
+          data-tabtarget="alerta-averiados" aria-selected="{{ 'true' if active_alerta_tab == 'alerta-averiados' else 'false' }}">
+    Averiados sin revisar
+    <span class="badge-soft {{ 'badge-soft--danger' if averiados else 'badge-soft--muted' }}" style="margin-left:8px;">{{ averiados|length }}</span>
+  </button>
+</div>
+
+<section class="panel admin-tabpanel" id="alerta-stock" {{ '' if active_alerta_tab == 'alerta-stock' else 'hidden' }}>
+  <h3 class="panel__title">Stock bajo</h3>
   {% if stock_bajo %}
   <div class="table-wrap">
     <table class="mini-table">
@@ -31,11 +48,8 @@
   {% endif %}
 </section>
 
-<section class="card" {{ 'data-collapsed=true' if not por_vencer }}>
-  <h3 class="panel__title">
-    Próximos a vencer (≤ 15 días)
-    <span class="badge-soft {{ 'badge-soft--warning' if por_vencer else 'badge-soft--muted' }}" style="margin-left:8px;">{{ por_vencer|length }}</span>
-  </h3>
+<section class="panel admin-tabpanel" id="alerta-vencer" {{ '' if active_alerta_tab == 'alerta-vencer' else 'hidden' }}>
+  <h3 class="panel__title">Próximos a vencer (≤ 15 días)</h3>
   {% if por_vencer %}
   <div class="table-wrap">
     <table class="mini-table">
@@ -64,11 +78,8 @@
   {% endif %}
 </section>
 
-<section class="card" {{ 'data-collapsed=true' if not averiados }}>
-  <h3 class="panel__title">
-    Averiados sin revisar
-    <span class="badge-soft {{ 'badge-soft--danger' if averiados else 'badge-soft--muted' }}" style="margin-left:8px;">{{ averiados|length }}</span>
-  </h3>
+<section class="panel admin-tabpanel" id="alerta-averiados" {{ '' if active_alerta_tab == 'alerta-averiados' else 'hidden' }}>
+  <h3 class="panel__title">Averiados sin revisar</h3>
   {% if averiados %}
   <div class="table-wrap">
     <table class="mini-table">
@@ -94,4 +105,31 @@
   <div class="empty-mini">No hay registros de averiados pendientes de revisión.</div>
   {% endif %}
 </section>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  (function () {
+    function setActiveTab(tabId) {
+      document.querySelectorAll('.admin-tab').forEach(function (tab) {
+        var isCurrent = tab.dataset.tabtarget === tabId;
+        tab.classList.toggle('is-active', isCurrent);
+        tab.setAttribute('aria-selected', isCurrent ? 'true' : 'false');
+      });
+
+      document.querySelectorAll('.admin-tabpanel').forEach(function (panel) {
+        panel.hidden = panel.id !== tabId;
+      });
+    }
+
+    document.querySelectorAll('.admin-tab[data-tabtarget]').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        setActiveTab(tab.dataset.tabtarget);
+      });
+    });
+
+    setActiveTab('{{ active_alerta_tab }}');
+  })();
+</script>
 {% endblock %}
