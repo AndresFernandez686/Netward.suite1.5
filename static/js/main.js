@@ -4,6 +4,9 @@
   var SIDEBAR_SCROLL_KEY = 'nw:sidebarScroll';
   var PENDING_SCROLL_KEY = 'nw:pendingScroll';
   var uiLockOverlay = null;
+  var confirmOverlay = null;
+  var confirmPendingForm = null;
+  var confirmPendingSubmitter = null;
 
   function getPageKey() {
     return window.location.pathname + window.location.search;
@@ -231,6 +234,112 @@
     });
   }
 
+  function ensureConfirmOverlay() {
+    if (confirmOverlay) return confirmOverlay;
+
+    confirmOverlay = document.createElement('div');
+    confirmOverlay.id = 'nw-confirm-overlay';
+    confirmOverlay.hidden = true;
+    confirmOverlay.innerHTML =
+      '<div data-confirm-dialog role="dialog" aria-modal="true" aria-labelledby="nw-confirm-title" style="width:min(480px,100%);background:#fff;border:1px solid #dbe4f0;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.24);padding:18px;">' +
+      '<h4 id="nw-confirm-title" style="margin:0 0 10px;font-size:1.05rem;color:#0f172a;">Confirmar acción</h4>' +
+      '<p data-confirm-text style="margin:0 0 14px;line-height:1.45;color:#334155;">¿Deseas continuar?</p>' +
+      '<div style="display:flex;justify-content:flex-end;gap:10px;">' +
+      '<button type="button" data-confirm-cancel class="btn btn--ghost">Cancelar</button>' +
+      '<button type="button" data-confirm-accept class="btn btn--danger">Confirmar</button>' +
+      '</div>' +
+      '</div>';
+
+    Object.assign(confirmOverlay.style, {
+      position: 'fixed',
+      inset: '0',
+      zIndex: '10030',
+      background: 'rgba(15, 23, 42, .45)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '16px'
+    });
+
+    document.body.appendChild(confirmOverlay);
+
+    confirmOverlay.addEventListener('click', function (event) {
+      if (event.target === confirmOverlay) {
+        closeConfirmOverlay();
+      }
+    });
+
+    var cancelBtn = confirmOverlay.querySelector('[data-confirm-cancel]');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', closeConfirmOverlay);
+    }
+
+    var acceptBtn = confirmOverlay.querySelector('[data-confirm-accept]');
+    if (acceptBtn) {
+      acceptBtn.addEventListener('click', function () {
+        if (!confirmPendingForm) {
+          closeConfirmOverlay();
+          return;
+        }
+
+        var form = confirmPendingForm;
+        var submitter = confirmPendingSubmitter;
+        closeConfirmOverlay();
+
+        form.dataset.confirmBypassed = '1';
+        if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit(submitter || undefined);
+        } else {
+          form.submit();
+        }
+        window.setTimeout(function () {
+          form.dataset.confirmBypassed = '0';
+        }, 0);
+      });
+    }
+
+    document.addEventListener('keydown', function (event) {
+      if (!confirmOverlay || confirmOverlay.hidden) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeConfirmOverlay();
+      }
+    });
+
+    return confirmOverlay;
+  }
+
+  function closeConfirmOverlay() {
+    if (confirmOverlay) {
+      confirmOverlay.hidden = true;
+    }
+    confirmPendingForm = null;
+    confirmPendingSubmitter = null;
+  }
+
+  function openConfirmOverlay(message, form, submitter) {
+    var overlay = ensureConfirmOverlay();
+    var textEl = overlay.querySelector('[data-confirm-text]');
+    if (textEl) {
+      textEl.textContent = message || '¿Deseas continuar?';
+    }
+    confirmPendingForm = form;
+    confirmPendingSubmitter = submitter || null;
+    overlay.hidden = false;
+  }
+
+  function initFormConfirm() {
+    document.querySelectorAll('form[data-confirm-message]').forEach(function (form) {
+      form.addEventListener('submit', function (event) {
+        if (event.defaultPrevented) return;
+        if (form.dataset.confirmBypassed === '1') return;
+
+        event.preventDefault();
+        openConfirmOverlay(form.dataset.confirmMessage, form, event.submitter || null);
+      });
+    });
+  }
+
   function restoreSidebarScroll(sidebarEl) {
     if (!sidebarEl) return;
     var raw = safeGet(SIDEBAR_SCROLL_KEY);
@@ -351,6 +460,7 @@
 
   initCollapsibleCards();
   initTimedSubmit();
+  initFormConfirm();
 
   // Auto-ocultar mensajes flash despues de 5s
   setTimeout(function () {

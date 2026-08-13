@@ -5,16 +5,6 @@
 
 {% block content %}
 
-{# ── Formularios de eliminacion (vacios, ocultos del flujo flex) ── #}
-<div hidden>
-{% for p in productos_impulsivo + productos_extras + productos_kilos %}
-<form id="delf-{{ p.id }}" method="post" data-submit-delay="5000" data-loading-text="Eliminando..."
-  action="{{ url_for('producto_eliminar', producto_id=p.id) }}">
-  <input type="hidden" name="active_tab" value="{{ active_tab }}" class="js-active-tab-value" />
-</form>
-{% endfor %}
-</div>
-
 {# ── Seccion: Catalogo de productos ── #}
 <section class="card card--skip-collapse" id="sec-productos">
   <h3 class="panel__title">Catalogo de productos</h3>
@@ -78,10 +68,12 @@
           <tr>
             <td>{{ p.nombre }}</td>
             <td>
-              <button type="submit" form="delf-{{ p.id }}" class="btn btn--sm btn--danger"
-                      onclick="return confirm('¿Eliminar {{ p.nombre }}? Esta accion no se puede deshacer.')">
-                Eliminar
-              </button>
+              <form method="post" action="{{ url_for('producto_eliminar', producto_id=p.id) }}"
+                    data-confirm-message="¿Eliminar {{ p.nombre }}? Esta acción no se puede deshacer."
+                    style="display:inline;">
+                <input type="hidden" name="active_tab" value="{{ active_tab }}" class="js-active-tab-value" />
+                <button type="submit" class="btn btn--sm btn--danger">Eliminar</button>
+              </form>
             </td>
           </tr>
           {% else %}

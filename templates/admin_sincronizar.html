@@ -43,8 +43,8 @@
 
   {% set total_cambios = plan | selectattr('accion', 'in', ['renombrar', 'eliminar_duplicado']) | list | length %}
   {% if total_cambios > 0 %}
-  <form method="post" action="{{ url_for('desc.desc_sincronizar') }}"
-        onsubmit="return confirm('Se aplicaran {{ total_cambios }} cambios en el catalogo. Esta accion no se puede deshacer facilmente. Continuar?')">
+    <form method="post" action="{{ url_for('desc.desc_sincronizar') }}"
+      data-confirm-message="Se aplicaran {{ total_cambios }} cambios en el catalogo. Esta accion no se puede deshacer facilmente. Continuar?">
     <button type="submit" class="btn btn--primary">
       Aplicar {{ total_cambios }} cambio(s)
     </button>

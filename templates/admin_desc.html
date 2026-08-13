@@ -150,7 +150,7 @@
             <td>{{ n_prods }}</td>
             <td><span class="badge badge--green">Correcto</span></td>
             <td>
-              <form method="post" action="{{ url_for('desc.desc_snapshot_eliminar', snap_id=s.id) }}" data-submit-delay="5000" data-loading-text="Eliminando..." onsubmit="return confirm('¿Eliminar este snapshot? Se perderá la continuidad para este período.')">
+              <form method="post" action="{{ url_for('desc.desc_snapshot_eliminar', snap_id=s.id) }}" data-confirm-message="¿Eliminar este snapshot? Se perderá la continuidad para este período.">
                 <button class="btn btn--sm btn--danger">Eliminar</button>
               </form>
             </td>

@@ -11,9 +11,10 @@
     <form method="post" action="{{ url_for('empleado_periodo_seleccionar') }}" class="field field--grow" style="margin:0;">
       <span class="field__label">Período activo de tu tienda</span>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <select name="periodo_id" style="min-width:260px;">
+        <select name="periodo_id" style="min-width:260px;" required>
+          <option value="" selected disabled>Selecciona un período</option>
           {% for p in periodos_abiertos %}
-          <option value="{{ p.id }}" {{ 'selected' if p.id == periodo_activo.id else '' }}>
+          <option value="{{ p.id }}">
             #{{ p.numero }} · {{ p.fecha_desde }} → {{ p.fecha_hasta }} · {{ p.estado }}
           </option>
           {% endfor %}
@@ -69,7 +70,7 @@
 {% for cat in categorias %}
 <section class="tab-panel card {{ 'is-active' if cat == active_tab else '' }}" data-panel="{{ cat }}">
   <h3 class="panel__title">Producto de {{ cat }}</h3>
-  <form method="post" action="{{ url_for('carrito_agregar') }}" class="inv-form" data-submit-delay="5000" data-loading-text="Agregando al carrito...">
+  <form method="post" action="{{ url_for('carrito_agregar') }}" class="inv-form">
     <input type="hidden" name="categoria" value="{{ cat }}" />
     <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
     <input type="hidden" name="anchor" value="sec-carga" />
@@ -96,15 +97,11 @@
       </div>
 
       {% if cat == 'Por Kilos' %}
-        <label class="field kilos-quincenal" hidden>
-          <span class="field__label">Cantidad (kg)</span>
-          <input type="number" name="cantidad_kg" min="0" step="0.1" value="0" />
-        </label>
-        <label class="field kilos-normal">
+        <label class="field">
           <span class="field__label">Cantidad de baldes</span>
           <input type="number" name="cantidad_baldes" min="0" step="1" value="0" />
         </label>
-        <label class="field kilos-normal">
+        <label class="field">
           <span class="field__label">Estado</span>
           <select name="estado_balde">
             {% for e in estados_balde %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
@@ -263,17 +260,13 @@
     var hint = document.getElementById('tipoHint');
     var hints = {
       'Diario': 'Inventario Diario: registra unidades y baldes por estado.',
-      'Semanal': 'Inventario Semanal: usa estados descriptivos (Lleno, Medio lleno, etc.).',
-      'Quincenal': 'Inventario Quincenal: en Por Kilos registra la cantidad exacta en kilos.'
+      'Semanal': 'Inventario Semanal: usa estados descriptivos (Lleno, Medio lleno, etc.).'
     };
 
     function sync() {
       document.querySelectorAll('.form-fecha').forEach(function (i) { i.value = fecha.value; });
       document.querySelectorAll('.form-tipo').forEach(function (i) { i.value = tipo.value; });
       hint.textContent = hints[tipo.value] || '';
-      var quincenal = tipo.value === 'Quincenal';
-      document.querySelectorAll('.kilos-quincenal').forEach(function (e) { e.hidden = !quincenal; });
-      document.querySelectorAll('.kilos-normal').forEach(function (e) { e.hidden = quincenal; });
     }
 
     if (fecha && tipo) {
@@ -285,11 +278,9 @@
     // Normalizar campos de Por Kilos a 'cantidad' y 'ume' antes de enviar
     document.querySelectorAll('.inv-form').forEach(function (form) {
       form.addEventListener('submit', function () {
-        var quincenal = tipo && tipo.value === 'Quincenal';
-        var kg = form.querySelector('input[name="cantidad_kg"]');
         var baldes = form.querySelector('input[name="cantidad_baldes"]');
         var estado = form.querySelector('select[name="estado_balde"]');
-        if (kg && baldes) {
+        if (baldes) {
           var prevCant = form.querySelector('input[name="cantidad"][data-generated="true"]');
           var prevUme = form.querySelector('input[name="ume"][data-generated="true"]');
           if (prevCant) prevCant.remove();
@@ -305,13 +296,8 @@
           hidUme.name = 'ume';
           hidUme.dataset.generated = 'true';
 
-          if (quincenal) {
-            hidCant.value = kg.value;
-            hidUme.value = 'Kg';
-          } else {
-            hidCant.value = baldes.value;
-            hidUme.value = estado ? estado.value : 'Unidad';
-          }
+          hidCant.value = baldes.value;
+          hidUme.value = estado ? estado.value : 'Unidad';
 
           form.appendChild(hidCant);
           form.appendChild(hidUme);

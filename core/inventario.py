@@ -1,10 +1,10 @@
 ﻿"""
-inventario.py — Módulo Desc.: procesamiento de Excel de inventario quincenal.
+inventario.py — Módulo Desc.: procesamiento de Excel de inventario por período.
 
 Flujo completo:
   1. Admin sube .xls/.xlsx de inventario + elige tienda y rango de fechas.
   2. Sistema limpia columnas irrelevantes y filtra grupos no relevantes.
-  3. Regla de continuidad quincenal:
+    3. Regla de continuidad por período:
       - Si existe stock cargado por el empleado en el sistema → usa ese valor como SI.
       - Si no existe en sistema y hay snapshot previo del mismo mes/tienda → usa su stock_final como SI.
   4. Reemplaza ventas reales con DeliveryVenta del período.

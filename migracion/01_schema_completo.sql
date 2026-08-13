@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS producto_precios (
     producto_nombre  VARCHAR(160) NOT NULL UNIQUE,
     categoria        VARCHAR(40)  NOT NULL,
     precio           DOUBLE PRECISION,
+    precio_por_caja  DOUBLE PRECISION,
     unidades_por_caja  DOUBLE PRECISION,
     unidades_por_bulto DOUBLE PRECISION
 );

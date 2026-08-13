@@ -114,7 +114,7 @@
                 <form method="post" action="{{ url_for('admin_producto_relacionado_toggle', rel_id=r.id) }}">
                   <button class="btn btn--ghost btn--sm" type="submit">{{ 'Desactivar' if r.activo else 'Activar' }}</button>
                 </form>
-                <form method="post" action="{{ url_for('admin_producto_relacionado_eliminar', rel_id=r.id) }}" onsubmit="return confirm('¿Eliminar esta relación?')">
+                <form method="post" action="{{ url_for('admin_producto_relacionado_eliminar', rel_id=r.id) }}" data-confirm-message="¿Eliminar esta relación?">
                   <button class="btn btn--ghost btn--sm" type="submit">Eliminar</button>
                 </form>
               </div>

@@ -14,6 +14,7 @@ import os
 from datetime import datetime, date, timedelta
 from functools import wraps
 import secrets
+from sqlalchemy import inspect
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, send_file, jsonify, abort)
@@ -227,94 +228,126 @@ def get_cliente_filtro() -> str:
 
 
 def _add_column_if_missing(conn, table_name: str, column_sql: str, column_name: str):
-    """Agrega una columna en SQLite solo si no existe."""
-    cols = conn.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
-    existing = {c[1] for c in cols}
+    """Agrega una columna solo si no existe (compatible con SQLite/PostgreSQL)."""
+    if conn.dialect.name == "sqlite":
+        cols = conn.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
+        # Si la tabla no existe en este bind, no intentar ALTER TABLE.
+        if not cols:
+            return
+        existing = {c[1] for c in cols}
+    else:
+        inspector = inspect(conn)
+        if not inspector.has_table(table_name):
+            return
+        existing = {c["name"] for c in inspector.get_columns(table_name)}
+
     if column_name not in existing:
         conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
 
 
+def _get_all_db_engines():
+    """Retorna engines únicos (default + binds) para aplicar migraciones livianas."""
+    engines = [db.engine]
+    try:
+        engines.extend(db.engines.values())
+    except Exception:
+        pass
+
+    unique = []
+    seen = set()
+    for eng in engines:
+        key = id(eng)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(eng)
+    return unique
+
+
 def ensure_multitenant_schema():
     """Migración liviana para multi-tenant sin depender de Alembic."""
-    with db.engine.begin() as conn:
-        conn.exec_driver_sql(
-            """
-            CREATE TABLE IF NOT EXISTS clientes (
-                id VARCHAR(10) PRIMARY KEY,
-                nombre VARCHAR(160) NOT NULL UNIQUE,
-                plan VARCHAR(40) DEFAULT 'basico',
-                estado VARCHAR(20) DEFAULT 'activo',
-                fecha_creacion VARCHAR(20)
+    for engine in _get_all_db_engines():
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS clientes (
+                    id VARCHAR(10) PRIMARY KEY,
+                    nombre VARCHAR(160) NOT NULL UNIQUE,
+                    plan VARCHAR(40) DEFAULT 'basico',
+                    estado VARCHAR(20) DEFAULT 'activo',
+                    fecha_creacion VARCHAR(20)
+                )
+                """
             )
-            """
-        )
 
-        tenant_targets = [
-            "tiendas", "usuarios", "inventario_items", "historial",
-            "inventario_snapshots", "delivery_productos", "delivery_ventas",
-            "stock_thresholds", "producto_precios", "inventario_desc_snapshots",
-            "registros_averiados", "registros_vencimiento", "sincronizacion_log",
-        ]
-        for table_name in tenant_targets:
-            _add_column_if_missing(conn, table_name,
-                                   "cliente_id VARCHAR(10) NOT NULL DEFAULT 'C001'", "cliente_id")
+            tenant_targets = [
+                "tiendas", "usuarios", "inventario_items", "historial",
+                "inventario_snapshots", "delivery_productos", "delivery_ventas",
+                "stock_thresholds", "producto_precios", "inventario_desc_snapshots",
+                "registros_averiados", "registros_vencimiento", "sincronizacion_log",
+            ]
+            for table_name in tenant_targets:
+                _add_column_if_missing(conn, table_name,
+                                       "cliente_id VARCHAR(10) NOT NULL DEFAULT 'C001'", "cliente_id")
 
-        _add_column_if_missing(conn, "registros_averiados",
-                               "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
-        _add_column_if_missing(conn, "registros_vencimiento",
-                               "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
-        _add_column_if_missing(conn, "usuarios",
-                               "password_hash VARCHAR(256)", "password_hash")
-        _add_column_if_missing(conn, "usuarios",
-                       "ultimo_periodo_notificado_id INTEGER NOT NULL DEFAULT 0", "ultimo_periodo_notificado_id")
-        _add_column_if_missing(conn, "productos",
-                       "visible_empleado BOOLEAN NOT NULL DEFAULT 1", "visible_empleado")
+            _add_column_if_missing(conn, "registros_averiados",
+                                   "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
+            _add_column_if_missing(conn, "registros_vencimiento",
+                                   "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
+            _add_column_if_missing(conn, "usuarios",
+                                   "password_hash VARCHAR(256)", "password_hash")
+            _add_column_if_missing(conn, "usuarios",
+                           "ultimo_periodo_notificado_id INTEGER NOT NULL DEFAULT 0", "ultimo_periodo_notificado_id")
+            _add_column_if_missing(conn, "productos",
+                           "visible_empleado BOOLEAN NOT NULL DEFAULT 1", "visible_empleado")
 
-        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tiendas_cliente_id ON tiendas(cliente_id)")
-        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tiendas_cliente_id ON tiendas(cliente_id)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id)")
 
-        # Nuevas tablas del módulo de auditoría (creadas por SQLAlchemy en init_db,
-        # aquí solo migramos columnas faltantes si la tabla ya existía)
-        audit_tables = [
-            "inventario_periodos", "conteo_detalle", "ajustes_inventario",
-            "excel_importados", "excel_detalles", "auditoria_resultados",
-            "justificaciones", "productos_relacionados", "configuracion_sistema",
-        ]
-        for tbl in audit_tables:
-            _add_column_if_missing(conn, tbl, "cliente_id VARCHAR(10) NOT NULL DEFAULT 'C001'", "cliente_id")
-        _add_column_if_missing(conn, "ajustes_inventario",
-                               "impacta_stock BOOLEAN NOT NULL DEFAULT 1", "impacta_stock")
-        for col_sql, col_name in [
-            ("primera_carga TIMESTAMP",                      "primera_carga"),
-            ("veces_sincronizado INTEGER NOT NULL DEFAULT 1", "veces_sincronizado"),
-        ]:
-            _add_column_if_missing(conn, "conteo_detalle", col_sql, col_name)
-        _add_column_if_missing(conn, "stock_thresholds",
-                               "producto_id INTEGER REFERENCES productos(id)", "producto_id")
-        _add_column_if_missing(conn, "producto_precios",
-                               "producto_id INTEGER REFERENCES productos(id)", "producto_id")
-        _add_column_if_missing(conn, "productos",
-                               "codigo_articulo VARCHAR(40)", "codigo_articulo")
-        _add_column_if_missing(conn, "historial",
-                               "snapshot_id INTEGER REFERENCES inventario_snapshots(id)", "snapshot_id")
-        for col_sql, col_name in [
-            ("producto_id INTEGER REFERENCES productos(id)", "producto_id"),
-            ("estado_vinculacion VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "estado_vinculacion"),
-            ("excluido_auditoria BOOLEAN NOT NULL DEFAULT 0",            "excluido_auditoria"),
-            ("motivo_exclusion VARCHAR(120)",                            "motivo_exclusion"),
-        ]:
-            _add_column_if_missing(conn, "excel_detalles", col_sql, col_name)
-        _add_column_if_missing(conn, "auditoria_resultados",
-                               "fuente_costo VARCHAR(20) NOT NULL DEFAULT 'Sin costo'", "fuente_costo")
-        for col_sql, col_name in [
-            ("factor_desvio_compra REAL NOT NULL DEFAULT 0",           "factor_desvio_compra"),
-            ("diferencia_anterior_compensada REAL NOT NULL DEFAULT 0", "diferencia_anterior_compensada"),
-            ("cantidad_merma REAL NOT NULL DEFAULT 0",                 "cantidad_merma"),
-            ("cantidad_vencida REAL NOT NULL DEFAULT 0",               "cantidad_vencida"),
-            ("cantidad_averiada REAL NOT NULL DEFAULT 0",              "cantidad_averiada"),
-            ("ventas_delivery REAL NOT NULL DEFAULT 0",                "ventas_delivery"),
-        ]:
-            _add_column_if_missing(conn, "auditoria_resultados", col_sql, col_name)
+            # Nuevas tablas del módulo de auditoría (creadas por SQLAlchemy en init_db,
+            # aquí solo migramos columnas faltantes si la tabla ya existía)
+            audit_tables = [
+                "inventario_periodos", "conteo_detalle", "ajustes_inventario",
+                "excel_importados", "excel_detalles", "auditoria_resultados",
+                "justificaciones", "productos_relacionados", "configuracion_sistema",
+            ]
+            for tbl in audit_tables:
+                _add_column_if_missing(conn, tbl, "cliente_id VARCHAR(10) NOT NULL DEFAULT 'C001'", "cliente_id")
+            _add_column_if_missing(conn, "ajustes_inventario",
+                                   "impacta_stock BOOLEAN NOT NULL DEFAULT 1", "impacta_stock")
+            for col_sql, col_name in [
+                ("primera_carga TIMESTAMP",                      "primera_carga"),
+                ("veces_sincronizado INTEGER NOT NULL DEFAULT 1", "veces_sincronizado"),
+            ]:
+                _add_column_if_missing(conn, "conteo_detalle", col_sql, col_name)
+            _add_column_if_missing(conn, "stock_thresholds",
+                                   "producto_id INTEGER REFERENCES productos(id)", "producto_id")
+            _add_column_if_missing(conn, "producto_precios",
+                                   "producto_id INTEGER REFERENCES productos(id)", "producto_id")
+            _add_column_if_missing(conn, "producto_precios",
+                                   "precio_por_caja REAL", "precio_por_caja")
+            _add_column_if_missing(conn, "productos",
+                                   "codigo_articulo VARCHAR(40)", "codigo_articulo")
+            _add_column_if_missing(conn, "historial",
+                                   "snapshot_id INTEGER REFERENCES inventario_snapshots(id)", "snapshot_id")
+            for col_sql, col_name in [
+                ("producto_id INTEGER REFERENCES productos(id)", "producto_id"),
+                ("estado_vinculacion VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "estado_vinculacion"),
+                ("excluido_auditoria BOOLEAN NOT NULL DEFAULT 0",            "excluido_auditoria"),
+                ("motivo_exclusion VARCHAR(120)",                            "motivo_exclusion"),
+            ]:
+                _add_column_if_missing(conn, "excel_detalles", col_sql, col_name)
+            _add_column_if_missing(conn, "auditoria_resultados",
+                                   "fuente_costo VARCHAR(20) NOT NULL DEFAULT 'Sin costo'", "fuente_costo")
+            for col_sql, col_name in [
+                ("factor_desvio_compra REAL NOT NULL DEFAULT 0",           "factor_desvio_compra"),
+                ("diferencia_anterior_compensada REAL NOT NULL DEFAULT 0", "diferencia_anterior_compensada"),
+                ("cantidad_merma REAL NOT NULL DEFAULT 0",                 "cantidad_merma"),
+                ("cantidad_vencida REAL NOT NULL DEFAULT 0",               "cantidad_vencida"),
+                ("cantidad_averiada REAL NOT NULL DEFAULT 0",              "cantidad_averiada"),
+                ("ventas_delivery REAL NOT NULL DEFAULT 0",                "ventas_delivery"),
+            ]:
+                _add_column_if_missing(conn, "auditoria_resultados", col_sql, col_name)
 
 
 # --------------------------------------------------------------------------- #
@@ -324,8 +357,9 @@ def init_db():
     """Crea las tablas e inserta los datos iniciales si la BD esta vacia."""
     # Usar checkfirst=True explícito para evitar errores con tablas ya existentes
     # (ocurre cuando SQLALCHEMY_BINDS apunta al mismo archivo que el default)
-    with db.engine.begin() as conn:
-        db.metadata.create_all(bind=conn, checkfirst=True)
+    for engine in _get_all_db_engines():
+        with engine.begin() as conn:
+            db.metadata.create_all(bind=conn, checkfirst=True)
 
     ensure_multitenant_schema()
 
@@ -721,6 +755,8 @@ def carrito_agregar():
     cantidad = request.form.get("cantidad", type=float) or 0
     ume = request.form.get("ume", "Unidad")
     tipo_inventario = request.form.get("tipo_inventario", "Diario")
+    if tipo_inventario not in TIPOS_INVENTARIO:
+        tipo_inventario = "Diario"
     fecha = request.form.get("fecha", today_local_iso())
     detalle = request.form.get("detalle", "")
 
@@ -1234,10 +1270,12 @@ def admin_precios():
             if producto is None:
                 continue
             precio_val = request.form.get(f"precio_{pid}") or None
+            precio_caja_val = request.form.get(f"precio_caja_{pid}") or None
             caja_val = request.form.get(f"caja_{pid}") or None
             bulto_val = request.form.get(f"bulto_{pid}") or None
             try:
                 precio_val = float(str(precio_val).replace(".", "").replace(",", ".")) if precio_val else None
+                precio_caja_val = float(str(precio_caja_val).replace(".", "").replace(",", ".")) if precio_caja_val else None
                 caja_val = float(caja_val) if caja_val else None
                 bulto_val = float(bulto_val) if bulto_val else None
             except ValueError:
@@ -1251,6 +1289,7 @@ def admin_precios():
                 rec.producto_id = producto.id
             rec.precio = precio_val
             if producto.categoria in ("Impulsivo", "Extras"):
+                rec.precio_por_caja = precio_caja_val
                 rec.unidades_por_caja = caja_val
                 rec.unidades_por_bulto = bulto_val
         db.session.commit()
@@ -1642,11 +1681,13 @@ def producto_precio_guardar():
         if producto is None or producto.categoria not in ("Impulsivo", "Extras"):
             continue
         precio_val = request.form.get(f"precio_{pid}") or None
+        precio_caja_val = request.form.get(f"precio_caja_{pid}") or None
         caja_val = request.form.get(f"caja_{pid}") or None
         bulto_val = request.form.get(f"bulto_{pid}") or None
         try:
             # precio llega sin puntos de miles (el JS los quita antes de submit)
             precio_val = int(precio_val) if precio_val else None
+            precio_caja_val = int(precio_caja_val) if precio_caja_val else None
             caja_val = float(caja_val) if caja_val else None
             bulto_val = float(bulto_val) if bulto_val else None
         except ValueError:
@@ -1659,6 +1700,7 @@ def producto_precio_guardar():
         elif rec.producto_id is None:
             rec.producto_id = producto.id
         rec.precio = precio_val
+        rec.precio_por_caja = precio_caja_val
         rec.unidades_por_caja = caja_val
         rec.unidades_por_bulto = bulto_val
     db.session.commit()

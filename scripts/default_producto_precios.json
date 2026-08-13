@@ -1,0 +1,326 @@
+{
+  "exported_at": "2026-08-13T02:25:48.516159Z",
+  "count": 40,
+  "items": [
+    {
+      "producto_nombre": "Alfajor Almendrado",
+      "categoria": "Impulsivo",
+      "precio": 5000.0,
+      "precio_por_caja": 37000.0,
+      "unidades_por_caja": 8.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Alfajor Bombon Cookies and Crema",
+      "categoria": "Impulsivo",
+      "precio": 8500.0,
+      "precio_por_caja": 50000.0,
+      "unidades_por_caja": 6.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Alfajor Bombon Crocante",
+      "categoria": "Impulsivo",
+      "precio": 5500.0,
+      "precio_por_caja": 41000.0,
+      "unidades_por_caja": 8.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Alfajor Bombon Escoces",
+      "categoria": "Impulsivo",
+      "precio": 6500.0,
+      "precio_por_caja": 50000.0,
+      "unidades_por_caja": 6.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Alfajor Bombon Suizo",
+      "categoria": "Impulsivo",
+      "precio": 6500.0,
+      "precio_por_caja": 48000.0,
+      "unidades_por_caja": 8.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Alfajor Bombon Vainilla",
+      "categoria": "Impulsivo",
+      "precio": null,
+      "precio_por_caja": null,
+      "unidades_por_caja": null,
+      "unidades_por_bulto": null
+    },
+    {
+      "producto_nombre": "Alfajor Casatta",
+      "categoria": "Impulsivo",
+      "precio": 5000.0,
+      "precio_por_caja": 37000.0,
+      "unidades_por_caja": 8.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Bocadito Frambuesa",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 24.0,
+      "unidades_por_bulto": null
+    },
+    {
+      "producto_nombre": "Bocadito Frutilla",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 24.0,
+      "unidades_por_bulto": null
+    },
+    {
+      "producto_nombre": "Crocantino",
+      "categoria": "Impulsivo",
+      "precio": 41000.0,
+      "precio_por_caja": 41000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 4.0
+    },
+    {
+      "producto_nombre": "Delicia",
+      "categoria": "Impulsivo",
+      "precio": 41000.0,
+      "precio_por_caja": 41000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 4.0
+    },
+    {
+      "producto_nombre": "Familiar 1",
+      "categoria": "Impulsivo",
+      "precio": 62000.0,
+      "precio_por_caja": 62000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Familiar 2",
+      "categoria": "Impulsivo",
+      "precio": 62000.0,
+      "precio_por_caja": 62000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Familiar 3",
+      "categoria": "Impulsivo",
+      "precio": 62000.0,
+      "precio_por_caja": 62000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Familiar 4",
+      "categoria": "Impulsivo",
+      "precio": 62000.0,
+      "precio_por_caja": 62000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Frutal Frutilla x20",
+      "categoria": "Impulsivo",
+      "precio": 3000.0,
+      "precio_por_caja": 40000.0,
+      "unidades_por_caja": 20.0,
+      "unidades_por_bulto": 4.0
+    },
+    {
+      "producto_nombre": "Frutal Naranja x20",
+      "categoria": "Impulsivo",
+      "precio": 3000.0,
+      "precio_por_caja": 40000.0,
+      "unidades_por_caja": 20.0,
+      "unidades_por_bulto": 4.0
+    },
+    {
+      "producto_nombre": "Palito Bombon",
+      "categoria": "Impulsivo",
+      "precio": 4000.0,
+      "precio_por_caja": 30000.0,
+      "unidades_por_caja": 10.0,
+      "unidades_por_bulto": 10.0
+    },
+    {
+      "producto_nombre": "Palito Crema Americana",
+      "categoria": "Impulsivo",
+      "precio": 3500.0,
+      "precio_por_caja": 25000.0,
+      "unidades_por_caja": 10.0,
+      "unidades_por_bulto": 10.0
+    },
+    {
+      "producto_nombre": "Palito Crema Frutilla",
+      "categoria": "Impulsivo",
+      "precio": 3500.0,
+      "precio_por_caja": 25000.0,
+      "unidades_por_caja": 10.0,
+      "unidades_por_bulto": 10.0
+    },
+    {
+      "producto_nombre": "Palito Frutal Frutilla",
+      "categoria": "Impulsivo",
+      "precio": 3000.0,
+      "precio_por_caja": 40000.0,
+      "unidades_por_caja": 10.0,
+      "unidades_por_bulto": 10.0
+    },
+    {
+      "producto_nombre": "Palito Frutal Limon",
+      "categoria": "Impulsivo",
+      "precio": 3000.0,
+      "precio_por_caja": 40000.0,
+      "unidades_por_caja": 20.0,
+      "unidades_por_bulto": 4.0
+    },
+    {
+      "producto_nombre": "Palito Frutal Naranja",
+      "categoria": "Impulsivo",
+      "precio": 3000.0,
+      "precio_por_caja": 40000.0,
+      "unidades_por_caja": 10.0,
+      "unidades_por_bulto": 10.0
+    },
+    {
+      "producto_nombre": "Pizza",
+      "categoria": "Impulsivo",
+      "precio": 24000.0,
+      "precio_por_caja": 24000.0,
+      "unidades_por_caja": 20.0,
+      "unidades_por_bulto": null
+    },
+    {
+      "producto_nombre": "Tentacion Chocolate",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Chocolate con Almendra",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Cookies",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Crema Americana",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Dulce de Leche",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Dulce de Leche Granizado",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Frutilla",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Granizado",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Limon",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Mascarpone",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Menta Granizada",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Toddy",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Tentacion Vainilla",
+      "categoria": "Impulsivo",
+      "precio": 32000.0,
+      "precio_por_caja": 32000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Torta Grido Rellena",
+      "categoria": "Impulsivo",
+      "precio": 52000.0,
+      "precio_por_caja": 52000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Torta Helada Cookies Mousse",
+      "categoria": "Impulsivo",
+      "precio": 52000.0,
+      "precio_por_caja": 52000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    },
+    {
+      "producto_nombre": "Torta Milka",
+      "categoria": "Impulsivo",
+      "precio": 52000.0,
+      "precio_por_caja": 52000.0,
+      "unidades_por_caja": 1.0,
+      "unidades_por_bulto": 6.0
+    }
+  ]
+}

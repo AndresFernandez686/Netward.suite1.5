@@ -64,7 +64,7 @@ def main() -> None:
     parser.add_argument("--usuario", default="empleado1", help="Username empleado")
     parser.add_argument("--tienda", default=None, help="Tienda destino (opcional)")
     parser.add_argument("--fecha", default=date.today().isoformat(), help="Fecha inventario YYYY-MM-DD")
-    parser.add_argument("--tipo", default="Diario", help="Tipo inventario: Diario/Semanal/Quincenal")
+    parser.add_argument("--tipo", default="Diario", choices=["Diario", "Semanal"], help="Tipo inventario: Diario/Semanal")
     parser.add_argument("--accion", default="solo_enviar", choices=["solo_enviar", "enviar_recibir"])
     args = parser.parse_args()
 

@@ -44,8 +44,8 @@
           <td style="text-align:right;">
             <button type="button" class="btn btn--ghost btn--sm" onclick="toggleEditRow('{{ u.id }}')">Editar</button>
             {% if u.username != sesion_usuario %}
-            <form method="post" action="{{ url_for('usuario_eliminar', usuario_id=u.id) }}" data-submit-delay="5000" data-loading-text="Eliminando..."
-                  onsubmit="return confirm('¿Eliminar al usuario {{ u.username }}? Esta acción no se puede deshacer.')"
+            <form method="post" action="{{ url_for('usuario_eliminar', usuario_id=u.id) }}"
+              data-confirm-message="¿Eliminar al usuario {{ u.username }}? Esta acción no se puede deshacer."
                   style="display:inline; margin-left:6px;">
               <button type="submit" class="btn btn--ghost btn--sm" style="color:var(--danger);">Eliminar</button>
             </form>

@@ -55,6 +55,7 @@
             <th>Estado</th>
             <th>{{ 'Precio por kg ($)' if cat == 'Por Kilos' else 'Precio unitario ($)' }}</th>
             {% if cat != 'Por Kilos' %}
+            <th>Precio por Caja ($)</th>
             <th>Unidades/Caja</th>
             <th>Cajas/Bulto</th>
             {% endif %}
@@ -80,6 +81,10 @@
             </td>
             {% if cat != 'Por Kilos' %}
             <td>
+              <input class="price-input price-input--sm" type="text" inputmode="numeric" name="precio_caja_{{ p.id }}"
+                     value="{{ '%g'|format(pr.precio_por_caja) if pr and pr.precio_por_caja else '' }}" placeholder="Sin precio" />
+            </td>
+            <td>
               <input class="price-input price-input--sm" type="number" step="any" min="0" name="caja_{{ p.id }}"
                      value="{{ '%g'|format(pr.unidades_por_caja) if pr and pr.unidades_por_caja else '' }}" placeholder="—" />
             </td>
@@ -90,7 +95,7 @@
             {% endif %}
           </tr>
           {% else %}
-          <tr><td colspan="5" class="muted">No hay productos en esta categoría.</td></tr>
+          <tr><td colspan="{{ 3 if cat == 'Por Kilos' else 6 }}" class="muted">No hay productos en esta categoría.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -169,7 +174,8 @@
         if (!emptyRow) {
           emptyRow = document.createElement('tr');
           emptyRow.className = 'js-precios-empty-search';
-          emptyRow.innerHTML = '<td colspan="5" class="muted">No hay productos que coincidan con la búsqueda.</td>';
+          var columns = panel.querySelectorAll('thead th').length || 5;
+          emptyRow.innerHTML = '<td colspan="' + columns + '" class="muted">No hay productos que coincidan con la búsqueda.</td>';
           var tbody = panel.querySelector('tbody');
           if (tbody) tbody.appendChild(emptyRow);
         }

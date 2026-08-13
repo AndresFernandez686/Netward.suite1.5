@@ -212,12 +212,13 @@ class ProductoPrecio(BaseModel):
     producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=True, index=True)
     categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Extras
     precio = db.Column(db.Float, nullable=True)
+    precio_por_caja = db.Column(db.Float, nullable=True)
     unidades_por_caja = db.Column(db.Float, nullable=True)
     unidades_por_bulto = db.Column(db.Float, nullable=True)
 
 
 class InventarioDescSnapshot(BaseModel):
-    """Guarda el stock_final de cada inventario Desc. procesado (regla de continuidad quincenal)."""
+    """Guarda el stock_final de cada inventario Desc. procesado (regla de continuidad por período)."""
     __tablename__ = "inventario_desc_snapshots"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -297,7 +298,7 @@ class SincronizacionLog(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class InventarioPeriodo(BaseModel):
-    """Período de inventario semanal/quincenal con ciclo de vida completo."""
+    """Período de inventario con ciclo de vida completo."""
     __tablename__ = "inventario_periodos"
 
     id = db.Column(db.Integer, primary_key=True)

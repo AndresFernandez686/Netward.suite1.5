@@ -47,7 +47,7 @@ PRODUCTOS_BASE = {
 }
 
 CATEGORIAS = ["Impulsivo", "Por Kilos", "Extras"]
-TIPOS_INVENTARIO = ["Diario", "Semanal", "Quincenal"]
+TIPOS_INVENTARIO = ["Diario", "Semanal"]
 OPCIONES_UME = ["Unidad", "Caja", "Tira"]
 ESTADOS_BALDE = ["Lleno", "Medio lleno", "Vacio"]
 
