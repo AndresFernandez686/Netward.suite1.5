@@ -35,6 +35,15 @@
 
 {% if periodo_activo %}
 
+{% if borrador_recuperado %}
+<div class="banner banner--success draft-restored" role="status">
+  <div>
+    <strong>Recuperamos tu carga pendiente.</strong><br>
+    Los {{ carrito|length }} producto(s) que habías agregado al período #{{ periodo_activo.numero }} siguen disponibles para continuar.
+  </div>
+</div>
+{% endif %}
+
 <div class="toolbar card card--skip-collapse" id="sec-carga">
   <label class="field field--inline">
     <span class="field__label">Fecha de carga</span>
@@ -136,7 +145,10 @@
 
 <section class="cart card card--skip-collapse" id="sec-carrito">
   <div class="cart__head">
-    <h3>Productos cargados</h3>
+    <div>
+      <h3>Productos cargados</h3>
+      {% if carrito %}<small class="muted">Borrador guardado automáticamente para este período.</small>{% endif %}
+    </div>
     {% if carrito %}<span class="badge badge--blue">{{ carrito|length }} producto(s)</span>{% endif %}
   </div>
 
@@ -182,7 +194,8 @@
               </td>
               <td class="muted">{{ item.hora }}</td>
               <td>
-                <form method="post" action="{{ url_for('carrito_eliminar', idx=loop.index0) }}">
+                <form method="post" action="{{ url_for('carrito_eliminar', idx=loop.index0) }}"
+                      data-confirm-message="¿Quitar este producto de la carga temporal?">
                   <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
                   <input type="hidden" name="anchor" value="sec-carrito" />
                   <button class="btn btn--icon btn--ghost" title="Eliminar">&times;</button>
@@ -213,7 +226,8 @@
         <input type="hidden" name="anchor" value="sec-carrito" />
         <button class="btn btn--success">Guardar inventario</button>
       </form>
-      <form method="post" action="{{ url_for('carrito_limpiar') }}">
+      <form method="post" action="{{ url_for('carrito_limpiar') }}"
+            data-confirm-message="¿Limpiar todos los productos cargados? Esta acción vaciará el borrador del período.">
         <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
         <input type="hidden" name="anchor" value="sec-carrito" />
         <button class="btn btn--ghost">Limpiar carrito</button>

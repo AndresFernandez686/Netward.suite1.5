@@ -98,7 +98,7 @@
           <td class="muted" data-label="Detalle">{{ r.detalle }}</td>
           <td class="averiado-row-delete" data-label="Acciones">
             <form method="post" action="{{ url_for('averiado_eliminar', reg_id=r.id) }}"
-                  onsubmit="return confirm('¿Eliminar este registro?')">
+                  data-confirm-message="¿Eliminar este registro de averiado?">
               <button class="btn btn--sm btn--danger">×</button>
             </form>
           </td>

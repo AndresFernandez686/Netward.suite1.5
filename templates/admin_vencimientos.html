@@ -38,7 +38,7 @@
 
   <div style="display:flex;justify-content:flex-end;margin-top:10px;">
     <form method="post" action="{{ url_for('admin_vencimientos_revisar') }}"
-          onsubmit="return confirm('¿Marcar como revisados los registros filtrados actualmente?')">
+          data-confirm-message="¿Marcar como revisados los registros filtrados actualmente?">
       <input type="hidden" name="tienda" value="{{ tienda_f }}" />
       <input type="hidden" name="desde" value="{{ desde }}" />
       <input type="hidden" name="hasta" value="{{ hasta }}" />

@@ -1,229 +1,142 @@
 {% extends "admin_base.html" %}
 {% block title %}Auditoría Período #{{ periodo.numero }} — {{ app_nombre }}{% endblock %}
+{% block heading %}Auditoría{% endblock %}
+{% block subheading %}Período #{{ periodo.numero }} · {{ tienda_nombre }}{% endblock %}
+
+{% macro fecha_es(valor) -%}
+  {%- set partes = (valor or '')[:10].split('-') -%}
+  {{ partes[2] ~ '/' ~ partes[1] ~ '/' ~ partes[0] if partes|length == 3 else valor }}
+{%- endmacro %}
 
 {% block content %}
-<div class="page-header">
-  <h1 class="page-title">Auditoría — Período #{{ periodo.numero }}</h1>
-  <p class="page-sub">
-    {{ periodo.fecha_desde }} → {{ periodo.fecha_hasta }} · {{ periodo.tienda_id }}
-    &nbsp;·&nbsp; Impacto total faltantes:
-    <strong>
-      {% if total_impacto %}Gs. {{ "{:,.0f}".format(total_impacto).replace(",", ".") }}{% else %}—{% endif %}
-    </strong>
-  </p>
-</div>
+<div class="audit-page" data-initial-filter="{{ filtro }}">
+  <section class="audit-hero">
+    <h1>Auditoría — Período #{{ periodo.numero }}</h1>
+    <p>{{ periodo.fecha_desde }} → {{ periodo.fecha_hasta }} · {{ tienda_nombre }} <span>·</span> Impacto total faltantes:
+      <strong>{{ 'Gs. ' ~ "{:,.0f}".format(total_impacto).replace(',', '.') if total_impacto else '—' }}</strong>
+    </p>
+  </section>
 
-<div class="d-flex gap-2 mb-3 flex-wrap">
-  <a href="{{ url_for('admin_periodo_detalle', periodo_id=periodo.id) }}" class="btn btn-sm btn-secondary">← Período</a>
-  <a href="{{ url_for('admin_reporte_gerencial', periodo_id=periodo.id) }}" class="btn btn-sm btn-secondary">Reporte gerencial</a>
-  <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn-sm btn-secondary">Exportar Excel</a>
-  <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline">
-    <button type="submit" class="btn btn-sm btn-primary"
-      onclick="return confirm('¿Re-ejecutar auditoría? Se recalcularán todos los resultados.')">
-      Re-ejecutar auditoría
-    </button>
-  </form>
-</div>
-
-{# ── Filtros ── #}
-<div class="card mb-4">
-  <div class="card__body">
-    <div class="d-flex gap-2 flex-wrap">
-      <a href="?filtro=todos" class="btn btn-sm {% if filtro=='todos' %}btn-primary{% else %}btn-secondary{% endif %}">Todos</a>
-      <a href="?filtro=faltante" class="btn btn-sm {% if filtro=='faltante' %}btn-primary{% else %}btn-secondary{% endif %}">Faltantes</a>
-      <a href="?filtro=sobrante" class="btn btn-sm {% if filtro=='sobrante' %}btn-primary{% else %}btn-secondary{% endif %}">Sobrantes</a>
-      <a href="?filtro=critico" class="btn btn-sm {% if filtro=='critico' %}btn-danger{% else %}btn-secondary{% endif %}">Críticos</a>
-      <a href="?filtro=pendiente" class="btn btn-sm {% if filtro=='pendiente' %}btn-warning{% else %}btn-secondary{% endif %}">Pendientes</a>
-    </div>
+  <div class="audit-toolbar">
+    <a href="{{ url_for('admin_periodo_detalle', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm">← Período</a>
+    <a href="{{ url_for('admin_reporte_gerencial', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm"><span aria-hidden="true">▣</span> Reporte gerencial</a>
+    <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm audit-export"><span aria-hidden="true">↓</span> Exportar Excel</a>
+    <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}"
+          data-confirm-message="¿Re-ejecutar la auditoría? Se recalcularán todos los resultados.">
+      <button type="submit" class="btn btn--sm audit-rerun"><span aria-hidden="true">↻</span> Re-ejecutar auditoría</button>
+    </form>
   </div>
-</div>
 
-{# ── Resultados ── #}
-{% if not resultados %}
-<div class="card">
-  <div class="card__body empty-state">
-    No hay resultados de auditoría.
-    {% if periodo.estado in ('Cerrado','Conciliado') %}
-    Ejecutá la auditoría desde la página del período.
-    {% endif %}
-  </div>
-</div>
-{% else %}
+  <div class="audit-layout">
+    <div class="audit-main">
+      <section class="panel audit-results">
+        <div class="audit-section-title">
+          <div><h2>Resultados de auditoría</h2><p>Datos reales registrados para este período.</p></div>
+          <span class="audit-live-count" id="auditLiveCount">{{ resumen.todos }} resultados</span>
+        </div>
 
-{% for r in resultados %}
-<div class="card mb-3 {{ 'border-danger' if r.severidad == 'Crítico' else ('border-warning' if r.tipo_diferencia == 'faltante' else '') }}">
-  <div class="card__header d-flex justify-between align-center flex-wrap gap-2">
-    <div>
-      <strong>{{ r.producto_nombre }}</strong>
-      {% if r.categoria %}<span class="badge badge--secondary ml-1">{{ r.categoria }}</span>{% endif %}
-      <span class="badge
-        {% if r.tipo_diferencia == 'faltante' %}badge--danger
-        {% elif r.tipo_diferencia == 'sobrante' %}badge--success
-        {% else %}badge--info{% endif %} ml-1">
-        {{ r.tipo_diferencia|capitalize }}
-      </span>
-      <span class="badge
-        {% if r.severidad == 'Crítico' %}badge--danger
-        {% elif r.severidad == 'Revisar' %}badge--warning
-        {% elif r.severidad == 'Observación' %}badge--secondary
-        {% else %}badge--success{% endif %} ml-1">
-        {{ r.severidad }}
-      </span>
-    </div>
-    <div class="text-right">
-      {% if r.diferencia != 0 %}
-      <span class="font-bold {% if r.diferencia < 0 %}text-danger{% else %}text-success{% endif %}">
-        {{ '%+.1f'|format(r.diferencia) }} unid.
-      </span>
-      {% if r.impacto %}
-        · <span class="text-danger">Gs. {{ "{:,.0f}".format(r.impacto).replace(",", ".") }}</span>
-      {% endif %}
-      {% endif %}
-    </div>
-  </div>
-  <div class="card__body">
-    <div class="audit-grid">
-      {# Números clave #}
-      <div class="audit-numbers">
-        <div class="num-row">
-          <span class="num-label">Stock inicial anterior</span>
-          <span class="num-val">{{ r.stock_inicial_anterior }}</span>
-        </div>
-        <div class="num-row {% if r.alerta_continuidad %}text-danger{% endif %}">
-          <span class="num-label">Stock inicial Excel {% if r.alerta_continuidad %}⚠{% endif %}</span>
-          <span class="num-val">{{ r.stock_inicial_excel }}</span>
-        </div>
-        <div class="num-row">
-          <span class="num-label">Compras</span>
-          <span class="num-val">{{ r.compras }}
-            {% if r.promedio_compras_historico > 0 %}
-            <small class="text-muted">(prom. {{ r.promedio_compras_historico }})</small>
-            {% endif %}
-          </span>
-        </div>
-        <div class="num-row">
-          <span class="num-label">Ventas (Excel oficial)</span><span class="num-val">{{ r.ventas }}</span>
-        </div>
-        {% if r.ventas_delivery > 0 %}
-        <div class="num-row" style="color:#6b7280;font-size:.82em">
-          <span class="num-label">↳ De las cuales, delivery</span>
-          <span class="num-val">{{ r.ventas_delivery }}</span>
-        </div>
-        {% endif %}
-        <div class="num-row">
-          <span class="num-label">Stock esperado</span>
-          <span class="num-val"><strong>{{ r.stock_esperado }}</strong></span>
-        </div>
-        <div class="num-row">
-          <span class="num-label">Conteo empleado</span><span class="num-val">{{ r.conteo_empleado }}</span>
-        </div>
-        {% if r.ajuste_admin != 0 %}
-        <div class="num-row text-warning">
-          <span class="num-label">Ajuste admin</span>
-          <span class="num-val">{{ '%+.1f'|format(r.ajuste_admin) }}</span>
-        </div>
-        {% endif %}
-        <div class="num-row">
-          <span class="num-label">Conteo final</span>
-          <span class="num-val"><strong>{{ r.conteo_final }}</strong></span>
-        </div>
-      </div>
-
-      {# Diagnóstico ── #}
-      <div class="audit-diagnosis">
-        <div class="diagnosis-causa">
-          <span class="diagnosis-label">Causa sugerida</span>
-          <span class="badge badge--warning">{{ r.causa_sugerida }}</span>
-          <span class="badge
-            {% if r.nivel_confianza == 'Alto' %}badge--success
-            {% elif r.nivel_confianza == 'Medio' %}badge--warning
-            {% else %}badge--secondary{% endif %}">
-            Confianza {{ r.nivel_confianza }}
-          </span>
-        </div>
-        {% if r.evidencia %}
-        <p class="diagnosis-evidencia mt-1">{{ r.evidencia }}</p>
-        {% endif %}
-        <p class="mt-1 text-muted" style="font-size:.8em">
-          Estado: <strong>{{ r.estado_auditoria }}</strong>
-          {% if r.usuario_conteo %} · Conteo: {{ r.usuario_conteo }}{% endif %}
-        </p>
-
-        {# Justificaciones previas #}
-        {% if r.justificaciones %}
-        <div class="mt-2">
-          {% for j in r.justificaciones %}
-          <div class="alert alert-info" style="font-size:.85em;padding:.4rem .7rem">
-            <strong>{{ j.causa }}</strong> — {{ j.cantidad_justificada }} unid.
-            {% if j.importe_justificado %} · Gs. {{ "{:,.0f}".format(j.importe_justificado).replace(",", ".") }}{% endif %}
-            <br><em>{{ j.observacion }}</em>
-            <span class="text-muted">· {{ j.usuario }}</span>
-          </div>
+        <div class="audit-filter-tabs" role="tablist" aria-label="Filtrar resultados por estado">
+          {% for key, label in [('todos','Todos'),('faltante','Faltantes'),('sobrante','Sobrantes'),('critico','Críticos'),('pendiente','Pendientes')] %}
+          <button type="button" class="audit-filter-tab {{ 'is-active' if filtro == key }}" data-audit-filter="{{ key }}">{{ label }} <span class="audit-filter-count audit-filter-count--{{ key }}">{{ resumen[key] }}</span></button>
           {% endfor %}
         </div>
-        {% endif %}
 
-        {# Formulario de justificación #}
-        {% if r.diferencia != 0 and r.estado_auditoria not in ('Justificado', 'Revisado') %}
-        <div class="mt-2 d-flex gap-2 flex-wrap">
-          <details>
-            <summary class="btn btn-sm btn-secondary" style="cursor:pointer">Justificar</summary>
-            <form method="post" action="{{ url_for('admin_justificar', periodo_id=periodo.id, resultado_id=r.id) }}"
-                  class="form-inline-grid mt-2">
-              <div class="form-group">
-                <label class="form-label">Causa</label>
-                <select name="causa" class="form-control" required>
-                  {% for c in causas_disponibles %}<option>{{ c }}</option>{% endfor %}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Cantidad justificada (unid.)</label>
-                <input type="number" name="cantidad_justificada" step="0.01" min="0"
-                       class="form-control" value="{{ r.diferencia|abs }}">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Observación <small class="text-muted">(obligatoria para Canje)</small></label>
-                <input type="text" name="observacion" class="form-control" maxlength="400" required>
-              </div>
-              <div class="form-group form-group--action">
-                <button type="submit" class="btn btn-primary btn-sm">Guardar justificación</button>
-              </div>
-            </form>
-          </details>
-          <form method="post" action="{{ url_for('admin_marcar_revisado', periodo_id=periodo.id, resultado_id=r.id) }}"
-                style="display:inline;align-self:flex-end">
-            <button type="submit" class="btn btn-sm btn-secondary">Marcar revisado</button>
-          </form>
+        <div class="audit-filters">
+          <label class="audit-search"><span class="sr-only">Buscar</span><span aria-hidden="true">⌕</span><input type="search" id="auditSearch" placeholder="Buscar producto, código u observación..." autocomplete="off"></label>
+          <label><span>Producto</span><select id="auditProduct"><option value="">Todos</option>{% for r in resultados|sort(attribute='producto_nombre') %}<option value="{{ r.producto_nombre|lower }}">{{ r.producto_nombre }}</option>{% endfor %}</select></label>
+          <label><span>Categoría</span><select id="auditCategory"><option value="">Todas</option>{% for categoria in categorias %}<option value="{{ categoria|lower }}">{{ categoria }}</option>{% endfor %}</select></label>
+          <label><span>Estado</span><select id="auditState"><option value="">Todos</option><option value="critico">Crítico</option><option value="faltante">Faltante</option><option value="sobrante">Sobrante</option><option value="pendiente">Pendiente</option><option value="correcto">Correcto</option></select></label>
+          <label class="audit-date-filter"><span>Fecha</span><input type="text" value="{{ fecha_es(periodo.fecha_desde) }} – {{ fecha_es(periodo.fecha_hasta) }}" readonly></label>
         </div>
+
+        {% if resultados %}
+        <div class="audit-table-wrap">
+          <table class="audit-table" id="auditTable">
+            <thead><tr><th>Estado</th><th>Producto</th><th>Código</th><th>Categoría</th><th class="num">Sist. teórico</th><th class="num">Conteo físico</th><th class="num">Diferencia</th><th class="num">Impacto (Gs.)</th><th>Observación</th></tr></thead>
+            <tbody>
+              {% for r in resultados %}
+              {% set visual_state = 'critico' if r.severidad == 'Crítico' else ('pendiente' if r.estado_auditoria == 'Pendiente' else r.tipo_diferencia) %}
+              <tr class="audit-data-row" data-type="{{ r.tipo_diferencia }}" data-critical="{{ '1' if r.severidad == 'Crítico' else '0' }}" data-pending="{{ '1' if r.estado_auditoria == 'Pendiente' else '0' }}" data-state="{{ visual_state }}" data-product="{{ r.producto_nombre|lower }}" data-category="{{ r.categoria|lower }}" data-search="{{ (r.producto_nombre ~ ' ' ~ r.articulo_codigo ~ ' ' ~ r.categoria ~ ' ' ~ r.causa_sugerida ~ ' ' ~ r.evidencia)|lower|e }}">
+                <td><span class="audit-status audit-status--{{ visual_state }}">{{ visual_state|capitalize }}</span></td>
+                <td><strong>{{ r.producto_nombre }}</strong></td>
+                <td><span class="audit-code">{{ r.articulo_codigo or '—' }}</span></td>
+                <td>{{ r.categoria or '—' }}</td>
+                <td class="num">{{ '{:,.2f}'.format(r.stock_esperado).rstrip('0').rstrip('.') }}</td>
+                <td class="num">{{ '{:,.2f}'.format(r.conteo_final).rstrip('0').rstrip('.') }}</td>
+                <td class="num audit-difference {{ 'is-negative' if r.diferencia < 0 else ('is-positive' if r.diferencia > 0 else '') }}">{{ '{:+,.2f}'.format(r.diferencia).rstrip('0').rstrip('.') if r.diferencia else '—' }}</td>
+                <td class="num audit-impact {{ 'is-negative' if r.tipo_diferencia == 'faltante' and r.impacto else ('is-positive' if r.tipo_diferencia == 'sobrante' and r.impacto else '') }}">{{ ('-' if r.tipo_diferencia == 'faltante' and r.impacto else ('+' if r.tipo_diferencia == 'sobrante' and r.impacto else '')) ~ "{:,.0f}".format(r.impacto).replace(',', '.') if r.impacto else '—' }}</td>
+                <td><button type="button" class="audit-detail-toggle" aria-expanded="false" aria-controls="audit-detail-{{ r.id }}">{{ r.causa_sugerida or 'Ver detalle' }} <span aria-hidden="true">›</span></button></td>
+              </tr>
+              <tr class="audit-detail-row" id="audit-detail-{{ r.id }}" hidden><td colspan="9"><div class="audit-detail-grid">
+                <div class="audit-detail-numbers"><h3>Detalle del cálculo</h3><dl>
+                  <div><dt>Stock inicial anterior</dt><dd>{{ r.stock_inicial_anterior }}</dd></div><div><dt>Stock inicial Excel</dt><dd>{{ r.stock_inicial_excel }}</dd></div><div><dt>Compras</dt><dd>{{ r.compras }}</dd></div><div><dt>Ventas</dt><dd>{{ r.ventas }}</dd></div><div><dt>Ajuste administrativo</dt><dd>{{ '%+.1f'|format(r.ajuste_admin) }}</dd></div>
+                </dl></div>
+                <div class="audit-detail-actions"><h3>Diagnóstico y acciones</h3><p>{{ r.evidencia or 'Sin observaciones adicionales.' }}</p><p class="audit-detail-meta">Confianza {{ r.nivel_confianza }} · Estado {{ r.estado_auditoria }}{% if r.usuario_conteo %} · Conteo por {{ r.usuario_conteo }}{% endif %}</p>
+                  {% for j in r.justificaciones %}<div class="audit-justification"><strong>{{ j.causa }}</strong> · {{ j.cantidad_justificada }} unid.<br>{{ j.observacion }} <small>· {{ j.usuario }}</small></div>{% endfor %}
+                  {% if r.diferencia != 0 and r.estado_auditoria not in ('Justificado', 'Revisado') %}<div class="audit-row-actions"><details><summary class="btn btn--ghost btn--sm">Justificar diferencia</summary><form method="post" action="{{ url_for('admin_justificar', periodo_id=periodo.id, resultado_id=r.id) }}" class="audit-justify-form"><label>Causa<select name="causa" required>{% for c in causas_disponibles %}<option>{{ c }}</option>{% endfor %}</select></label><label>Cantidad<input type="number" name="cantidad_justificada" step="0.01" min="0" value="{{ r.diferencia|abs }}"></label><label>Observación<input type="text" name="observacion" maxlength="400" required></label><button type="submit" class="btn btn--primary btn--sm">Guardar</button></form></details><form method="post" action="{{ url_for('admin_marcar_revisado', periodo_id=periodo.id, resultado_id=r.id) }}"><button type="submit" class="btn btn--ghost btn--sm">Marcar revisado</button></form></div>{% endif %}
+                </div>
+              </div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="audit-empty-filter" id="auditEmptyFilter" hidden>No hay resultados que coincidan con los filtros.</div>
+        <div class="audit-pagination"><span id="auditPaginationText">Mostrando 0 resultados</span><label>Mostrar <select id="auditPageSize"><option>10</option><option selected>25</option><option>50</option></select></label><div class="audit-pages"><button type="button" id="auditPrev" aria-label="Página anterior">‹</button><span id="auditPageButtons"></span><button type="button" id="auditNext" aria-label="Página siguiente">›</button></div></div>
+        {% else %}
+        <div class="audit-empty"><span aria-hidden="true">◎</span><strong>No hay resultados de auditoría.</strong><p>Re-ejecutá la auditoría para procesar los productos registrados en este período.</p></div>
         {% endif %}
-      </div>
+      </section>
+
+      <section class="panel audit-trace"><div class="audit-section-title"><h2>Observaciones y trazabilidad</h2></div><div class="audit-timeline">
+        {% if ultima_ejecucion %}<div><time>{{ ultima_ejecucion.strftime('%d/%m/%Y %H:%M') }}</time><span></span><p>Auditoría ejecutada. Se evaluaron diferencias en {{ resumen.todos }} registros.</p></div>{% endif %}
+        {% if periodo.fecha_cierre %}<div><time>{{ periodo.fecha_cierre.strftime('%d/%m/%Y %H:%M') }}</time><span></span><p>Período cerrado para conciliación.</p></div>{% endif %}
+        <div><time>{{ periodo.fecha_creacion.strftime('%d/%m/%Y %H:%M') if periodo.fecha_creacion else fecha_es(periodo.fecha_desde) }}</time><span></span><p>Auditoría programada para el período {{ fecha_es(periodo.fecha_desde) }} → {{ fecha_es(periodo.fecha_hasta) }}.</p></div>
+      </div></section>
     </div>
+
+    <aside class="audit-sidebar">
+      <section class="panel audit-summary"><h2>Resumen del período</h2><dl>
+        <div><dt>Período auditado</dt><dd>{{ fecha_es(periodo.fecha_desde) }} → {{ fecha_es(periodo.fecha_hasta) }}</dd></div><div><dt>Tienda</dt><dd>{{ tienda_nombre }}</dd></div><div><dt>Estado</dt><dd><span class="audit-completed">{{ periodo.estado }}</span></dd></div><div><dt>Última ejecución</dt><dd>{{ ultima_ejecucion.strftime('%d/%m/%Y %H:%M') if ultima_ejecucion else 'Sin ejecutar' }}</dd></div><div><dt>Ejecutado por</dt><dd>{{ sesion_usuario }}</dd></div>
+      </dl></section>
+      <section class="panel audit-suggestions"><h2>Acciones sugeridas</h2>
+        <button type="button" data-suggestion-filter="critico"><span>!</span><strong>Revisar productos críticos<small>Analizar diferencias con mayor impacto.</small></strong></button><button type="button" data-suggestion-filter="pendiente"><span>✕</span><strong>Validar conteos pendientes<small>Completar productos sin conteo.</small></strong></button><button type="button" data-suggestion-filter="faltante"><span>⌕</span><strong>Investigar faltantes<small>Verificar causas y responsables.</small></strong></button><a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}"><span>↓</span><strong>Exportar reporte para gerencia<small>Compartir resultados del período.</small></strong></a>
+      </section>
+    </aside>
   </div>
 </div>
-{% endfor %}
+{% endblock %}
 
-{% endif %}
-
-<style>
-.audit-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; }
-@media (max-width:680px) { .audit-grid { grid-template-columns:1fr; } }
-.audit-numbers { font-size:.85em; }
-.num-row { display:flex; justify-content:space-between; padding:.18rem 0; border-bottom:1px solid #f0f0f0; }
-.num-label { color:#666; }
-.num-val { font-variant-numeric:tabular-nums; }
-.diagnosis-causa { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }
-.diagnosis-label { font-size:.8em; color:#888; margin-right:.3rem; }
-.diagnosis-evidencia { font-size:.85em; color:#444; background:#fffbeb; border-left:3px solid #f59e0b; padding:.4rem .6rem; border-radius:0 4px 4px 0; }
-.border-danger { border-left:4px solid #ef4444; }
-.border-warning { border-left:4px solid #f59e0b; }
-.d-flex { display:flex; } .flex-wrap { flex-wrap:wrap; } .gap-2 { gap:.5rem; }
-.justify-between { justify-content:space-between; } .align-center { align-items:center; }
-.text-right { text-align:right; } .font-bold { font-weight:700; }
-.text-danger { color:#dc2626; } .text-success { color:#16a34a; } .text-warning { color:#d97706; }
-.ml-1 { margin-left:.25rem; } .mt-1 { margin-top:.4rem; } .mt-2 { margin-top:.75rem; }
-details summary { display:inline-block; list-style:none; }
-details summary::-webkit-details-marker { display:none; }
-.form-inline-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:.75rem; align-items:end; }
-.form-group--action { display:flex; align-items:flex-end; }
-</style>
+{% block scripts %}
+{{ super() }}
+<script>
+(function () {
+  var page = document.querySelector('.audit-page');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('.audit-data-row'));
+  if (!page || !rows.length) return;
+  var activeFilter = page.dataset.initialFilter || 'todos';
+  var currentPage = 1;
+  var search = document.getElementById('auditSearch');
+  var product = document.getElementById('auditProduct');
+  var category = document.getElementById('auditCategory');
+  var state = document.getElementById('auditState');
+  var pageSize = document.getElementById('auditPageSize');
+  function normalize(value) { return (value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+  function matchesTab(row) { if (activeFilter === 'todos') return true; if (activeFilter === 'critico') return row.dataset.critical === '1'; if (activeFilter === 'pendiente') return row.dataset.pending === '1'; return row.dataset.type === activeFilter; }
+  function filteredRows() { var query = normalize(search.value); return rows.filter(function (row) { return matchesTab(row) && (!query || normalize(row.dataset.search).indexOf(query) !== -1) && (!product.value || row.dataset.product === product.value) && (!category.value || row.dataset.category === category.value) && (!state.value || row.dataset.state === state.value || (state.value === 'critico' && row.dataset.critical === '1')); }); }
+  function render() {
+    var filtered = filteredRows(); var size = Number(pageSize.value); var pages = Math.max(1, Math.ceil(filtered.length / size)); currentPage = Math.min(currentPage, pages); var start = (currentPage - 1) * size; var visible = filtered.slice(start, start + size);
+    rows.forEach(function (row) { row.hidden = visible.indexOf(row) === -1; var detail = row.nextElementSibling; if (row.hidden && detail && detail.classList.contains('audit-detail-row')) detail.hidden = true; });
+    document.getElementById('auditLiveCount').textContent = filtered.length + (filtered.length === 1 ? ' resultado' : ' resultados'); document.getElementById('auditEmptyFilter').hidden = filtered.length !== 0;
+    document.getElementById('auditPaginationText').textContent = filtered.length ? 'Mostrando ' + (start + 1) + ' a ' + Math.min(start + size, filtered.length) + ' de ' + filtered.length + ' resultados' : 'Mostrando 0 resultados';
+    document.getElementById('auditPrev').disabled = currentPage === 1; document.getElementById('auditNext').disabled = currentPage === pages;
+    var buttons = ''; for (var i = 1; i <= pages; i += 1) buttons += '<button type="button" data-page="' + i + '" class="' + (i === currentPage ? 'is-active' : '') + '">' + i + '</button>'; document.getElementById('auditPageButtons').innerHTML = buttons;
+  }
+  document.querySelectorAll('[data-audit-filter]').forEach(function (button) { button.addEventListener('click', function () { activeFilter = button.dataset.auditFilter; currentPage = 1; document.querySelectorAll('[data-audit-filter]').forEach(function (item) { item.classList.toggle('is-active', item === button); }); render(); }); });
+  document.querySelectorAll('[data-suggestion-filter]').forEach(function (button) { button.addEventListener('click', function () { var target = document.querySelector('[data-audit-filter="' + button.dataset.suggestionFilter + '"]'); if (target) target.click(); document.querySelector('.audit-results').scrollIntoView({ behavior: 'smooth', block: 'start' }); }); });
+  [search, product, category, state].forEach(function (control) { control.addEventListener(control === search ? 'input' : 'change', function () { currentPage = 1; render(); }); }); pageSize.addEventListener('change', function () { currentPage = 1; render(); });
+  document.getElementById('auditPrev').addEventListener('click', function () { if (currentPage > 1) { currentPage -= 1; render(); } }); document.getElementById('auditNext').addEventListener('click', function () { currentPage += 1; render(); }); document.getElementById('auditPageButtons').addEventListener('click', function (event) { if (event.target.dataset.page) { currentPage = Number(event.target.dataset.page); render(); } });
+  document.querySelectorAll('.audit-detail-toggle').forEach(function (button) { button.addEventListener('click', function () { var detail = document.getElementById(button.getAttribute('aria-controls')); var open = button.getAttribute('aria-expanded') === 'true'; button.setAttribute('aria-expanded', String(!open)); detail.hidden = open; }); });
+  render();
+})();
+</script>
 {% endblock %}

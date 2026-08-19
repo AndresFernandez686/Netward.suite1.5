@@ -308,7 +308,7 @@ class InventarioPeriodo(BaseModel):
     fecha_desde = db.Column(db.String(20), nullable=False)
     fecha_hasta = db.Column(db.String(20), nullable=False)
     dias_periodo = db.Column(db.Integer, default=7)
-    # Abierto | Pendiente | Sincronizado | Cerrado | Conciliado | Auditado
+    # Abierto | Pendiente | Cargado | Sincronizado | Cerrado | Conciliado | Auditado
     estado = db.Column(db.String(20), default="Abierto")
     usuario_creador = db.Column(db.String(80), nullable=False)
     fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow)
@@ -354,6 +354,26 @@ class ConteoDetalle(BaseModel):
     __table_args__ = (
         db.UniqueConstraint("periodo_id", "tienda_id", "producto_nombre",
                              name="uq_conteo_periodo_producto"),
+    )
+
+
+class InventarioBorrador(BaseModel):
+    """Carrito temporal persistente de un empleado para un período abierto."""
+    __tablename__ = "inventario_borradores"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=False, index=True)
+    tienda_id = db.Column(db.String(10), nullable=False, index=True)
+    usuario = db.Column(db.String(80), nullable=False, index=True)
+    contenido_json = db.Column(db.Text, nullable=False, default="[]")
+    actualizado = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "cliente_id", "periodo_id", "tienda_id", "usuario",
+            name="uq_borrador_empleado_periodo",
+        ),
     )
 
 

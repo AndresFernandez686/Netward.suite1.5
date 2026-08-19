@@ -119,7 +119,7 @@
           <span class="topbar__date">{{ hoy_es }}</span>
           <a href="{{ url_for('admin_alertas') }}" class="topbar__bell" title="Ver alertas" aria-label="Alertas">
             {% include 'icons/alert.svg' %}
-            {% set notif_total = notif_averiados + notif_vencimientos %}
+            {% set notif_total = notif_averiados + notif_vencimientos + notif_admin_unread %}
             {% if notif_total > 0 %}<span class="bell__badge">{{ notif_total }}</span>{% endif %}
           </a>
         </div>
@@ -158,7 +158,7 @@
   </div>
   <div class="sidebar-backdrop" id="backdrop"></div>
 
-  <script src="{{ url_for('static', filename='js/main.js', v=asset_v) }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-confirm-fix-2') }}"></script>
   <script>
     function cambiarTiendaGlobal(valor) {
       var url = new URL(window.location.href);

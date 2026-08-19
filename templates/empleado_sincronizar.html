@@ -28,7 +28,7 @@
       <strong class="sync-banner-title">{{ pendientes }} registro(s) pendiente(s) de envío</strong>
       <p class="sync-banner-text">
         Guardaste inventario que aún no fue enviado al administrador.
-        Presiona PROCESAR para sincronizar.
+        Presiona Sincronizar para enviar todos los datos.
       </p>
       <p class="sync-banner-meta">
         Inventario: {{ pend_inv or 0 }} | Averiados: {{ pend_aver or 0 }} | Vencimientos: {{ pend_venc or 0 }}
@@ -47,7 +47,9 @@
   {% endif %}
 
   <form method="post" action="{{ url_for('empleado_sincronizar') }}" id="sync-form"
-        onsubmit="document.getElementById('btn-procesar').disabled=true; document.getElementById('btn-procesar').textContent='Procesando...';">
+        data-submit-delay="10000"
+        data-loading-text="Procesando sincronización..."
+        data-countdown-label="Sincronizando en">
 
     <input type="hidden" name="accion" id="accion-hidden" value="solo_enviar" />
 
@@ -64,7 +66,7 @@
 
     <button type="submit" id="btn-procesar"
             class="btn btn--primary sync-submit-btn">
-      PROCESAR
+      Sincronizar
     </button>
   </form>
 </section>

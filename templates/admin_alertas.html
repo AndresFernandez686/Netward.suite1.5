@@ -4,9 +4,14 @@
 {% block subheading %}Centro de alertas de inventario, vencimientos y averiados{% endblock %}
 
 {% block content %}
-{% set active_alerta_tab = 'alerta-stock' if stock_bajo else ('alerta-vencer' if por_vencer else ('alerta-averiados' if averiados else 'alerta-stock')) %}
+{% set active_alerta_tab = 'alerta-cargas' if cargas_periodo else ('alerta-stock' if stock_bajo else ('alerta-vencer' if por_vencer else ('alerta-averiados' if averiados else 'alerta-stock'))) %}
 
 <div class="admin-tabs" role="tablist" aria-label="Tipos de alertas">
+  <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_alerta_tab == 'alerta-cargas' else '' }}"
+          data-tabtarget="alerta-cargas" aria-selected="{{ 'true' if active_alerta_tab == 'alerta-cargas' else 'false' }}">
+    Cargas de períodos
+    <span class="badge-soft {{ 'badge-soft--success' if cargas_periodo else 'badge-soft--muted' }}" style="margin-left:8px;">{{ cargas_periodo|length }}</span>
+  </button>
   <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_alerta_tab == 'alerta-stock' else '' }}"
           data-tabtarget="alerta-stock" aria-selected="{{ 'true' if active_alerta_tab == 'alerta-stock' else 'false' }}">
     Stock bajo
@@ -23,6 +28,30 @@
     <span class="badge-soft {{ 'badge-soft--danger' if averiados else 'badge-soft--muted' }}" style="margin-left:8px;">{{ averiados|length }}</span>
   </button>
 </div>
+
+<section class="panel admin-tabpanel" id="alerta-cargas" {{ '' if active_alerta_tab == 'alerta-cargas' else 'hidden' }}>
+  <h3 class="panel__title">Inventarios cargados por empleados</h3>
+  {% if cargas_periodo %}
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead><tr><th>Estado</th><th>Notificación</th><th>Detalle</th><th>Fecha</th><th style="text-align:right;">Acción</th></tr></thead>
+      <tbody>
+        {% for n in cargas_periodo %}
+        <tr>
+          <td><span class="badge-soft badge-soft--success">Nueva carga</span></td>
+          <td><strong>{{ n.titulo }}</strong></td>
+          <td class="muted">{{ n.mensaje }}</td>
+          <td class="muted">{{ n.creada.strftime('%d/%m/%Y %H:%M') if n.creada else '—' }}</td>
+          <td style="text-align:right;"><a class="btn btn--primary btn--sm" href="{{ url_for('admin_notificacion_ir', notif_id=n.id) }}">Ver período</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-mini">No hay cargas nuevas de empleados.</div>
+  {% endif %}
+</section>
 
 <section class="panel admin-tabpanel" id="alerta-stock" {{ '' if active_alerta_tab == 'alerta-stock' else 'hidden' }}>
   <h3 class="panel__title">Stock bajo</h3>

@@ -1,7 +1,25 @@
 {% extends "admin_base.html" %}
 {% block title %}Período #{{ periodo.numero }} — {{ app_nombre }}{% endblock %}
 {% block heading %}Auditoría{% endblock %}
-{% block subheading %}Período #{{ periodo.numero }} · {{ periodo.tienda_id }}{% endblock %}
+{% block subheading %}Período #{{ periodo.numero }} · {{ tienda_nombre }}{% endblock %}
+
+{% macro producto_buscable(combo_id, categoria_id) %}
+<div class="field field--grow combo" data-combo data-category-select="#{{ categoria_id }}">
+  <span class="field__label">Producto</span>
+  <input type="hidden" name="producto_nombre" class="combo__value" required data-required-message="Selecciona un producto de la lista.">
+  <div class="combo__control">
+    <svg class="combo__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="text" class="combo__input" placeholder="Buscar producto..." autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="{{ combo_id }}-list">
+    <button type="button" class="combo__clear" aria-label="Limpiar selección" hidden>&times;</button>
+  </div>
+  <ul class="combo__list" id="{{ combo_id }}-list" role="listbox" hidden>
+    {% for p in productos_catalogo %}
+    <li class="combo__option" role="option" data-value="{{ p.nombre }}" data-display="{{ p.nombre|strip_unidad }}" data-cat="{{ p.categoria }}">{{ p.nombre|strip_unidad }} <small>{{ p.categoria }}</small></li>
+    {% endfor %}
+  </ul>
+  <p class="combo__empty" hidden>Sin resultados para tu búsqueda.</p>
+</div>
+{% endmacro %}
 
 {% block content %}
 {% set sin_cargar = conteos | selectattr('fue_cargado', 'equalto', false) | list %}
@@ -12,7 +30,7 @@
       <h2 class="periodo-det-hero__title">Acciones del período</h2>
       <p class="periodo-det-hero__sub">
         {{ periodo.fecha_desde }} a {{ periodo.fecha_hasta }} ({{ periodo.dias_periodo }} días)
-        <span class="badge-soft {{ 'badge-soft--success' if periodo.estado == 'Abierto' else ('badge-soft--warning' if periodo.estado == 'Cerrado' else 'badge-soft--danger') }}" style="margin-left:8px;">
+        <span class="badge-soft {{ 'badge-soft--success' if periodo.estado in ('Abierto','Cargado') else ('badge-soft--warning' if periodo.estado == 'Cerrado' else 'badge-soft--danger') }}" style="margin-left:8px;">
           {{ periodo.estado }}
         </span>
       </p>
@@ -22,23 +40,27 @@
   <section class="panel periodo-det-panel">
     <div class="periodo-det-actions">
       {% if periodo.estado not in ('Cerrado','Conciliado','Auditado') %}
-      <form method="post" action="{{ url_for('admin_periodo_cerrar', periodo_id=periodo.id) }}" style="display:inline;">
-        <button type="submit" class="btn btn--ghost" onclick="return confirm('¿Cerrar el período? No podrá ser editado por el empleado.')">Cerrar período</button>
+      <form method="post" action="{{ url_for('admin_periodo_cerrar', periodo_id=periodo.id) }}" style="display:inline;"
+            data-confirm-message="¿Cerrar el período? El empleado ya no podrá editarlo.">
+        <button type="submit" class="btn btn--ghost">Cerrar período</button>
       </form>
-      <form method="post" action="{{ url_for('admin_periodo_cerrar', periodo_id=periodo.id) }}" style="display:inline;">
+      <form method="post" action="{{ url_for('admin_periodo_cerrar', periodo_id=periodo.id) }}" style="display:inline;"
+            data-confirm-message="¿Forzar el cierre del período? Los productos pendientes quedarán sin cargar y el empleado ya no podrá editarlo.">
         <input type="hidden" name="forzar" value="1">
         <button type="submit" class="btn btn--danger">Forzar cierre</button>
       </form>
       {% endif %}
 
       {% if periodo.estado in ('Cerrado','Excel Importado','Conciliado','Auditado') %}
-      <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline;">
-        <button type="submit" class="btn btn--primary" onclick="return confirm('¿Ejecutar auditoría automática?')">Ejecutar auditoría</button>
+      <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline;"
+            data-confirm-message="¿Ejecutar la auditoría automática de este período?">
+        <button type="submit" class="btn btn--primary">Ejecutar auditoría</button>
       </form>
       {% if periodo.estado == 'Excel Importado' %}
-      <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline;">
+      <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline;"
+            data-confirm-message="¿Ejecutar la auditoría con productos sin vincular? Los resultados pueden quedar incompletos.">
         <input type="hidden" name="forzar" value="1">
-        <button type="submit" class="btn btn--danger" onclick="return confirm('¿Ejecutar auditoría con productos sin vincular? Los resultados pueden estar incompletos.')">Forzar auditoría</button>
+        <button type="submit" class="btn btn--danger">Forzar auditoría</button>
       </form>
       {% endif %}
       <a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn--ghost">Ver auditoría</a>
@@ -86,26 +108,29 @@
   </section>
   {% endif %}
 
-  <datalist id="productos-list">
-    {% for c in conteos %}<option value="{{ c.producto_nombre }}">{% endfor %}
-  </datalist>
-
   <section class="panel periodo-det-panel">
     <div class="periodo-det-panel__head">
       <h3>Registrar conteo manual</h3>
+      <details class="periodo-det-help">
+        <summary aria-label="Ayuda sobre el conteo manual" title="Ver ayuda">?</summary>
+        <div class="periodo-det-help__popover">
+          <strong>¿Cómo funciona?</strong>
+          <p>Busca un producto, confirma su categoría e ingresa el conteo físico. Usa enteros para Impulsivo/Extras y decimales para Por Kilos.</p>
+        </div>
+      </details>
     </div>
-    <form method="post" action="{{ url_for('admin_conteo_manual', periodo_id=periodo.id) }}" class="periodo-det-inline-form periodo-det-inline-form--3">
-      <label class="field field--grow">
-        <span class="field__label">Producto</span>
-        <input type="text" name="producto_nombre" list="productos-list" required placeholder="Buscar producto...">
-      </label>
+    <form method="post" action="{{ url_for('admin_conteo_manual', periodo_id=periodo.id) }}" class="periodo-det-inline-form periodo-det-inline-form--3" data-inline-validation novalidate>
+      {{ producto_buscable('manual-producto', 'manualCategoria') }}
       <label class="field field--grow">
         <span class="field__label">Categoría</span>
-        <input type="text" name="categoria" placeholder="Impulsivo / Por Kilos / Extras">
+        <select name="categoria" id="manualCategoria" required data-required-message="Selecciona una categoría.">
+          <option value="">Seleccionar categoría...</option>
+          {% for categoria in categorias %}<option value="{{ categoria }}">{{ categoria }}</option>{% endfor %}
+        </select>
       </label>
       <label class="field field--grow">
         <span class="field__label">Cantidad (unidades)</span>
-        <input type="number" name="cantidad" step="0.01" min="0" required value="0">
+        <input type="number" name="cantidad" id="manualCantidad" step="1" min="0" inputmode="numeric" required value="0">
       </label>
       <div class="periodo-det-inline-form__action">
         <button type="submit" class="btn btn--primary">Guardar conteo</button>
@@ -116,16 +141,29 @@
   <section class="panel periodo-det-panel">
     <div class="periodo-det-panel__head periodo-det-panel__head--split">
       <h3>Agregar ajuste administrativo</h3>
-      <span class="badge-soft badge-soft--muted">No sobrescribe el conteo original del empleado</span>
+      <div class="periodo-det-panel__head-tools">
+        <span class="badge-soft badge-soft--muted">No sobrescribe el conteo original del empleado</span>
+        <details class="periodo-det-help">
+          <summary aria-label="Ayuda sobre el ajuste administrativo" title="Ver ayuda">?</summary>
+          <div class="periodo-det-help__popover">
+            <strong>¿Cómo funciona?</strong>
+            <p>Suma o resta una corrección al conteo final y registra el motivo. El conteo original del empleado permanece sin cambios.</p>
+          </div>
+        </details>
+      </div>
     </div>
-    <form method="post" action="{{ url_for('admin_periodo_ajuste', periodo_id=periodo.id) }}" class="periodo-det-inline-form periodo-det-inline-form--4">
+    <form method="post" action="{{ url_for('admin_periodo_ajuste', periodo_id=periodo.id) }}" class="periodo-det-inline-form periodo-det-inline-form--adjust" data-inline-validation novalidate>
+      {{ producto_buscable('ajuste-producto', 'ajusteCategoria') }}
       <label class="field field--grow">
-        <span class="field__label">Producto</span>
-        <input type="text" name="producto_nombre" list="productos-list" required placeholder="Buscar producto...">
+        <span class="field__label">Categoría</span>
+        <select name="categoria" id="ajusteCategoria" required data-required-message="Selecciona una categoría.">
+          <option value="">Seleccionar categoría...</option>
+          {% for categoria in categorias %}<option value="{{ categoria }}">{{ categoria }}</option>{% endfor %}
+        </select>
       </label>
       <label class="field field--grow">
         <span class="field__label">Cantidad (+ o -)</span>
-        <input type="number" name="cantidad" step="0.01" required value="0">
+        <input type="number" name="cantidad" id="ajusteCantidad" step="1" inputmode="numeric" required value="0">
       </label>
       <label class="field field--grow">
         <span class="field__label">Motivo</span>
@@ -305,6 +343,33 @@
     if (searchInput) {
       searchInput.addEventListener('input', applySearch);
     }
+
+    function configurarCantidad(categoriaId, cantidadId) {
+      var categoria = document.getElementById(categoriaId);
+      var cantidad = document.getElementById(cantidadId);
+      if (!categoria || !cantidad) return;
+
+      function actualizarPaso() {
+        var esPorKilos = categoria.value === 'Por Kilos';
+        cantidad.step = esPorKilos ? '0.01' : '1';
+        cantidad.inputMode = esPorKilos ? 'decimal' : 'numeric';
+        cantidad.title = esPorKilos
+          ? 'Para Por Kilos se permiten cantidades decimales.'
+          : 'Para esta categoría la cantidad debe ser un número entero.';
+      }
+
+      categoria.addEventListener('change', actualizarPaso);
+      actualizarPaso();
+    }
+
+    configurarCantidad('manualCategoria', 'manualCantidad');
+    configurarCantidad('ajusteCategoria', 'ajusteCantidad');
+
+    document.addEventListener('click', function (event) {
+      document.querySelectorAll('.periodo-det-help[open]').forEach(function (help) {
+        if (!help.contains(event.target)) help.removeAttribute('open');
+      });
+    });
   })();
 </script>
 {% endblock %}

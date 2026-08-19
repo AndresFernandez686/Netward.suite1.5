@@ -10,6 +10,7 @@ Estructura:
   - static/           -> CSS y JS
 """
 import io
+import math
 import os
 from datetime import datetime, date, timedelta
 from functools import wraps
@@ -26,14 +27,15 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     DeliveryVenta, StockThreshold, ProductoPrecio,
                     InventarioDescSnapshot, RegistroAveriado, RegistroVencimiento,
                     SincronizacionLog,
-                    InventarioPeriodo, ConteoDetalle, AjusteInventario,
+                    InventarioPeriodo, ConteoDetalle, InventarioBorrador, AjusteInventario,
                     ExcelImportado, ExcelDetalle, AuditoriaResultado,
                     Justificacion, ProductoRelacionado, ConfiguracionSistema,
                     NotificacionUsuario)
 from core.auditoria import ejecutar_auditoria, build_reporte_gerencial
 from core.excel_importer import importar_excel
 from core.sync_bridge import propagar_conteo_a_periodo, retroalimentar_periodo_desde_items
-from core.scheduler import job_autoclose_periodos, get_autoclose_horas, set_autoclose_horas
+from core.scheduler import (job_autoclose_periodos, actualizar_estados_periodos,
+                            get_autoclose_horas, set_autoclose_horas)
 from core.catalogo import (get_productos_db as catalogo_get_productos_db,
                            activar_catalogo_pendiente_empleado,
                            resolver_producto_id, backfill_producto_ids)
@@ -107,7 +109,7 @@ def _periodo_abierto_mas_reciente(cliente_id: str, tienda_id: str):
     return (
         InventarioPeriodo.query
         .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
-        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente", "Cargado"]))
         .order_by(InventarioPeriodo.id.desc())
         .first()
     )
@@ -144,6 +146,38 @@ def _notificar_nuevo_periodo(periodo: InventarioPeriodo) -> int:
         creadas += 1
 
     return creadas
+
+
+def _notificar_admins_periodo_cargado(
+    periodo: InventarioPeriodo,
+    empleado: str,
+    total_productos: int,
+) -> int:
+    """Avisa a cada administrador cuando una carga llega al período."""
+    admins = Usuario.query.filter_by(
+        cliente_id=periodo.cliente_id,
+        rol="administrador",
+    ).all()
+    tienda = Tienda.query.filter_by(
+        cliente_id=periodo.cliente_id,
+        id=periodo.tienda_id,
+    ).first()
+    tienda_nombre = tienda.nombre if tienda else periodo.tienda_id
+
+    for admin in admins:
+        db.session.add(NotificacionUsuario(
+            cliente_id=periodo.cliente_id,
+            username=admin.username,
+            tipo="periodo_cargado",
+            referencia_id=periodo.id,
+            titulo=f"Inventario cargado · Período #{periodo.numero}",
+            mensaje=(
+                f"{empleado} sincronizó {total_productos} producto(s) "
+                f"de {tienda_nombre}."
+            ),
+            leida=False,
+        ))
+    return len(admins)
 
 
 @app.before_request
@@ -452,6 +486,7 @@ def inject_globals():
         "sync_ultima_recepcion": None,
         "notif_averiados": 0,
         "notif_vencimientos": 0,
+        "notif_admin_unread": 0,
         "sync_pendientes": 0,
         "notif_periodo_abierto": 0,
         "notif_empleado_unread": 0,
@@ -484,8 +519,12 @@ def inject_globals():
                 leida=False,
             ).count()
             ctx["notif_empleado_unread"] = unread
-            if unread > 0:
-                ctx["notif_periodo_abierto"] = unread
+            ctx["notif_periodo_abierto"] = NotificacionUsuario.query.filter_by(
+                cliente_id=cliente_id,
+                username=u,
+                tipo="periodo_abierto",
+                leida=False,
+            ).count()
         except Exception:
             pass
     # Solo consultar notificaciones si hay sesion activa de administrador
@@ -494,6 +533,11 @@ def inject_globals():
         try:
             ctx["notif_averiados"]    = RegistroAveriado.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False).count()
             ctx["notif_vencimientos"] = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False).count()
+            ctx["notif_admin_unread"] = NotificacionUsuario.query.filter_by(
+                cliente_id=cliente_id,
+                username=session.get("usuario"),
+                leida=False,
+            ).count()
         except Exception:
             ctx["notif_averiados"]    = 0
             ctx["notif_vencimientos"] = 0
@@ -564,17 +608,97 @@ def logout():
 # --------------------------------------------------------------------------- #
 #  Empleado - Inventario
 # --------------------------------------------------------------------------- #
-def get_carrito():
-    return session.get("carrito", [])
+def _borrador_query(periodo_id):
+    return InventarioBorrador.query.filter_by(
+        cliente_id=get_cliente_filtro(),
+        periodo_id=periodo_id,
+        tienda_id=session.get("tienda_id"),
+        usuario=session.get("usuario"),
+    )
 
 
-def set_carrito(carrito):
-    session["carrito"] = carrito
+def get_carrito(periodo_id=None):
+    """Recupera el borrador persistente del empleado para el período activo."""
+    periodo_id = periodo_id or session.get("empleado_periodo_id")
+    if not periodo_id or not session.get("usuario"):
+        return []
+
+    borrador = _borrador_query(periodo_id).first()
+    if borrador:
+        try:
+            contenido = _json.loads(borrador.contenido_json or "[]")
+            return contenido if isinstance(contenido, list) else []
+        except (TypeError, ValueError):
+            return []
+
+    # Migra una carga que pudiera seguir en la sesión desde la versión anterior.
+    legado = session.pop("carrito", None)
+    if isinstance(legado, list) and legado:
+        set_carrito(legado, periodo_id)
+        return legado
+    return []
+
+
+def set_carrito(carrito, periodo_id=None, *, commit=True):
+    """Guarda o elimina el borrador sin depender de la sesión del navegador."""
+    periodo_id = periodo_id or session.get("empleado_periodo_id")
+    if not periodo_id or not session.get("usuario"):
+        return
+
+    borrador = _borrador_query(periodo_id).first()
+    if carrito:
+        contenido = _json.dumps(carrito, ensure_ascii=False)
+        if borrador:
+            borrador.contenido_json = contenido
+            borrador.actualizado = datetime.utcnow()
+        else:
+            db.session.add(InventarioBorrador(
+                cliente_id=get_cliente_filtro(),
+                periodo_id=periodo_id,
+                tienda_id=session.get("tienda_id"),
+                usuario=session.get("usuario"),
+                contenido_json=contenido,
+            ))
+    elif borrador:
+        db.session.delete(borrador)
+
+    # El carrito completo ya no se guarda en la cookie de sesión.
+    session.pop("carrito", None)
     session.modified = True
+    if commit:
+        db.session.commit()
 
 
 def _safe_inv_tab(tab_value):
     return tab_value if tab_value in CATEGORIAS else CATEGORIAS[0]
+
+
+def _producto_catalogo(nombre):
+    """Resuelve un producto visible por nombre sin distinguir mayúsculas."""
+    nombre = (nombre or "").strip()
+    if not nombre:
+        return None
+    return (
+        Producto.query
+        .filter(Producto.visible_empleado.is_(True))
+        .filter(db.func.lower(Producto.nombre) == nombre.lower())
+        .first()
+    )
+
+
+def _cantidad_segun_categoria(valor, categoria, *, permitir_negativo=False):
+    """Valida enteros para Impulsivo/Extras y decimales para Por Kilos."""
+    try:
+        cantidad = float(valor)
+    except (TypeError, ValueError):
+        raise ValueError("La cantidad ingresada no es válida.")
+    if not math.isfinite(cantidad):
+        raise ValueError("La cantidad ingresada no es válida.")
+    if not permitir_negativo and cantidad < 0:
+        raise ValueError("La cantidad no puede ser negativa.")
+    if categoria != "Por Kilos" and not cantidad.is_integer():
+        raise ValueError(f"La cantidad de {categoria} debe ser un número entero.")
+    return cantidad
 
 
 def _redirect_inventario_context(default_anchor="sec-carga"):
@@ -584,10 +708,11 @@ def _redirect_inventario_context(default_anchor="sec-carga"):
 
 
 def _periodos_abiertos_empleado(cliente_id: str, tienda_id: str):
+    actualizar_estados_periodos(cliente_id=cliente_id, tienda_id=tienda_id)
     return (
         InventarioPeriodo.query
         .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
-        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente", "Cargado"]))
         .order_by(InventarioPeriodo.id.desc())
         .all()
     )
@@ -620,6 +745,16 @@ def empleado_periodo_abierto():
     tienda_id = session["tienda_id"]
     periodo_activo, periodos_abiertos = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
 
+    # El clic explícito en "Período abierto" reconoce los avisos del menú.
+    if request.args.get("marcar_visto") == "1":
+        NotificacionUsuario.query.filter_by(
+            cliente_id=cliente_id,
+            username=session.get("usuario"),
+            tipo="periodo_abierto",
+            leida=False,
+        ).update({"leida": True}, synchronize_session=False)
+        db.session.commit()
+
     if periodo_activo is None:
         flash("No hay período abierto asignado para tu tienda. Solicita al administrador crear uno.", "warning")
     else:
@@ -629,15 +764,23 @@ def empleado_periodo_abierto():
             db.session.commit()
         session["ultimo_periodo_flash_id"] = periodo_activo.id
 
+    carrito = get_carrito(periodo_activo.id) if periodo_activo else []
+    periodos_vistos = session.get("borradores_vistos", [])
+    borrador_recuperado = bool(carrito) and periodo_activo.id not in periodos_vistos
+    if periodo_activo and periodo_activo.id not in periodos_vistos:
+        session["borradores_vistos"] = periodos_vistos + [periodo_activo.id]
+        session.modified = True
+
     return render_template(
         "empleado_inventario.html",
         **empleado_service.build_empleado_inventario_context(
             active_tab=request.args.get("tab") or CATEGORIAS[0],
-            carrito=get_carrito(),
+            carrito=carrito,
             hoy=today_local_iso(),
         ),
         periodo_activo=periodo_activo,
         periodos_abiertos=periodos_abiertos,
+        borrador_recuperado=borrador_recuperado,
     )
 
 
@@ -668,6 +811,13 @@ def empleado_periodo_seleccionar():
 def empleado_notificaciones():
     cliente_id = get_cliente_filtro()
     username = session.get("usuario")
+    # Abrir la campana equivale a ver el centro de notificaciones.
+    NotificacionUsuario.query.filter_by(
+        cliente_id=cliente_id,
+        username=username,
+        leida=False,
+    ).update({"leida": True}, synchronize_session=False)
+    db.session.commit()
     notificaciones = (
         NotificacionUsuario.query
         .filter_by(cliente_id=cliente_id, username=username)
@@ -717,7 +867,7 @@ def empleado_notificacion_ir(notif_id):
     if notif.tipo == "periodo_abierto" and notif.referencia_id:
         periodo = db.session.get(InventarioPeriodo, int(notif.referencia_id))
         if periodo and periodo.cliente_id == cliente_id and periodo.tienda_id == tienda_id:
-            if periodo.estado in ("Abierto", "Pendiente"):
+            if periodo.estado in ("Abierto", "Pendiente", "Cargado"):
                 session["empleado_periodo_id"] = periodo.id
                 db.session.commit()
                 return redirect(url_for("empleado_periodo_abierto", periodo_id=periodo.id))
@@ -768,7 +918,7 @@ def carrito_agregar():
         flash("Ingresa una cantidad valida.", "warning")
         return _redirect_inventario_context("sec-carga")
 
-    carrito = get_carrito()
+    carrito = get_carrito(periodo_activo.id)
     carrito, msg = empleado_service.add_carrito_item(
         carrito=carrito,
         categoria=categoria or CATEGORIAS[0],
@@ -779,7 +929,7 @@ def carrito_agregar():
         fecha=fecha,
         detalle=detalle,
     )
-    set_carrito(carrito)
+    set_carrito(carrito, periodo_activo.id)
     flash(msg, "success")
     return _redirect_inventario_context("sec-carga")
 
@@ -787,10 +937,15 @@ def carrito_agregar():
 @app.route("/empleado/carrito/eliminar/<int:idx>", methods=["POST"])
 @login_required(rol="empleado")
 def carrito_eliminar(idx):
-    carrito = get_carrito()
+    cliente_id = get_cliente_filtro()
+    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, session["tienda_id"])
+    if periodo_activo is None:
+        flash("El período del borrador ya no está abierto.", "warning")
+        return _redirect_inventario_context("sec-carrito")
+    carrito = get_carrito(periodo_activo.id)
     carrito, msg = empleado_service.remove_carrito_item(carrito, idx)
     if msg:
-        set_carrito(carrito)
+        set_carrito(carrito, periodo_activo.id)
         flash(msg, "info")
     return _redirect_inventario_context("sec-carrito")
 
@@ -798,7 +953,10 @@ def carrito_eliminar(idx):
 @app.route("/empleado/carrito/limpiar", methods=["POST"])
 @login_required(rol="empleado")
 def carrito_limpiar():
-    set_carrito([])
+    cliente_id = get_cliente_filtro()
+    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, session["tienda_id"])
+    if periodo_activo:
+        set_carrito([], periodo_activo.id)
     flash("Carrito limpiado.", "info")
     return _redirect_inventario_context("sec-carrito")
 
@@ -813,7 +971,7 @@ def carrito_guardar():
         flash("No puedes guardar inventario fuera de un período abierto.", "error")
         return _redirect_inventario_context("sec-carrito")
 
-    carrito = get_carrito()
+    carrito = get_carrito(periodo_activo.id)
     if not carrito:
         flash("No hay productos en el carrito para guardar.", "warning")
         return _redirect_inventario_context("sec-carrito")
@@ -821,8 +979,8 @@ def carrito_guardar():
     usuario   = session["usuario"]
     guardados = empleado_service.build_carrito_guardado(carrito, tienda_id, usuario)
 
+    set_carrito([], periodo_activo.id, commit=False)
     db.session.commit()
-    set_carrito([])
     flash(f"{guardados} producto(s) guardado(s) exitosamente.", "success")
     return _redirect_inventario_context("sec-carrito")
 
@@ -1002,14 +1160,23 @@ def sync_ultima_recepcion_empleado():
 @login_required(rol="empleado")
 def empleado_sincronizar():
     accion    = request.form.get("accion", "solo_enviar")
+    if accion not in ("solo_enviar", "enviar_recibir"):
+        accion = "solo_enviar"
     cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
 
-    # 1. ¿Hay items pendientes?
-    pendientes = InventarioItem.query.filter_by(
+    # 1. Comprobar las tres fuentes; ninguna debe quedar fuera del envío.
+    pend_inv = InventarioItem.query.filter_by(
         cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente"
     ).count()
+    pend_aver = RegistroAveriado.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente"
+    ).count()
+    pend_venc = RegistroVencimiento.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente"
+    ).count()
+    pendientes = pend_inv + pend_aver + pend_venc
     if pendientes == 0:
         flash("No hay datos pendientes de sincronización.", "warning")
         return redirect(url_for("empleado_sincronizar_page"))
@@ -1021,19 +1188,37 @@ def empleado_sincronizar():
         # pero el empleado debe saberlo
         flash("No hay un período de auditoría activo. Los datos se sincronizan normalmente pero no se registrarán en ningún período de inventario.", "info")
 
-    # Propagar al período ANTES de cambiar sinc_estado a sincronizado.
+    # Propagar y sincronizar en una sola transacción. Si algo falla, ningún
+    # registro cambia de estado y queda disponible para reintentar.
     try:
-        propagar_conteo_a_periodo(
-            tienda_id=tienda_id,
-            cliente_id=cliente_id,
-            usuario=usuario,
-            periodo_id=session.get("empleado_periodo_id"),
-        )
-        db.session.flush()
-    except Exception:
-        pass  # No bloquear la sincronización si la propagación falla
+        if periodo_activo is not None:
+            propagar_conteo_a_periodo(
+                tienda_id=tienda_id,
+                cliente_id=cliente_id,
+                usuario=usuario,
+                periodo_id=periodo_activo.id,
+            )
+            db.session.flush()
 
-    resumen = empleado_service.procesar_sincronizacion(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, accion=accion)
+        resumen = empleado_service.procesar_sincronizacion(
+            cliente_id=cliente_id,
+            tienda_id=tienda_id,
+            usuario=usuario,
+            accion=accion,
+        )
+        if periodo_activo is not None and resumen["n_inv"] > 0:
+            _notificar_admins_periodo_cargado(
+                periodo_activo,
+                usuario,
+                resumen["n_inv"],
+            )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Fallo la sincronización del empleado %s", usuario)
+        flash("No se pudo completar la sincronización. Ningún dato fue marcado como enviado; puedes reintentar.", "error")
+        return redirect(url_for("empleado_sincronizar_page"))
+
     if accion == "enviar_recibir":
         flash((
             f"Sincronización completada: {resumen['n_total']} registro(s) enviado(s) "
@@ -1045,7 +1230,6 @@ def empleado_sincronizar():
             f"Datos enviados: {resumen['n_total']} registro(s) (Inventario: {resumen['n_inv']}, Averiados: {resumen['n_aver']}, Vencimientos: {resumen['n_venc']}).",
             "success",
         )
-    db.session.commit()
     return redirect(url_for("empleado_sincronizar_page"))
 
 
@@ -1471,6 +1655,19 @@ def admin_alertas():
     tiendas_map = {t.id: t.nombre for t in Tienda.query.filter_by(cliente_id=cliente_id).all()}
     thresholds = get_thresholds()
 
+    cargas_periodo = (
+        NotificacionUsuario.query
+        .filter_by(
+            cliente_id=cliente_id,
+            username=session.get("usuario"),
+            tipo="periodo_cargado",
+            leida=False,
+        )
+        .order_by(NotificacionUsuario.id.desc())
+        .limit(80)
+        .all()
+    )
+
     # Stock bajo (nivel critico segun StockThreshold)
     stock_bajo = []
     for i in _items_sincronizados(tienda_sel):
@@ -1512,7 +1709,30 @@ def admin_alertas():
 
     return render_template("admin_alertas.html",
                            stock_bajo=stock_bajo, por_vencer=por_vencer,
-                           averiados=averiados)
+                           averiados=averiados, cargas_periodo=cargas_periodo)
+
+
+@app.route("/admin/notificaciones/<int:notif_id>/ir")
+@login_required(rol="administrador")
+def admin_notificacion_ir(notif_id):
+    cliente_id = get_cliente_filtro()
+    notif = NotificacionUsuario.query.filter_by(
+        id=notif_id,
+        cliente_id=cliente_id,
+        username=session.get("usuario"),
+        tipo="periodo_cargado",
+    ).first()
+    if notif is None:
+        abort(404)
+
+    notif.leida = True
+    periodo = db.session.get(InventarioPeriodo, notif.referencia_id) if notif.referencia_id else None
+    db.session.commit()
+    if periodo and periodo.cliente_id == cliente_id:
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo.id))
+
+    flash("La carga fue reconocida, pero el período ya no está disponible.", "info")
+    return redirect(url_for("admin_alertas"))
 
 
 # --------------------------------------------------------------------------- #
@@ -2050,8 +2270,10 @@ def export_historial():
 @login_required(rol="administrador")
 def admin_periodos():
     cliente_id = get_cliente_filtro()
+    actualizar_estados_periodos(cliente_id=cliente_id)
     tienda_sel = get_tienda_filtro()
     tiendas = Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()
+    tiendas_map = {t.id: t.nombre for t in Tienda.query.filter_by(cliente_id=cliente_id).all()}
     q = InventarioPeriodo.query.filter_by(cliente_id=cliente_id)
     if tienda_sel != "ALL":
         q = q.filter_by(tienda_id=tienda_sel)
@@ -2060,6 +2282,7 @@ def admin_periodos():
         "admin_periodos.html",
         periodos=periodos,
         tiendas=tiendas,
+        tiendas_map=tiendas_map,
         autoclose_horas=get_autoclose_horas(cliente_id),
     )
 
@@ -2139,6 +2362,15 @@ def admin_periodo_detalle(periodo_id):
     auditoria = (AuditoriaResultado.query.filter_by(periodo_id=periodo_id)
                  .order_by(AuditoriaResultado.severidad.desc(),
                             AuditoriaResultado.impacto.desc()).all())
+    productos_catalogo = (
+        Producto.query
+        .filter(Producto.visible_empleado.is_(True))
+        .order_by(Producto.categoria, Producto.nombre)
+        .all()
+    )
+    tienda = Tienda.query.filter_by(
+        id=periodo.tienda_id, cliente_id=cliente_id
+    ).first()
 
     return render_template(
         "admin_periodo_detalle.html",
@@ -2147,6 +2379,9 @@ def admin_periodo_detalle(periodo_id):
         ajustes=ajustes,
         excel_imp=excel_imp,
         auditoria=auditoria,
+        productos_catalogo=productos_catalogo,
+        categorias=CATEGORIAS,
+        tienda_nombre=tienda.nombre if tienda else periodo.tienda_id,
     )
 
 
@@ -2189,18 +2424,26 @@ def admin_periodo_ajuste(periodo_id):
         abort(404)
 
     producto_nombre = (request.form.get("producto_nombre") or "").strip()
+    categoria = (request.form.get("categoria") or "").strip()
+    producto = _producto_catalogo(producto_nombre)
+    if producto is None:
+        flash("Seleccioná un producto válido del catálogo.", "warning")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+    if categoria != producto.categoria:
+        flash("La categoría seleccionada no corresponde al producto.", "warning")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
     try:
-        cantidad = float(request.form.get("cantidad", 0))
-    except (ValueError, TypeError):
-        flash("Cantidad inválida.", "error")
+        cantidad = _cantidad_segun_categoria(
+            request.form.get("cantidad", 0),
+            producto.categoria,
+            permitir_negativo=True,
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
     motivo = request.form.get("motivo", "Otro")
     observacion = (request.form.get("observacion") or "").strip()
     impacta_stock = request.form.get("impacta_stock", "1") != "0"
-
-    if not producto_nombre:
-        flash("Seleccioná un producto.", "warning")
-        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
     aj = AjusteInventario(
         periodo_id=periodo_id,
@@ -2329,33 +2572,44 @@ def admin_auditoria(periodo_id):
         abort(404)
 
     filtro = request.args.get("filtro", "todos")
-    q = AuditoriaResultado.query.filter_by(periodo_id=periodo_id)
-    if filtro == "faltante":
-        q = q.filter_by(tipo_diferencia="faltante")
-    elif filtro == "sobrante":
-        q = q.filter_by(tipo_diferencia="sobrante")
-    elif filtro == "critico":
-        q = q.filter_by(severidad="Crítico")
-    elif filtro == "pendiente":
-        q = q.filter_by(estado_auditoria="Pendiente")
+    if filtro not in {"todos", "faltante", "sobrante", "critico", "pendiente"}:
+        filtro = "todos"
 
-    resultados = q.order_by(
+    # Se envía el conjunto completo para combinar filtros en pantalla sin
+    # alterar los totales reales del período.
+    resultados = AuditoriaResultado.query.filter_by(periodo_id=periodo_id).order_by(
         AuditoriaResultado.severidad.desc(),
         AuditoriaResultado.impacto.desc(),
     ).all()
 
     total_impacto = sum(r.impacto for r in resultados if r.tipo_diferencia == "faltante")
+    resumen = {
+        "todos": len(resultados),
+        "faltante": sum(1 for r in resultados if r.tipo_diferencia == "faltante"),
+        "sobrante": sum(1 for r in resultados if r.tipo_diferencia == "sobrante"),
+        "critico": sum(1 for r in resultados if r.severidad == "Crítico"),
+        "pendiente": sum(1 for r in resultados if r.estado_auditoria == "Pendiente"),
+    }
+    categorias = sorted({r.categoria for r in resultados if r.categoria})
+    ultima_ejecucion = max((r.creado for r in resultados if r.creado), default=None)
     causas_disponibles = [
         "Error de conteo", "Compra mal cargada", "Canje no registrado",
         "Producto vencido", "Merma o averiado", "Pendiente de revisión",
     ]
+    tienda = Tienda.query.filter_by(
+        id=periodo.tienda_id, cliente_id=cliente_id
+    ).first()
     return render_template(
         "admin_auditoria.html",
         periodo=periodo,
         resultados=resultados,
         filtro=filtro,
         total_impacto=total_impacto,
+        resumen=resumen,
+        categorias=categorias,
+        ultima_ejecucion=ultima_ejecucion,
         causas_disponibles=causas_disponibles,
+        tienda_nombre=tienda.nombre if tienda else periodo.tienda_id,
     )
 
 
@@ -2549,14 +2803,20 @@ def admin_conteo_manual(periodo_id):
 
     producto_nombre = (request.form.get("producto_nombre") or "").strip()
     categoria = (request.form.get("categoria") or "").strip()
-    try:
-        cantidad = float(request.form.get("cantidad", 0))
-    except (ValueError, TypeError):
-        flash("Cantidad inválida.", "error")
+    producto = _producto_catalogo(producto_nombre)
+    if producto is None:
+        flash("Seleccioná un producto válido del catálogo.", "warning")
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
-
-    if not producto_nombre:
-        flash("Seleccioná un producto.", "warning")
+    if categoria != producto.categoria:
+        flash("La categoría seleccionada no corresponde al producto.", "warning")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+    try:
+        cantidad = _cantidad_segun_categoria(
+            request.form.get("cantidad", 0),
+            producto.categoria,
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
     # Upsert: si ya existe, actualiza
@@ -2567,6 +2827,7 @@ def admin_conteo_manual(periodo_id):
         cd.cantidad_unidad = cantidad
         cd.fue_cargado = True
         cd.fecha_carga = datetime.utcnow()
+        cd.categoria = producto.categoria
     else:
         cd = ConteoDetalle(
             periodo_id=periodo_id,
@@ -2574,15 +2835,15 @@ def admin_conteo_manual(periodo_id):
             tienda_id=periodo.tienda_id,
             usuario=session["usuario"],
             producto_nombre=producto_nombre,
-            categoria=categoria,
+            categoria=producto.categoria,
             cantidad_unidad=cantidad,
             total_unidad_base=cantidad,
             fue_cargado=True,
         )
         db.session.add(cd)
 
-    if periodo.estado == "Abierto":
-        periodo.estado = "Pendiente"
+    if periodo.estado in ("Abierto", "Pendiente"):
+        periodo.estado = "Cargado"
     db.session.commit()
     flash(f"Conteo de '{producto_nombre}': {cantidad:.1f} unidades guardado.", "success")
     return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
@@ -2715,5 +2976,7 @@ if __name__ == "__main__":
     app.run(
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", "5000")),
-        debug=os.getenv("FLASK_ENV", "development").lower() == "development",
+        # El depurador interactivo nunca debe exponerse por defecto en la red.
+        # Para desarrollo local debe habilitarse expresamente con FLASK_DEBUG=1.
+        debug=os.getenv("FLASK_DEBUG", "0").lower() in {"1", "true", "yes"},
     )

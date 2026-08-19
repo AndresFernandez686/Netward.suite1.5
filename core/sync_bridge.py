@@ -65,7 +65,7 @@ def propagar_conteo_a_periodo(
 ) -> int:
     """
     Al sincronizar: toma los InventarioItem en estado 'pendiente' y los copia
-    al período activo (Abierto o Pendiente) de la tienda.
+    al período activo (Abierto, Pendiente o Cargado) de la tienda.
     Retorna la cantidad de filas insertadas/actualizadas.
     """
     if periodo_id is not None:
@@ -74,13 +74,13 @@ def propagar_conteo_a_periodo(
             return 0
         if periodo.cliente_id != cliente_id or periodo.tienda_id != tienda_id:
             return 0
-        if periodo.estado not in ("Abierto", "Pendiente"):
+        if periodo.estado not in ("Abierto", "Pendiente", "Cargado"):
             return 0
     else:
         periodo = (
             InventarioPeriodo.query
             .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
-            .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+            .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente", "Cargado"]))
             .order_by(InventarioPeriodo.id.desc())
             .first()
         )
@@ -97,8 +97,8 @@ def propagar_conteo_a_periodo(
                        float(item.cantidad or 0), usuario)
         count += 1
 
-    if count > 0 and periodo.estado == "Abierto":
-        periodo.estado = "Pendiente"
+    if count > 0 and periodo.estado in ("Abierto", "Pendiente"):
+        periodo.estado = "Cargado"
 
     return count
 
@@ -179,8 +179,8 @@ def retroalimentar_periodo_desde_items(periodo: InventarioPeriodo) -> int:
                            float(m.cantidad or 0), m.usuario)
         importados = len(por_producto)
 
-    if importados > 0 and periodo.estado == "Abierto":
-        periodo.estado = "Pendiente"
+    if importados > 0 and periodo.estado in ("Abierto", "Pendiente"):
+        periodo.estado = "Cargado"
 
     return importados
 
@@ -224,7 +224,7 @@ def retroalimentar_periodo_desde_items(periodo: InventarioPeriodo) -> int:
             db.session.add(cd)
         count += 1
 
-    if count > 0 and periodo.estado == "Abierto":
-        periodo.estado = "Pendiente"
+    if count > 0 and periodo.estado in ("Abierto", "Pendiente"):
+        periodo.estado = "Cargado"
 
     return count

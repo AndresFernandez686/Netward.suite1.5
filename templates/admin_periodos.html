@@ -99,13 +99,13 @@
           {% for p in periodos %}
           <tr class="periodo-row">
             <td><strong>#{{ p.numero }}</strong></td>
-            <td>{{ p.tienda_id }}</td>
+            <td>{{ tiendas_map.get(p.tienda_id, p.tienda_id) }}</td>
             <td>{{ p.fecha_desde }}</td>
             <td>{{ p.fecha_hasta }}</td>
             <td>{{ p.dias_periodo }}</td>
             <td>
               <span class="badge-soft
-                {%- if p.estado == 'Abierto' %} badge-soft--success
+                {%- if p.estado in ('Abierto','Cargado') %} badge-soft--success
                 {%- elif p.estado == 'Cerrado' %} badge-soft--warning
                 {%- elif p.estado in ('Conciliado','Auditado') %} badge-soft--danger
                 {%- else %} badge-soft--muted

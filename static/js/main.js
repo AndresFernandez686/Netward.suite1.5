@@ -7,6 +7,7 @@
   var confirmOverlay = null;
   var confirmPendingForm = null;
   var confirmPendingSubmitter = null;
+  var confirmCountdownTimer = null;
 
   function getPageKey() {
     return window.location.pathname + window.location.search;
@@ -195,6 +196,7 @@
       form.addEventListener('submit', function (event) {
         if (event.defaultPrevented) return;
         if (form.dataset.delayBypassed === '1') return;
+        if (form.dataset.confirmMessage && form.dataset.confirmBypassed !== '1') return;
 
         var delayMs = parseDelayMs(form.dataset.submitDelay);
         if (delayMs <= 0) return;
@@ -211,11 +213,31 @@
           form.dataset.loadingText ||
           'Cargando...';
 
-        setLoadingButtonState(submitter, loadingText);
-        lockUi(loadingText);
+        var countdownLabel = form.dataset.countdownLabel || '';
+        var countdownTimer = null;
+        var initialText = loadingText;
+        if (countdownLabel) {
+          var remainingSeconds = Math.ceil(delayMs / 1000);
+          initialText = countdownLabel + ' ' + remainingSeconds + ' s...';
+          countdownTimer = window.setInterval(function () {
+            remainingSeconds -= 1;
+            var currentText = remainingSeconds > 0
+              ? countdownLabel + ' ' + remainingSeconds + ' s...'
+              : loadingText;
+            if (submitter) submitter.textContent = currentText;
+            lockUi(currentText);
+            if (remainingSeconds <= 0) window.clearInterval(countdownTimer);
+          }, 1000);
+        }
+
+        setLoadingButtonState(submitter, initialText);
+        lockUi(initialText);
 
         window.setTimeout(function () {
           try {
+            if (countdownTimer) window.clearInterval(countdownTimer);
+            if (submitter) submitter.textContent = loadingText;
+            lockUi(loadingText);
             form.dataset.delayBypassed = '1';
             if (typeof form.requestSubmit === 'function') {
               form.requestSubmit();
@@ -224,13 +246,14 @@
             }
             window.setTimeout(function () {
               form.dataset.delayBypassed = '0';
+              form.dataset.confirmBypassed = '0';
             }, 0);
           } catch (err) {
             unlockUi();
             throw err;
           }
         }, delayMs);
-      });
+      }, true);
     });
   }
 
@@ -255,7 +278,7 @@
       inset: '0',
       zIndex: '10030',
       background: 'rgba(15, 23, 42, .45)',
-      display: 'flex',
+      display: 'none',
       alignItems: 'center',
       justifyContent: 'center',
       padding: '16px'
@@ -271,12 +294,21 @@
 
     var cancelBtn = confirmOverlay.querySelector('[data-confirm-cancel]');
     if (cancelBtn) {
-      cancelBtn.addEventListener('click', closeConfirmOverlay);
+      cancelBtn.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        var returnFocus = confirmPendingSubmitter;
+        closeConfirmOverlay();
+        if (returnFocus && typeof returnFocus.focus === 'function') returnFocus.focus();
+      });
     }
 
     var acceptBtn = confirmOverlay.querySelector('[data-confirm-accept]');
     if (acceptBtn) {
-      acceptBtn.addEventListener('click', function () {
+      acceptBtn.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (acceptBtn.disabled) return;
         if (!confirmPendingForm) {
           closeConfirmOverlay();
           return;
@@ -284,6 +316,7 @@
 
         var form = confirmPendingForm;
         var submitter = confirmPendingSubmitter;
+        var hasSubmitDelay = parseDelayMs(form.dataset.submitDelay) > 0;
         closeConfirmOverlay();
 
         form.dataset.confirmBypassed = '1';
@@ -292,9 +325,11 @@
         } else {
           form.submit();
         }
-        window.setTimeout(function () {
-          form.dataset.confirmBypassed = '0';
-        }, 0);
+        if (!hasSubmitDelay) {
+          window.setTimeout(function () {
+            form.dataset.confirmBypassed = '0';
+          }, 0);
+        }
       });
     }
 
@@ -310,8 +345,18 @@
   }
 
   function closeConfirmOverlay() {
+    if (confirmCountdownTimer) {
+      window.clearInterval(confirmCountdownTimer);
+      confirmCountdownTimer = null;
+    }
     if (confirmOverlay) {
       confirmOverlay.hidden = true;
+      confirmOverlay.style.display = 'none';
+      var acceptBtn = confirmOverlay.querySelector('[data-confirm-accept]');
+      if (acceptBtn) {
+        acceptBtn.disabled = false;
+        acceptBtn.textContent = 'Confirmar';
+      }
     }
     confirmPendingForm = null;
     confirmPendingSubmitter = null;
@@ -326,16 +371,123 @@
     confirmPendingForm = form;
     confirmPendingSubmitter = submitter || null;
     overlay.hidden = false;
+    overlay.style.display = 'flex';
+
+    var cancelBtn = overlay.querySelector('[data-confirm-cancel]');
+    var acceptBtn = overlay.querySelector('[data-confirm-accept]');
+    var delayMs = parseDelayMs(form.dataset.confirmDelay || '3000');
+
+    if (confirmCountdownTimer) {
+      window.clearInterval(confirmCountdownTimer);
+      confirmCountdownTimer = null;
+    }
+
+    if (acceptBtn && delayMs > 0) {
+      var remainingSeconds = Math.ceil(delayMs / 1000);
+      acceptBtn.disabled = true;
+      acceptBtn.textContent = 'Confirmar (' + remainingSeconds + ' s)';
+      confirmCountdownTimer = window.setInterval(function () {
+        remainingSeconds -= 1;
+        if (remainingSeconds > 0) {
+          acceptBtn.textContent = 'Confirmar (' + remainingSeconds + ' s)';
+          return;
+        }
+        window.clearInterval(confirmCountdownTimer);
+        confirmCountdownTimer = null;
+        acceptBtn.disabled = false;
+        acceptBtn.textContent = 'Confirmar';
+      }, 1000);
+    } else if (acceptBtn) {
+      acceptBtn.disabled = false;
+      acceptBtn.textContent = 'Confirmar';
+    }
+
+    if (cancelBtn) cancelBtn.focus();
   }
 
   function initFormConfirm() {
     document.querySelectorAll('form[data-confirm-message]').forEach(function (form) {
       form.addEventListener('submit', function (event) {
         if (event.defaultPrevented) return;
-        if (form.dataset.confirmBypassed === '1') return;
+        if (form.dataset.confirmBypassed === '1') {
+          lockUi(form.dataset.confirmLoadingText || 'Procesando acción...');
+          return;
+        }
 
         event.preventDefault();
         openConfirmOverlay(form.dataset.confirmMessage, form, event.submitter || null);
+      }, true);
+    });
+  }
+
+  function initInlineValidation() {
+    document.querySelectorAll('form[data-inline-validation]').forEach(function (form) {
+      function clearFieldError(host) {
+        if (!host) return;
+        host.classList.remove('has-error');
+        var error = host.querySelector('.field-error-message');
+        if (error) error.remove();
+      }
+
+      function validationMessage(field) {
+        var value = String(field.value || '').trim();
+        if (field.required && !value) {
+          return field.dataset.requiredMessage || 'Completa este campo.';
+        }
+        if (field.validity && field.validity.badInput) {
+          return 'Ingresa un número válido.';
+        }
+        if (field.validity && field.validity.stepMismatch) {
+          return field.step === '1'
+            ? 'Ingresa un número entero.'
+            : 'Ingresa una cantidad decimal válida.';
+        }
+        if (field.validity && field.validity.rangeUnderflow) {
+          return 'La cantidad no puede ser menor que ' + field.min + '.';
+        }
+        return '';
+      }
+
+      function showFieldError(field, message) {
+        var host = field.closest('.field') || field.parentElement;
+        if (!host) return;
+        clearFieldError(host);
+        host.classList.add('has-error');
+        var error = document.createElement('span');
+        error.className = 'field-error-message';
+        error.setAttribute('role', 'alert');
+        error.textContent = message;
+        host.appendChild(error);
+      }
+
+      form.addEventListener('submit', function (event) {
+        var firstInvalid = null;
+        form.querySelectorAll('[required]').forEach(function (field) {
+          var message = validationMessage(field);
+          if (!message && field.validity && !field.validity.valid) {
+            message = 'Revisa el valor ingresado.';
+          }
+          if (message) {
+            showFieldError(field, message);
+            if (!firstInvalid) firstInvalid = field;
+          } else {
+            clearFieldError(field.closest('.field'));
+          }
+        });
+
+        if (!firstInvalid) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        var host = firstInvalid.closest('.field');
+        var focusTarget = host && host.querySelector('.combo__input, select, input:not([type="hidden"])');
+        if (focusTarget) focusTarget.focus();
+      }, true);
+
+      form.addEventListener('input', function (event) {
+        clearFieldError(event.target.closest('.field'));
+      });
+      form.addEventListener('change', function (event) {
+        clearFieldError(event.target.closest('.field'));
       });
     });
   }
@@ -461,6 +613,7 @@
   initCollapsibleCards();
   initTimedSubmit();
   initFormConfirm();
+  initInlineValidation();
 
   // Auto-ocultar mensajes flash despues de 5s
   setTimeout(function () {
@@ -498,6 +651,9 @@
     var empty   = combo.querySelector('.combo__empty');
     var clear   = combo.querySelector('.combo__clear');
     var options = Array.prototype.slice.call(combo.querySelectorAll('.combo__option'));
+    var categorySelect = combo.dataset.categorySelect
+      ? document.querySelector(combo.dataset.categorySelect)
+      : null;
 
     if (!input || !list) return;
 
@@ -522,7 +678,8 @@
     function filter() {
       var q = input.value.trim(), anyVisible = false;
       options.forEach(function (o) {
-        var match = matchesSearch(o.dataset.value, q);
+        var categoryMatch = !categorySelect || !categorySelect.value || o.dataset.cat === categorySelect.value;
+        var match = categoryMatch && matchesSearch(o.dataset.value, q);
         o.hidden = !match;
         if (match) anyVisible = true;
       });
@@ -536,6 +693,10 @@
     function select(opt) {
       hidden.value = opt.dataset.value;
       if (hidCat) hidCat.value = opt.dataset.cat || '';
+      if (categorySelect && opt.dataset.cat) {
+        categorySelect.value = opt.dataset.cat;
+        categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
       input.value = opt.dataset.display || opt.dataset.value;
       if (clear) clear.hidden = false;
       combo.classList.add('has-value');
@@ -574,6 +735,19 @@
         combo.classList.remove('has-value');
         options.forEach(function (o) { o.hidden = false; });
         input.focus();
+      });
+    }
+    if (categorySelect) {
+      categorySelect.addEventListener('change', function () {
+        var selected = options.find(function (o) { return o.dataset.value === hidden.value; });
+        if (selected && categorySelect.value && selected.dataset.cat !== categorySelect.value) {
+          hidden.value = '';
+          input.value = '';
+          if (hidCat) hidCat.value = '';
+          if (clear) clear.hidden = true;
+          combo.classList.remove('has-value');
+        }
+        if (!list.hidden || document.activeElement === input) filter();
       });
     }
     document.addEventListener('click', function (e) {

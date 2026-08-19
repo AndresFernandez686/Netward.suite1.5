@@ -457,7 +457,7 @@ def admin_desc():
     periodos_abiertos = (
         InventarioPeriodo.query
         .filter_by(cliente_id=cliente_id)
-        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente", "Cargado"]))
         .order_by(InventarioPeriodo.id.desc())
         .all()
     )
@@ -488,7 +488,7 @@ def admin_desc():
         periodo = (
             InventarioPeriodo.query
             .filter_by(id=periodo_id, cliente_id=cliente_id)
-            .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente"]))
+            .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente", "Cargado"]))
             .first()
         )
         if periodo is None:

@@ -111,7 +111,7 @@
           <td class="muted">{{ r.detalle }}</td>
           <td>
             <form method="post" action="{{ url_for('vencimiento_eliminar', reg_id=r.id) }}"
-                  onsubmit="return confirm('¿Eliminar este registro?')">
+                  data-confirm-message="¿Eliminar este registro de vencimiento?">
               <button class="btn btn--sm btn--danger">×</button>
             </form>
           </td>

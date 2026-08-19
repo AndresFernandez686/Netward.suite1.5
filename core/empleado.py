@@ -60,7 +60,8 @@ def add_carrito_item(*, carrito: list, categoria: str, producto: str, cantidad: 
     carrito = [i for i in carrito if not (
         i["categoria"] == categoria and i["producto"] == producto and i["ume"] == ume
     )]
-    carrito.append({
+    # El registro más reciente se muestra primero en el carrito.
+    carrito.insert(0, {
         "categoria": categoria,
         "producto": producto,
         "cantidad": cantidad,
