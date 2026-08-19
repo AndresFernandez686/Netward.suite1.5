@@ -454,18 +454,17 @@ def admin_desc():
     cliente_id = session.get("cliente_id", "C001")
     tiendas = Tienda.query.filter_by(cliente_id=cliente_id).all()
     tiendas_map = {str(t.id): t.nombre for t in tiendas}
-    periodos_abiertos = (
+    periodos_disponibles = (
         InventarioPeriodo.query
         .filter_by(cliente_id=cliente_id)
-        .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente", "Cargado"]))
         .order_by(InventarioPeriodo.id.desc())
         .all()
     )
 
     periodo_id_arg = request.args.get("periodo_id", type=int)
-    periodo_seleccionado = next((p for p in periodos_abiertos if p.id == periodo_id_arg), None)
-    if periodo_seleccionado is None and periodos_abiertos:
-        periodo_seleccionado = periodos_abiertos[0]
+    periodo_seleccionado = next((p for p in periodos_disponibles if p.id == periodo_id_arg), None)
+    if periodo_seleccionado is None and periodos_disponibles:
+        periodo_seleccionado = periodos_disponibles[0]
 
     conteos_periodo = []
     if periodo_seleccionado is not None:
@@ -488,11 +487,10 @@ def admin_desc():
         periodo = (
             InventarioPeriodo.query
             .filter_by(id=periodo_id, cliente_id=cliente_id)
-            .filter(InventarioPeriodo.estado.in_(["Abierto", "Pendiente", "Cargado"]))
             .first()
         )
         if periodo is None:
-            flash("Selecciona un período abierto válido para procesar el Excel oficial.", "warning")
+            flash("Selecciona un período contable válido para procesar el Excel oficial.", "warning")
             return redirect(url_for("desc.admin_desc"))
 
         tienda_id = periodo.tienda_id
@@ -567,7 +565,7 @@ def admin_desc():
         "admin_desc.html",
         tiendas=tiendas,
         tiendas_map=tiendas_map,
-        periodos_abiertos=periodos_abiertos,
+        periodos_disponibles=periodos_disponibles,
         periodo_seleccionado=periodo_seleccionado,
         conteos_periodo=conteos_periodo,
         snapshots=snapshots,

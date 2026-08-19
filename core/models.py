@@ -470,7 +470,7 @@ class AuditoriaResultado(BaseModel):
     ajuste_admin = db.Column(db.Float, default=0)
     conteo_final = db.Column(db.Float, default=0)
     diferencia = db.Column(db.Float, default=0)
-    # faltante | sobrante | correcto
+    # faltante | sobrante | correcto | compensado
     tipo_diferencia = db.Column(db.String(20), default="correcto")
     costo_unitario = db.Column(db.Float, nullable=True)
     impacto = db.Column(db.Float, default=0)
@@ -483,7 +483,7 @@ class AuditoriaResultado(BaseModel):
     nivel_confianza = db.Column(db.String(20), default="Bajo")
     # Correcto | Observación | Revisar | Crítico
     severidad = db.Column(db.String(20), default="Correcto")
-    # Pendiente | Sugerido | Justificado | Revisado | Sin diferencia
+    # Pendiente | Sugerido | Justificado | Revisado | Sin diferencia | Sin diferencia real
     estado_auditoria = db.Column(db.String(20), default="Pendiente")
     # Excel oficial | Precio interno | Sin costo
     fuente_costo = db.Column(db.String(20), default="Sin costo")
@@ -493,7 +493,7 @@ class AuditoriaResultado(BaseModel):
     cantidad_merma = db.Column(db.Float, default=0)                  # de registros_averiados
     cantidad_vencida = db.Column(db.Float, default=0)                # de registros_vencimiento
     cantidad_averiada = db.Column(db.Float, default=0)               # alias de cantidad_merma
-    # Informativo: ventas del módulo delivery en el período (NO reemplaza ventareal del Excel)
+    # Ventas del módulo delivery usadas para reemplazar ventareal cuando son mayores que cero
     ventas_delivery = db.Column(db.Float, default=0)
     usuario_conteo = db.Column(db.String(80), default="")
     usuario_ajuste = db.Column(db.String(80), default="")

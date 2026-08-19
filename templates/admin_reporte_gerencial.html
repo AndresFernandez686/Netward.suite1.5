@@ -73,6 +73,14 @@
         <div class="kpi-value" style="font-size:1.1rem;text-transform:capitalize;">{{ comparacion.flecha }} {{ comparacion.tendencia }}</div>
         <div class="kpi-label">Tendencia</div>
       </div>
+      <div class="kpi-card {% if comparacion.delta_faltantes > 0 %}kpi-card--danger{% elif comparacion.delta_faltantes < 0 %}kpi-card--success{% endif %}">
+        <div class="kpi-value">{% if comparacion.delta_faltantes > 0 %}+{% endif %}{{ comparacion.delta_faltantes }}</div>
+        <div class="kpi-label">Δ productos con faltante</div>
+      </div>
+      <div class="kpi-card {% if comparacion.delta_criticos > 0 %}kpi-card--danger{% elif comparacion.delta_criticos < 0 %}kpi-card--success{% endif %}">
+        <div class="kpi-value">{% if comparacion.delta_criticos > 0 %}+{% endif %}{{ comparacion.delta_criticos }}</div>
+        <div class="kpi-label">Δ alertas críticas</div>
+      </div>
     </div>
   </div>
 </div>

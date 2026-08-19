@@ -28,12 +28,13 @@ Impacto         = |diferencia| × costo_unitario
 |---|---|---|
 | 1 | Inconsistencia de continuidad | stock_final anterior ≠ stock_inicial Excel |
 | 2 | Compra mal cargada | compras > 3× promedio histórico |
-| 3 | Error de conteo | diferencia actual compensa diferencia anterior del mismo mes |
-| 4 | Producto vencido | registros en `registros_vencimiento` |
-| 5 | Merma o averiado | registros en `registros_averiados` |
-| 6 | Producto relacionado incoherente | ratio consumo fuera de tolerancia |
-| 7 | Canje no registrado | solo por justificación manual (requiere observación) |
-| 8 | Pendiente de revisión | sin evidencia encontrada |
+| 3 | Compensación entre períodos | diferencia actual = −diferencia anterior del mismo producto |
+| 4 | Error de conteo | compensación parcial con la diferencia anterior |
+| 5 | Producto vencido | registros en `registros_vencimiento` |
+| 6 | Merma o averiado | registros en `registros_averiados` |
+| 7 | Producto relacionado incoherente | ratio consumo fuera de tolerancia |
+| 8 | Canje no registrado | solo por justificación manual (requiere observación) |
+| 9 | Pendiente de revisión | sin evidencia encontrada |
 
 ## Niveles de confianza
 - **Alto**: evidencia fuerte y directa
@@ -52,7 +53,7 @@ Impacto         = |diferencia| × costo_unitario
 | Método | Ruta | Acción |
 |---|---|---|
 | POST | `/admin/periodos/<id>/auditoria/ejecutar` | Corre motor completo, regenera todos los `auditoria_resultados` |
-| GET | `/admin/periodos/<id>/auditoria` | Vista con filtros: todos / faltante / sobrante / crítico / pendiente |
+| GET | `/admin/periodos/<id>/auditoria` | Vista con filtros: todos / faltante / sobrante / compensado / crítico / pendiente |
 | POST | `/admin/periodos/<id>/justificar/<resultado_id>` | Crea `justificacion`, cambia `estado_auditoria = 'Justificado'` |
 | GET | `/admin/periodos/<id>/exportar` | Descarga Excel con todas las columnas de auditoría |
 
@@ -62,8 +63,8 @@ Impacto         = |diferencia| × costo_unitario
 ## Campos clave de `auditoria_resultados`
 | Campo | Valores posibles | Quién lo asigna |
 |---|---|---|
-| `tipo_diferencia` | `faltante` / `sobrante` / `correcto` | Motor automático |
-| `estado_auditoria` | `Pendiente` / `Sugerido` / `Justificado` / `Revisado` / `Sin diferencia` | Motor + admin |
+| `tipo_diferencia` | `faltante` / `sobrante` / `correcto` / `compensado` | Motor automático |
+| `estado_auditoria` | `Pendiente` / `Sugerido` / `Justificado` / `Revisado` / `Sin diferencia` / `Sin diferencia real` | Motor + admin |
 | `fuente_costo` | `Excel oficial` / `Precio interno` / `Sin costo` | Motor automático |
 | `causa_sugerida` | ver tabla de causas | Motor automático |
 | `nivel_confianza` | `Alto` / `Medio` / `Bajo` | Motor automático |
@@ -73,6 +74,7 @@ Impacto         = |diferencia| × costo_unitario
 ```
 Motor corre:
   diferencia = 0           → Sin diferencia
+  diferencia = -anterior   → Sin diferencia real (compensación exacta)
   causa != Pendiente       → Sugerido   (motor encontró evidencia)
   causa = Pendiente        → Pendiente  (sin evidencia)
 

@@ -46,11 +46,11 @@
       <div class="desc-fields">
         <div class="form-row" style="margin-bottom:10px;">
           <label class="field">
-            <span class="field__label">Período abierto</span>
+            <span class="field__label">Período contable</span>
             <select name="periodo_id" id="periodo-select" required>
-              {% for p in periodos_abiertos %}
+              {% for p in periodos_disponibles %}
               <option value="{{ p.id }}" {{ 'selected' if periodo_seleccionado and p.id == periodo_seleccionado.id else '' }}>
-                #{{ p.numero }} · {{ tiendas_map.get(p.tienda_id, p.tienda_id) }} · {{ p.fecha_desde }} a {{ p.fecha_hasta }}
+                #{{ p.numero }} · {{ tiendas_map.get(p.tienda_id, p.tienda_id) }} · {{ p.fecha_desde }} a {{ p.fecha_hasta }} · {{ p.estado }}
               </option>
               {% endfor %}
             </select>
@@ -78,9 +78,9 @@
         </div>
       </div>
     </form>
-    {% if not periodos_abiertos %}
+    {% if not periodos_disponibles %}
     <div class="banner banner--warning" style="margin-top:12px;">
-      <div>No hay períodos abiertos. Abre un período en Auditoría para procesar el Excel oficial.</div>
+      <div>No hay períodos contables registrados. Crea uno en Auditoría para procesar el Excel oficial.</div>
     </div>
     {% endif %}
   </section>

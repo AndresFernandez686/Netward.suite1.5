@@ -94,9 +94,10 @@ El reporte gerencial responde **5 preguntas clave** en menos de un minuto, dando
 ## 5. ¿Está mejorando o empeorando?
 
 ### Lo que el sistema hace hoy
-- No implementado.
 
-### Lo que falta — spec completo
+Compara el período actual contra el anterior de la misma tienda y cliente. Expone pérdida, cantidad de faltantes y alertas críticas anteriores y actuales, junto con sus variaciones.
+
+### Implementación
 
 Requiere comparar el período actual contra el período anterior de la misma tienda/cliente.
 
@@ -131,7 +132,7 @@ Requiere comparar el período actual contra el período anterior de la misma tie
 | 2. ¿Qué productos generaron la mayor pérdida? | ⚠️ Tabla completa — falta vista Top 5/10 + gráfico |
 | 3. ¿Cuál fue la causa principal? | ⚠️ Tabla implementada — falta KPI causa dominante + gráfico |
 | 4. ¿Qué fue crítico? | ⚠️ Tabla críticos implementada — faltan KPI cards mayor impacto/diferencia/riesgo |
-| 5. ¿Está mejorando o empeorando? | ❌ No implementado |
+| 5. ¿Está mejorando o empeorando? | ✅ Implementado: Δ pérdida, faltantes y críticos |
 
 ---
 

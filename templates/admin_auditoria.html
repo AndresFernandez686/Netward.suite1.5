@@ -36,7 +36,7 @@
         </div>
 
         <div class="audit-filter-tabs" role="tablist" aria-label="Filtrar resultados por estado">
-          {% for key, label in [('todos','Todos'),('faltante','Faltantes'),('sobrante','Sobrantes'),('critico','Críticos'),('pendiente','Pendientes')] %}
+          {% for key, label in [('todos','Todos'),('faltante','Faltantes'),('sobrante','Sobrantes'),('compensado','Compensados'),('critico','Críticos'),('pendiente','Pendientes')] %}
           <button type="button" class="audit-filter-tab {{ 'is-active' if filtro == key }}" data-audit-filter="{{ key }}">{{ label }} <span class="audit-filter-count audit-filter-count--{{ key }}">{{ resumen[key] }}</span></button>
           {% endfor %}
         </div>
@@ -45,7 +45,7 @@
           <label class="audit-search"><span class="sr-only">Buscar</span><span aria-hidden="true">⌕</span><input type="search" id="auditSearch" placeholder="Buscar producto, código u observación..." autocomplete="off"></label>
           <label><span>Producto</span><select id="auditProduct"><option value="">Todos</option>{% for r in resultados|sort(attribute='producto_nombre') %}<option value="{{ r.producto_nombre|lower }}">{{ r.producto_nombre }}</option>{% endfor %}</select></label>
           <label><span>Categoría</span><select id="auditCategory"><option value="">Todas</option>{% for categoria in categorias %}<option value="{{ categoria|lower }}">{{ categoria }}</option>{% endfor %}</select></label>
-          <label><span>Estado</span><select id="auditState"><option value="">Todos</option><option value="critico">Crítico</option><option value="faltante">Faltante</option><option value="sobrante">Sobrante</option><option value="pendiente">Pendiente</option><option value="correcto">Correcto</option></select></label>
+          <label><span>Estado</span><select id="auditState"><option value="">Todos</option><option value="critico">Crítico</option><option value="faltante">Faltante</option><option value="sobrante">Sobrante</option><option value="compensado">Compensado</option><option value="pendiente">Pendiente</option><option value="correcto">Correcto</option></select></label>
           <label class="audit-date-filter"><span>Fecha</span><input type="text" value="{{ fecha_es(periodo.fecha_desde) }} – {{ fecha_es(periodo.fecha_hasta) }}" readonly></label>
         </div>
 
@@ -73,7 +73,7 @@
                 </dl></div>
                 <div class="audit-detail-actions"><h3>Diagnóstico y acciones</h3><p>{{ r.evidencia or 'Sin observaciones adicionales.' }}</p><p class="audit-detail-meta">Confianza {{ r.nivel_confianza }} · Estado {{ r.estado_auditoria }}{% if r.usuario_conteo %} · Conteo por {{ r.usuario_conteo }}{% endif %}</p>
                   {% for j in r.justificaciones %}<div class="audit-justification"><strong>{{ j.causa }}</strong> · {{ j.cantidad_justificada }} unid.<br>{{ j.observacion }} <small>· {{ j.usuario }}</small></div>{% endfor %}
-                  {% if r.diferencia != 0 and r.estado_auditoria not in ('Justificado', 'Revisado') %}<div class="audit-row-actions"><details><summary class="btn btn--ghost btn--sm">Justificar diferencia</summary><form method="post" action="{{ url_for('admin_justificar', periodo_id=periodo.id, resultado_id=r.id) }}" class="audit-justify-form"><label>Causa<select name="causa" required>{% for c in causas_disponibles %}<option>{{ c }}</option>{% endfor %}</select></label><label>Cantidad<input type="number" name="cantidad_justificada" step="0.01" min="0" value="{{ r.diferencia|abs }}"></label><label>Observación<input type="text" name="observacion" maxlength="400" required></label><button type="submit" class="btn btn--primary btn--sm">Guardar</button></form></details><form method="post" action="{{ url_for('admin_marcar_revisado', periodo_id=periodo.id, resultado_id=r.id) }}"><button type="submit" class="btn btn--ghost btn--sm">Marcar revisado</button></form></div>{% endif %}
+                  {% if r.diferencia != 0 and r.estado_auditoria not in ('Justificado', 'Revisado', 'Sin diferencia real') %}<div class="audit-row-actions"><details><summary class="btn btn--ghost btn--sm">Justificar diferencia</summary><form method="post" action="{{ url_for('admin_justificar', periodo_id=periodo.id, resultado_id=r.id) }}" class="audit-justify-form"><label>Causa<select name="causa" required>{% for c in causas_disponibles %}<option>{{ c }}</option>{% endfor %}</select></label><label>Cantidad<input type="number" name="cantidad_justificada" step="0.01" min="0" value="{{ r.diferencia|abs }}"></label><label>Observación<input type="text" name="observacion" maxlength="400" required></label><button type="submit" class="btn btn--primary btn--sm">Guardar</button></form></details><form method="post" action="{{ url_for('admin_marcar_revisado', periodo_id=periodo.id, resultado_id=r.id) }}"><button type="submit" class="btn btn--ghost btn--sm">Marcar revisado</button></form></div>{% endif %}
                 </div>
               </div></td></tr>
               {% endfor %}

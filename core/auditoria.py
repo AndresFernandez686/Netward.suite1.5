@@ -18,6 +18,7 @@ from .models import (
 
 # ─── Constantes ──────────────────────────────────────────────────────────────
 CAUSAS = [
+    "Compensación entre períodos",
     "Inconsistencia de continuidad",
     "Compra mal cargada",
     "Error de conteo",
@@ -290,15 +291,16 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         # Stock inicial actual
         stock_inicial = stock_anterior if stock_anterior is not None else stock_inicial_excel
 
-        # 2. Datos del Excel — ventareal es la fuente oficial y NO se reemplaza
+        # 2. Datos del Excel
         compras = float(excel_row.compras) if excel_row else 0.0
         otros_ingresos = float(excel_row.otrosingresos) if excel_row else 0.0
         otras_salidas = float(excel_row.otrassalidas) if excel_row else 0.0
-        ventas = float(excel_row.ventareal) if excel_row else 0.0     # fuente oficial
+        ventas_excel = float(excel_row.ventareal) if excel_row else 0.0
         stock_final_excel = float(excel_row.stockfinal) if excel_row else 0.0
 
-        # Ventas de delivery en el período (informativo — no modifica la fórmula)
+        # Delivery reemplaza la Venta Real del Excel cuando tiene movimientos.
         ventas_delivery = _ventas_delivery_periodo(periodo, nombre)
+        ventas = ventas_delivery if ventas_delivery > 0 else ventas_excel
 
         # 3. Mermas y vencidos registrados
         total_merma, total_venc = _mermas_vencidos(periodo, nombre, periodo.tienda_id)
@@ -343,6 +345,15 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
 
         # Variables para evidencia estructurada
         factor_desvio = round(compras / prom_compras, 2) if prom_compras > 0 else 0.0
+        comp_detectada, comp_evidencia, dif_anterior = _compensacion_conteo(
+            periodo,
+            nombre,
+            diferencia,
+        )
+        compensacion_total = (
+            comp_detectada
+            and abs(diferencia + dif_anterior) < 0.01
+        )
 
         # Detectar doble descuento: ajuste negativo coexiste con merma/vencidos registrados
         ajuste_negativo = ajuste < 0
@@ -352,6 +363,10 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         if abs(diferencia) < 0.01:
             causa = "Sin diferencia"
             evidencia = "El conteo final coincide con el stock esperado."
+            confianza = "Alto"
+        elif compensacion_total:
+            causa = "Compensación entre períodos"
+            evidencia = comp_evidencia
             confianza = "Alto"
         elif alerta_continuidad:
             causa = "Inconsistencia de continuidad"
@@ -379,7 +394,6 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             confianza = "Medio"
         else:
             # Verificar compensación de conteo
-            comp_detectada, comp_evidencia, dif_anterior = _compensacion_conteo(periodo, nombre, diferencia)
             if comp_detectada:
                 causa = "Error de conteo"
                 evidencia = comp_evidencia
@@ -426,6 +440,18 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             )
             evidencia = (aviso + " | " + evidencia) if evidencia else aviso
 
+        if compensacion_total:
+            tipo_diferencia = "compensado"
+            severidad = "Correcto"
+            impacto = 0.0
+
+        estado_auditoria = (
+            "Sin diferencia real" if compensacion_total
+            else "Sin diferencia" if abs(diferencia) < 0.01
+            else "Sugerido" if causa != "Pendiente de revisión"
+            else "Pendiente"
+        )
+
         ar = AuditoriaResultado(
             periodo_id=periodo.id,
             cliente_id=periodo.cliente_id,
@@ -460,11 +486,7 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             nivel_confianza=confianza,
             severidad=severidad,
             # Sugerido = motor encontró una causa; Pendiente = sin evidencia
-            estado_auditoria=(
-                "Sin diferencia" if abs(diferencia) < 0.01
-                else "Sugerido" if causa != "Pendiente de revisión"
-                else "Pendiente"
-            ),
+            estado_auditoria=estado_auditoria,
             usuario_conteo=conteo.usuario if conteo else "",
             usuario_ajuste=ajuste_usuario_map.get(pnorm, ""),
             fecha_ajuste=ajuste_fecha_map.get(pnorm, ""),
@@ -563,6 +585,10 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
             .all()
         )
         perdida_anterior = sum(r.impacto for r in res_ant)
+        faltantes_actual = len(resultados)
+        faltantes_anterior = len(res_ant)
+        criticos_actual = len(alertas_criticas)
+        criticos_anterior = sum(1 for r in res_ant if r.severidad == "Crítico")
         delta = total_perdida - perdida_anterior
         if delta > 0:
             tendencia, flecha, clase = "empeoró", "↑", "danger"
@@ -574,8 +600,14 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
         comparacion = {
             "periodo_anterior": periodo_anterior,
             "perdida_anterior": perdida_anterior,
-            "faltantes_anterior": len(res_ant),
+            "faltantes_anterior": faltantes_anterior,
+            "faltantes_actual": faltantes_actual,
+            "delta_faltantes": faltantes_actual - faltantes_anterior,
+            "criticos_anterior": criticos_anterior,
+            "criticos_actual": criticos_actual,
+            "delta_criticos": criticos_actual - criticos_anterior,
             "delta": delta,
+            "delta_perdida": delta,
             "porcentaje": porcentaje,
             "tendencia": tendencia,
             "flecha": flecha,
@@ -591,3 +623,36 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
         "alertas_criticas": alertas_criticas,
         "comparacion": comparacion,
     }
+
+
+def justificar_resultado(
+    resultado: AuditoriaResultado,
+    periodo: InventarioPeriodo,
+    *,
+    causa: str,
+    cantidad: float,
+    observacion: str,
+    usuario: str,
+) -> Justificacion:
+    """Registra una justificación y actualiza el estado del resultado/período."""
+    justificacion = Justificacion(
+        resultado_id=resultado.id,
+        cliente_id=resultado.cliente_id,
+        causa=causa,
+        cantidad_justificada=cantidad,
+        importe_justificado=cantidad * (resultado.costo_unitario or 0),
+        observacion=observacion,
+        usuario=usuario,
+    )
+    db.session.add(justificacion)
+    resultado.estado_auditoria = "Justificado"
+    db.session.flush()
+
+    pendientes = AuditoriaResultado.query.filter(
+        AuditoriaResultado.periodo_id == periodo.id,
+        AuditoriaResultado.estado_auditoria.in_(["Pendiente", "Sugerido"]),
+        AuditoriaResultado.tipo_diferencia != "correcto",
+    ).count()
+    if pendientes == 0 and periodo.estado == "Conciliado":
+        periodo.estado = "Auditado"
+    return justificacion
