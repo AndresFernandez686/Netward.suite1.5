@@ -195,6 +195,14 @@ class DeliveryVenta(BaseModel):
     total = db.Column(db.Float, default=0)
     usuario = db.Column(db.String(80), nullable=False)
     tienda_id = db.Column(db.String(10), default="T001")
+    periodo_id = db.Column(
+        db.Integer,
+        db.ForeignKey("inventario_periodos.id"),
+        nullable=True,
+        index=True,
+    )
+    # en_rango | fuera_rango | sin_periodo
+    estado_periodo = db.Column(db.String(20), default="sin_periodo", nullable=False)
 
 
 class StockThreshold(BaseModel):

@@ -338,6 +338,10 @@ def ensure_multitenant_schema():
                            "ultimo_periodo_notificado_id INTEGER NOT NULL DEFAULT 0", "ultimo_periodo_notificado_id")
             _add_column_if_missing(conn, "productos",
                            "visible_empleado BOOLEAN NOT NULL DEFAULT 1", "visible_empleado")
+            _add_column_if_missing(conn, "delivery_ventas",
+                                   "periodo_id INTEGER", "periodo_id")
+            _add_column_if_missing(conn, "delivery_ventas",
+                                   "estado_periodo VARCHAR(20) NOT NULL DEFAULT 'sin_periodo'", "estado_periodo")
 
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tiendas_cliente_id ON tiendas(cliente_id)")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id)")
@@ -1050,15 +1054,17 @@ def carrito_guardar():
 
     usuario = session["usuario"]
     try:
-        guardados = empleado_service.build_carrito_guardado(
+        def limpiar_borrador(_guardados):
+            set_carrito([], periodo_activo.id, commit=False)
+
+        guardados = empleado_service.guardar_carrito_transaccional(
             carrito,
             tienda_id,
             usuario,
             cliente_id=cliente_id,
             periodo_id=periodo_activo.id,
+            antes_commit=limpiar_borrador,
         )
-        set_carrito([], periodo_activo.id, commit=False)
-        db.session.commit()
     except empleado_service.ConflictoCarga as conflicto:
         db.session.rollback()
         categoria = next(
@@ -1102,6 +1108,14 @@ def carrito_guardar():
             "producto": entrada.get("producto", ""),
         }
         session.modified = True
+        return _redirect_inventario_context("sec-carrito")
+    except Exception:
+        app.logger.exception("Fallo al guardar el inventario de %s", usuario)
+        flash(
+            "No se pudo guardar el inventario por un problema de conexión. "
+            "El carrito se conserva sin cambios; puedes reintentar.",
+            "error",
+        )
         return _redirect_inventario_context("sec-carrito")
 
     flash(f"{guardados} producto(s) guardado(s) exitosamente.", "success")

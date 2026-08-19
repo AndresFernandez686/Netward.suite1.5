@@ -48,7 +48,19 @@ class PruebasMigracionPostgresMultiempleado(unittest.TestCase):
         self.assertIn("usuario_ultima_carga", verificador.COLUMNAS_CRITICAS["inventario_items"])
         self.assertIn("tipo_movimiento", verificador.COLUMNAS_CRITICAS["historial"])
         self.assertIn("version_ultima_carga", verificador.COLUMNAS_CRITICAS["conteo_detalle"])
-        self.assertEqual(len(verificador.CLAVES_CRITICAS), 3)
+        self.assertIn("periodo_id", verificador.COLUMNAS_CRITICAS["delivery_ventas"])
+        self.assertIn("estado_periodo", verificador.COLUMNAS_CRITICAS["delivery_ventas"])
+        self.assertEqual(len(verificador.CLAVES_CRITICAS), 4)
+
+    def test_migracion_delivery_periodos_es_idempotente(self):
+        completo = (MIGRACION / "01_schema_completo.sql").read_text(encoding="utf-8")
+        incremental = (MIGRACION / "06_delivery_periodos.sql").read_text(encoding="utf-8")
+        indices = (MIGRACION / "03_indices_rendimiento.sql").read_text(encoding="utf-8")
+        for texto in (completo, incremental):
+            self.assertIn("periodo_id", texto)
+            self.assertIn("estado_periodo", texto)
+            self.assertIn("fk_delivery_venta_periodo", texto)
+        self.assertIn("ix_delivery_ventas_periodo_estado", indices)
 
 
 if __name__ == "__main__":

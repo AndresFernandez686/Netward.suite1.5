@@ -47,12 +47,14 @@ COLUMNAS_CRITICAS = {
         "primera_carga", "veces_sincronizado", "fue_sobreescrito",
         "version_ultima_carga",
     },
+    "delivery_ventas": {"periodo_id", "estado_periodo"},
 }
 
 CLAVES_CRITICAS = (
     ("inventario_items", "periodo_id", "inventario_periodos"),
     ("historial", "snapshot_id", "inventario_snapshots"),
     ("historial", "periodo_id", "inventario_periodos"),
+    ("delivery_ventas", "periodo_id", "inventario_periodos"),
 )
 
 

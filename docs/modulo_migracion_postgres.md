@@ -8,6 +8,7 @@
 | `migracion/03_indices_rendimiento.sql` | Índices compuestos para producción |
 | `migracion/04_rollback.sql` | DROP CASCADE en orden inverso |
 | `migracion/05_multiempleado.sql` | Actualización idempotente del inventario multi-empleado |
+| `migracion/06_delivery_periodos.sql` | Asociación de ventas delivery con períodos y estado fuera de rango |
 | `migracion/migrate_sqlite_to_postgres.py` | Migra datos SQLite → PostgreSQL con conversión de tipos |
 | `migracion/verificar_migracion.py` | Compara conteos y verifica secuencias SERIAL |
 
@@ -40,6 +41,7 @@ psql -U user -d netward -f migracion/03_indices_rendimiento.sql
 
 # Solo para una base existente anterior al inventario multi-empleado
 psql -U user -d netward -f migracion/05_multiempleado.sql
+psql -U user -d netward -f migracion/06_delivery_periodos.sql
 
 # 2. Dry-run (ver cuántas filas hay)
 python migracion/migrate_sqlite_to_postgres.py --pg "postgresql://..." --dry-run
@@ -68,3 +70,7 @@ No se agregó una tabla nueva. Se ampliaron:
 - `conteo_detalle`: primera carga, número de sincronizaciones, sobreescritura y última versión.
 
 En instalaciones nuevas los campos forman parte de `01_schema_completo.sql`. En una base PostgreSQL existente se ejecuta `05_multiempleado.sql` antes de usar la nueva versión.
+
+## Cambio delivery por período
+
+`delivery_ventas` incorpora `periodo_id` y `estado_periodo`. En bases existentes se debe ejecutar `06_delivery_periodos.sql`; las ventas nuevas quedan como `en_rango`, `fuera_rango` o `sin_periodo`.

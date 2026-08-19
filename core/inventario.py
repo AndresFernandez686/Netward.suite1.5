@@ -225,14 +225,21 @@ def _stock_map_periodo(periodo_id: int) -> dict:
     return result
 
 
-def _ventas_map(tienda_id: str, fecha_ini: str, fecha_fin: str) -> dict:
+def _ventas_map(tienda_id: str, fecha_ini: str, fecha_fin: str, periodo_id: int | None = None) -> dict:
     """Retorna {nombre_norm: cantidad} desde DeliveryVenta en el período."""
+    from sqlalchemy import and_, or_
     from core.models import DeliveryVenta
+    filtro_periodo = and_(
+        DeliveryVenta.periodo_id.is_(None),
+        DeliveryVenta.estado_periodo != "fuera_rango",
+        DeliveryVenta.fecha >= fecha_ini,
+        DeliveryVenta.fecha <= fecha_fin,
+    )
+    if periodo_id is not None:
+        filtro_periodo = or_(DeliveryVenta.periodo_id == periodo_id, filtro_periodo)
     result = {}
     for v in (DeliveryVenta.query
-              .filter(DeliveryVenta.tienda_id == tienda_id,
-                      DeliveryVenta.fecha >= fecha_ini,
-                      DeliveryVenta.fecha <= fecha_fin)
+              .filter(DeliveryVenta.tienda_id == tienda_id, filtro_periodo)
               .all()):
         k = _norm(v.producto)
         result[k] = result.get(k, 0.0) + _f(v.cantidad)
@@ -520,7 +527,7 @@ def admin_desc():
 
             # Datos del período seleccionado (Periodo vs Excel oficial)
             sm   = _stock_map_periodo(periodo.id)
-            vm   = _ventas_map(tienda_id, fecha_ini, fecha_fin) if tienda_id else {}
+            vm   = _ventas_map(tienda_id, fecha_ini, fecha_fin, periodo.id) if tienda_id else {}
             pm   = _precios_map()
             prev = _snapshot_anterior(tienda_id, mes) if tienda_id else None
 

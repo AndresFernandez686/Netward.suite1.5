@@ -10,7 +10,12 @@ Comando:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Resultado general: **87 pruebas automatizadas aprobadas**.
+Resultado general: **90 pruebas automatizadas aprobadas**.
+
+## Fallos parciales
+
+1. [Red inestable y reintento](fallos_parciales/01-red-inestable.md)
+2. [Delivery fuera de rango](fallos_parciales/02-delivery-fuera-rango.md)
 
 ## Permisos y seguridad
 

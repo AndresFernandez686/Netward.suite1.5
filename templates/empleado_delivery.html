@@ -43,6 +43,7 @@
           <li>
             <span class="sale__time">{{ v.hora }}</span>
             <span class="sale__name">{{ v.cantidad }}x {{ v.producto }}</span>
+            {% if v.estado_periodo == 'fuera_rango' %}<span class="badge badge--warning">Fuera de rango</span>{% endif %}
             <span class="sale__total">${{ '%g'|format(v.total) }}</span>
           </li>
         {% endfor %}

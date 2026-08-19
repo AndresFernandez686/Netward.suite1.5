@@ -150,9 +150,12 @@ CREATE TABLE IF NOT EXISTS delivery_ventas (
     precio_unitario DOUBLE PRECISION NOT NULL DEFAULT 0,
     total           DOUBLE PRECISION NOT NULL DEFAULT 0,
     usuario         VARCHAR(80)  NOT NULL,
-    tienda_id       VARCHAR(10)  NOT NULL DEFAULT 'T001'
+    tienda_id       VARCHAR(10)  NOT NULL DEFAULT 'T001',
+    periodo_id      INTEGER,
+    estado_periodo  VARCHAR(20)  NOT NULL DEFAULT 'sin_periodo'
 );
 CREATE INDEX IF NOT EXISTS ix_delivery_ventas_cliente_id ON delivery_ventas(cliente_id);
+CREATE INDEX IF NOT EXISTS ix_delivery_ventas_periodo_id ON delivery_ventas(periodo_id);
 
 -- =============================================================================
 -- CONFIGURACIÓN Y UMBRALES
@@ -428,6 +431,18 @@ BEGIN
     ) THEN
         ALTER TABLE historial
             ADD CONSTRAINT fk_historial_periodo
+            FOREIGN KEY (periodo_id) REFERENCES inventario_periodos(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.contype = 'f'
+          AND c.conrelid = 'delivery_ventas'::regclass
+          AND c.confrelid = 'inventario_periodos'::regclass
+          AND a.attname = 'periodo_id'
+    ) THEN
+        ALTER TABLE delivery_ventas
+            ADD CONSTRAINT fk_delivery_venta_periodo
             FOREIGN KEY (periodo_id) REFERENCES inventario_periodos(id) ON DELETE SET NULL;
     END IF;
 END $$;

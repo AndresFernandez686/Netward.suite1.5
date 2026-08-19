@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import json
+from typing import Callable, Optional
 from sqlalchemy import or_
 
 from flask import session
@@ -517,6 +518,34 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
     return guardados
 
 
+def guardar_carrito_transaccional(
+    carrito: list,
+    tienda_id: str,
+    usuario: str,
+    *,
+    cliente_id: str,
+    periodo_id: int,
+    antes_commit: Optional[Callable[[int], None]] = None,
+) -> int:
+    """Guarda todo el carrito o revierte por completo y permite reintentar."""
+    try:
+        guardados = build_carrito_guardado(
+            carrito,
+            tienda_id,
+            usuario,
+            cliente_id=cliente_id,
+            periodo_id=periodo_id,
+        )
+        db.session.flush()
+        if antes_commit is not None:
+            antes_commit(guardados)
+        db.session.commit()
+        return guardados
+    except Exception:
+        db.session.rollback()
+        raise
+
+
 def build_averiado_context(*, tienda_id: str):
     return {
         "productos": get_productos_db(),
@@ -708,9 +737,22 @@ def registrar_venta_delivery(*, tienda_id: str, usuario: str, producto_id: int, 
     producto = db.session.get(DeliveryProducto, producto_id)
     if not producto:
         return None
+    cliente_id = session.get("cliente_id", "C001")
+    periodo = (
+        InventarioPeriodo.query
+        .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
+        .filter(InventarioPeriodo.fecha_desde <= fecha)
+        .filter(InventarioPeriodo.fecha_hasta >= fecha)
+        .order_by(InventarioPeriodo.id.desc())
+        .first()
+    )
+    hay_periodos = InventarioPeriodo.query.filter_by(
+        cliente_id=cliente_id,
+        tienda_id=tienda_id,
+    ).first() is not None
     total = producto.precio * cantidad
     db.session.add(DeliveryVenta(
-        cliente_id=session.get("cliente_id", "C001"),
+        cliente_id=cliente_id,
         fecha=fecha,
         hora=now_local_time_str(),
         producto=producto.nombre,
@@ -719,6 +761,8 @@ def registrar_venta_delivery(*, tienda_id: str, usuario: str, producto_id: int, 
         total=total,
         usuario=usuario,
         tienda_id=tienda_id,
+        periodo_id=periodo.id if periodo else None,
+        estado_periodo="en_rango" if periodo else ("fuera_rango" if hay_periodos else "sin_periodo"),
     ))
     return producto.nombre, total
 

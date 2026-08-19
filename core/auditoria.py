@@ -9,6 +9,7 @@ import json
 import math
 from datetime import datetime
 from typing import Optional
+from sqlalchemy import and_, or_
 
 from .models import (
     db, InventarioPeriodo, ConteoDetalle, AjusteInventario, InventarioItem,
@@ -123,8 +124,15 @@ def _ventas_delivery_periodo(periodo: InventarioPeriodo, producto_nombre: str) -
     rows = (
         DeliveryVenta.query
         .filter_by(cliente_id=periodo.cliente_id, tienda_id=periodo.tienda_id)
-        .filter(DeliveryVenta.fecha >= periodo.fecha_desde)
-        .filter(DeliveryVenta.fecha <= periodo.fecha_hasta)
+        .filter(or_(
+            DeliveryVenta.periodo_id == periodo.id,
+            and_(
+                DeliveryVenta.periodo_id.is_(None),
+                DeliveryVenta.estado_periodo != "fuera_rango",
+                DeliveryVenta.fecha >= periodo.fecha_desde,
+                DeliveryVenta.fecha <= periodo.fecha_hasta,
+            ),
+        ))
         .filter(db.func.lower(DeliveryVenta.producto) == _norm(producto_nombre))
         .all()
     )
@@ -281,8 +289,15 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
     ventas_delivery_periodo = (
         DeliveryVenta.query
         .filter_by(cliente_id=periodo.cliente_id, tienda_id=periodo.tienda_id)
-        .filter(DeliveryVenta.fecha >= periodo.fecha_desde)
-        .filter(DeliveryVenta.fecha <= periodo.fecha_hasta)
+        .filter(or_(
+            DeliveryVenta.periodo_id == periodo.id,
+            and_(
+                DeliveryVenta.periodo_id.is_(None),
+                DeliveryVenta.estado_periodo != "fuera_rango",
+                DeliveryVenta.fecha >= periodo.fecha_desde,
+                DeliveryVenta.fecha <= periodo.fecha_hasta,
+            ),
+        ))
         .all()
     )
     nombres.update(v.producto for v in ventas_delivery_periodo if v.producto)

@@ -77,6 +77,8 @@ CREATE INDEX IF NOT EXISTS ix_justificaciones_resultado
 -- ── Delivery ─────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS ix_delivery_ventas_fecha_tienda
     ON delivery_ventas(tienda_id, fecha DESC);
+CREATE INDEX IF NOT EXISTS ix_delivery_ventas_periodo_estado
+    ON delivery_ventas(periodo_id, estado_periodo);
 
 -- ── Sincronización ───────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS ix_sinc_log_tienda_tipo
