@@ -13,11 +13,17 @@ CREATE INDEX IF NOT EXISTS ix_inv_items_tienda_sinc
 CREATE INDEX IF NOT EXISTS ix_inv_items_fecha
     ON inventario_items(fecha);
 
+CREATE INDEX IF NOT EXISTS ix_inv_items_periodo_usuario
+    ON inventario_items(periodo_id, usuario_ultima_carga, sinc_estado);
+
 CREATE INDEX IF NOT EXISTS ix_historial_fecha_tienda
     ON historial(tienda_id, fecha DESC);
 
 CREATE INDEX IF NOT EXISTS ix_historial_usuario
     ON historial(usuario);
+
+CREATE INDEX IF NOT EXISTS ix_historial_periodo_producto
+    ON historial(periodo_id, producto, version DESC);
 
 -- ── Averiados y vencimientos ─────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS ix_averiados_tienda_sinc

@@ -1306,6 +1306,7 @@ body.periodos-help-open {
 .audit-status--sobrante { background: #e8f8ee; color: #168a4c; }
 .audit-status--compensado { background: #e8f2ff; color: #2463b5; }
 .audit-status--pendiente { background: #eeedff; color: #675ad4; }
+.audit-status--sin_datos { background: #fff4d6; color: #946200; }
 .audit-status--correcto { background: #e8f8ee; color: #168a4c; }
 .audit-difference, .audit-impact { font-weight: 800; }
 .audit-table .is-negative { color: #e03e51; }

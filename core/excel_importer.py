@@ -9,7 +9,7 @@ import io
 import re
 from typing import Optional
 
-from .models import db, ExcelImportado, ExcelDetalle, Producto
+from .models import db, ExcelImportado, ExcelDetalle, InventarioPeriodo, Producto
 
 # Columnas reconocidas del Excel oficial (nombres en minúsculas, sin acentos)
 _COL_MAP = {
@@ -250,6 +250,44 @@ def importar_excel(
         ei.estado_validacion = "pendiente_vinculacion"
 
     return ei, advertencias
+
+
+def importar_excel_transaccional(
+    periodo_id: int,
+    cliente_id: str,
+    usuario: str,
+    filename: str,
+    contenido: bytes,
+) -> tuple[ExcelImportado, list[str]]:
+    """Importa todo o revierte y conserva únicamente una cabecera ``fallido``."""
+    try:
+        ei, advertencias = importar_excel(
+            periodo_id=periodo_id,
+            cliente_id=cliente_id,
+            usuario=usuario,
+            filename=filename,
+            contenido=contenido,
+        )
+        periodo = db.session.get(InventarioPeriodo, periodo_id)
+        if periodo is not None:
+            periodo.estado = "Excel Importado"
+        db.session.commit()
+        return ei, advertencias
+    except Exception:
+        db.session.rollback()
+        try:
+            db.session.add(ExcelImportado(
+                periodo_id=periodo_id,
+                cliente_id=cliente_id,
+                nombre_archivo=filename,
+                usuario_importador=usuario,
+                estado_validacion="fallido",
+                productos_nuevos=0,
+            ))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        raise
 
 
 def _leer_excel(contenido: bytes, filename: str) -> list[list]:

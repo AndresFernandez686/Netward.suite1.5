@@ -26,6 +26,13 @@ HEADERS_AUDITORIA = [
 ]
 
 
+def _excel_seguro(valor):
+    """Neutraliza texto que Excel interpretaría como fórmula ejecutable."""
+    if isinstance(valor, str) and valor.startswith(("=", "+", "-", "@")):
+        return "'" + valor
+    return valor
+
+
 def generar_excel_auditoria(periodo: InventarioPeriodo) -> io.BytesIO:
     """Devuelve el XLSX completo de un período listo para descargar."""
     resultados = (
@@ -61,7 +68,7 @@ def generar_excel_auditoria(periodo: InventarioPeriodo) -> io.BytesIO:
             .order_by(Justificacion.id.desc())
             .first()
         )
-        hoja.append([
+        hoja.append([_excel_seguro(valor) for valor in [
             periodo.numero, periodo.fecha_desde, periodo.fecha_hasta,
             resultado.articulo_codigo, resultado.producto_nombre, resultado.categoria,
             resultado.stock_inicial_anterior, resultado.stock_inicial_excel,
@@ -84,7 +91,7 @@ def generar_excel_auditoria(periodo: InventarioPeriodo) -> io.BytesIO:
             justificacion.observacion if justificacion else "",
             justificacion.usuario if justificacion else "",
             str(justificacion.fecha.date()) if justificacion and justificacion.fecha else "",
-        ])
+        ]])
         fila = hoja.max_row
         fill = None
         if resultado.severidad == "Crítico":

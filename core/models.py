@@ -114,6 +114,10 @@ class InventarioItem(BaseModel):
     tipo_inventario = db.Column(db.String(20), default="Diario")
     fecha = db.Column(db.String(20), default=lambda: date.today().isoformat())
     sinc_estado = db.Column(db.String(20), default="pendiente")  # pendiente | sincronizado
+    periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=True, index=True)
+    usuario_ultima_carga = db.Column(db.String(80), default="", nullable=False)
+    version = db.Column(db.Integer, default=1, nullable=False)
+    fue_sobreescrito = db.Column(db.Boolean, default=False, nullable=False)
     actualizado = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
@@ -139,6 +143,11 @@ class HistorialMovimiento(BaseModel):
     tienda_id = db.Column(db.String(10), default="T001")
     # FK explícita al snapshot de la sesión de carga (evita ambigüedad si mismo usuario carga 2 veces/día)
     snapshot_id = db.Column(db.Integer, db.ForeignKey("inventario_snapshots.id"), nullable=True, index=True)
+    periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=True, index=True)
+    tipo_movimiento = db.Column(db.String(30), default="original", nullable=False)
+    usuario_anterior = db.Column(db.String(80), default="")
+    cantidad_anterior = db.Column(db.Float, nullable=True)
+    version = db.Column(db.Integer, default=1, nullable=False)
     creado = db.Column(db.DateTime, default=datetime.utcnow)
 
 
@@ -350,6 +359,8 @@ class ConteoDetalle(BaseModel):
     fecha_carga = db.Column(db.DateTime, default=datetime.utcnow)     # última sincronización
     # Regla: último gana. Este contador registra cuántas veces se sincronizó en el período.
     veces_sincronizado = db.Column(db.Integer, default=1)
+    fue_sobreescrito = db.Column(db.Boolean, default=False, nullable=False)
+    version_ultima_carga = db.Column(db.Integer, default=1, nullable=False)
 
     __table_args__ = (
         db.UniqueConstraint("periodo_id", "tienda_id", "producto_nombre",
@@ -405,7 +416,7 @@ class ExcelImportado(BaseModel):
     nombre_archivo = db.Column(db.String(255), nullable=False)
     fecha_importacion = db.Column(db.DateTime, default=datetime.utcnow)
     usuario_importador = db.Column(db.String(80), nullable=False)
-    # ok | errores | pendiente_vinculacion
+    # ok | errores | pendiente_vinculacion | fallido
     estado_validacion = db.Column(db.String(40), default="ok")
     productos_nuevos = db.Column(db.Integer, default=0)  # productos sin mapear
 

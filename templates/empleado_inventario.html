@@ -70,6 +70,36 @@
   {% endif %}
 {% endwith %}
 
+{% if cargas_existentes %}
+<section class="card card--skip-collapse" aria-labelledby="cargas-compartidas-title">
+  <div class="cart__head">
+    <div>
+      <h3 id="cargas-compartidas-title">Carga compartida del período</h3>
+      <small class="muted">Cargas guardadas y borradores visibles para todos los empleados de la tienda.</small>
+    </div>
+    <span class="badge badge--blue">{{ cargas_existentes|length }} producto(s)</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Producto</th><th>Categoría</th><th>Estado compartido</th></tr></thead>
+      <tbody>
+        {% for carga in cargas_existentes %}
+        <tr>
+          <td><strong>{{ carga.producto }}</strong></td>
+          <td><span class="tag">{{ carga.categoria }}</span></td>
+          <td>
+            {{ '%g'|format(carga.cantidad) }} unidades cargadas por {{ carga.usuario }}.
+            {% if carga.es_borrador %}<span class="badge badge--warning">Pendiente de guardar</span>{% endif %}
+            {% if carga.fue_sobreescrito %}<span class="badge badge--warning">Sobreescrito</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
 <div class="tabs" id="invTabs">
   {% for cat in categorias %}
     <button type="button" class="tab {{ 'is-active' if cat == active_tab else '' }}" data-tab="{{ cat }}">{{ cat }}</button>
@@ -241,11 +271,49 @@
   {% endif %}
 </section>
 {% endif %}
+
+{% if conflicto_carga %}
+<dialog id="conflictoCarga" class="card" style="max-width:520px;width:calc(100% - 32px);border:0;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.28);">
+  <h3>Producto ya cargado</h3>
+  <p>{{ conflicto_carga.mensaje }}</p>
+  <p class="muted">Carga vigente: {{ '%g'|format(conflicto_carga.cantidad_actual) }} unidades por {{ conflicto_carga.usuario }}.</p>
+  {% if conflicto_carga.accion == 'agregar' %}
+  <form method="post" action="{{ url_for('carrito_agregar') }}" class="action-group">
+    <input type="hidden" name="categoria" value="{{ conflicto_carga.categoria }}">
+    <input type="hidden" name="producto" value="{{ conflicto_carga.producto }}">
+    <input type="hidden" name="cantidad" value="{{ conflicto_carga.cantidad }}">
+    <input type="hidden" name="ume" value="{{ conflicto_carga.ume }}">
+    <input type="hidden" name="tipo_inventario" value="{{ conflicto_carga.tipo_inventario }}">
+    <input type="hidden" name="fecha" value="{{ conflicto_carga.fecha }}">
+    <input type="hidden" name="detalle" value="{{ conflicto_carga.detalle }}">
+    <input type="hidden" name="version_esperada" value="{{ conflicto_carga.version }}">
+    <input type="hidden" name="confirmar_sobreescritura" value="1">
+    <button type="submit" class="btn btn--danger">Sí, sobreescribir</button>
+    <button type="button" class="btn btn--ghost" data-cancel-conflict>Cancelar</button>
+  </form>
+  {% else %}
+  <form method="post" action="{{ url_for('carrito_confirmar_conflicto') }}" class="action-group">
+    <input type="hidden" name="categoria" value="{{ conflicto_carga.categoria }}">
+    <input type="hidden" name="producto" value="{{ conflicto_carga.producto }}">
+    <button type="submit" class="btn btn--danger">Sí, sobreescribir</button>
+    <button type="button" class="btn btn--ghost" data-cancel-conflict>Cancelar</button>
+  </form>
+  {% endif %}
+</dialog>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
   (function () {
+    var conflicto = document.getElementById('conflictoCarga');
+    if (conflicto) {
+      conflicto.showModal();
+      conflicto.querySelectorAll('[data-cancel-conflict]').forEach(function (button) {
+        button.addEventListener('click', function () { conflicto.close(); });
+      });
+    }
+
     function setActiveTab(tabName) {
       document.querySelectorAll('#invTabs .tab').forEach(function (t) {
         t.classList.toggle('is-active', t.dataset.tab === tabName);

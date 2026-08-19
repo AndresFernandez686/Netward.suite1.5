@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS inventario_items (
     tipo_inventario VARCHAR(20)  NOT NULL DEFAULT 'Diario',
     fecha           VARCHAR(20),
     sinc_estado     VARCHAR(20)  NOT NULL DEFAULT 'pendiente',  -- pendiente | sincronizado
+    periodo_id      INTEGER,
+    usuario_ultima_carga VARCHAR(80) NOT NULL DEFAULT '',
+    version         INTEGER      NOT NULL DEFAULT 1,
+    fue_sobreescrito BOOLEAN     NOT NULL DEFAULT FALSE,
     actualizado     TIMESTAMP    DEFAULT NOW(),
     CONSTRAINT uq_inv_item UNIQUE (tienda_id, categoria, producto)
 );
@@ -87,6 +91,12 @@ CREATE TABLE IF NOT EXISTS historial (
     tipo_inventario VARCHAR(20)  NOT NULL DEFAULT 'Diario',
     detalle         VARCHAR(255) NOT NULL DEFAULT '',
     tienda_id       VARCHAR(10)  NOT NULL DEFAULT 'T001',
+    snapshot_id     INTEGER,
+    periodo_id      INTEGER,
+    tipo_movimiento VARCHAR(30)  NOT NULL DEFAULT 'original',
+    usuario_anterior VARCHAR(80) NOT NULL DEFAULT '',
+    cantidad_anterior DOUBLE PRECISION,
+    version         INTEGER      NOT NULL DEFAULT 1,
     creado          TIMESTAMP    DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS ix_historial_cliente_id ON historial(cliente_id);
@@ -260,7 +270,11 @@ CREATE TABLE IF NOT EXISTS conteo_detalle (
     total_unidad_base DOUBLE PRECISION NOT NULL DEFAULT 0,
     fue_cargado       BOOLEAN      NOT NULL DEFAULT TRUE,
     observacion       VARCHAR(255) NOT NULL DEFAULT '',
+    primera_carga     TIMESTAMP    DEFAULT NOW(),
     fecha_carga       TIMESTAMP    DEFAULT NOW(),
+    veces_sincronizado INTEGER     NOT NULL DEFAULT 1,
+    fue_sobreescrito  BOOLEAN      NOT NULL DEFAULT FALSE,
+    version_ultima_carga INTEGER   NOT NULL DEFAULT 1,
     CONSTRAINT uq_conteo_periodo_producto UNIQUE (periodo_id, tienda_id, producto_nombre)
 );
 CREATE INDEX IF NOT EXISTS ix_conteo_detalle_cliente_id ON conteo_detalle(cliente_id);
@@ -375,5 +389,47 @@ CREATE TABLE IF NOT EXISTS productos_relacionados (
     activo              BOOLEAN      NOT NULL DEFAULT TRUE
 );
 CREATE INDEX IF NOT EXISTS ix_productos_relacionados_cliente_id ON productos_relacionados(cliente_id);
+
+-- Las tablas referenciadas se crean después del inventario operativo en este
+-- archivo; las FK multi-empleado se agregan al final para mantener el DDL lineal.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.contype = 'f'
+          AND c.conrelid = 'inventario_items'::regclass
+          AND c.confrelid = 'inventario_periodos'::regclass
+          AND a.attname = 'periodo_id'
+    ) THEN
+        ALTER TABLE inventario_items
+            ADD CONSTRAINT fk_inv_item_periodo
+            FOREIGN KEY (periodo_id) REFERENCES inventario_periodos(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.contype = 'f'
+          AND c.conrelid = 'historial'::regclass
+          AND c.confrelid = 'inventario_snapshots'::regclass
+          AND a.attname = 'snapshot_id'
+    ) THEN
+        ALTER TABLE historial
+            ADD CONSTRAINT fk_historial_snapshot
+            FOREIGN KEY (snapshot_id) REFERENCES inventario_snapshots(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.contype = 'f'
+          AND c.conrelid = 'historial'::regclass
+          AND c.confrelid = 'inventario_periodos'::regclass
+          AND a.attname = 'periodo_id'
+    ) THEN
+        ALTER TABLE historial
+            ADD CONSTRAINT fk_historial_periodo
+            FOREIGN KEY (periodo_id) REFERENCES inventario_periodos(id) ON DELETE SET NULL;
+    END IF;
+END $$;
 
 COMMIT;

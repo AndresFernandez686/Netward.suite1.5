@@ -37,7 +37,11 @@ CREATE TABLE IF NOT EXISTS conteo_detalle (
     total_unidad_base DOUBLE PRECISION NOT NULL DEFAULT 0,
     fue_cargado       BOOLEAN      NOT NULL DEFAULT TRUE,
     observacion       VARCHAR(255) NOT NULL DEFAULT '',
+    primera_carga     TIMESTAMP    DEFAULT NOW(),
     fecha_carga       TIMESTAMP    DEFAULT NOW(),
+    veces_sincronizado INTEGER     NOT NULL DEFAULT 1,
+    fue_sobreescrito  BOOLEAN      NOT NULL DEFAULT FALSE,
+    version_ultima_carga INTEGER   NOT NULL DEFAULT 1,
     CONSTRAINT uq_conteo_periodo_producto UNIQUE (periodo_id, tienda_id, producto_nombre)
 );
 CREATE INDEX IF NOT EXISTS ix_conteo_detalle_cliente_id ON conteo_detalle(cliente_id);

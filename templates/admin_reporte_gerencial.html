@@ -44,6 +44,32 @@
   {% endif %}
 </div>
 
+{# ── Trazabilidad multi-empleado ── #}
+<div class="card mb-4">
+  <div class="card__header"><h2 class="card__title">Trazabilidad de cargas</h2></div>
+  <div class="card__body p-0">
+    {% if cargas %}
+    <div class="table-responsive">
+      <table class="table">
+        <thead><tr><th>Producto</th><th>Conteo válido</th><th>Última carga por</th><th>Sobreescritura</th></tr></thead>
+        <tbody>
+          {% for carga in cargas %}
+          <tr>
+            <td><strong>{{ carga.producto_nombre }}</strong></td>
+            <td>{{ carga.total_unidad_base }} unid.</td>
+            <td>{{ carga.usuario }}</td>
+            <td>{% if carga.fue_sobreescrito %}<span class="badge badge--warning">Sí</span>{% else %}No{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No hay cargas registradas para este período.</p>
+    {% endif %}
+  </div>
+</div>
+
 {# ── Comparación contra período anterior ── #}
 {% if comparacion %}
 <div class="card mb-4">

@@ -7,6 +7,7 @@
 | `migracion/02_modulo_auditoria.sql` | Solo tablas del módulo de auditoría (para instancias ya existentes) |
 | `migracion/03_indices_rendimiento.sql` | Índices compuestos para producción |
 | `migracion/04_rollback.sql` | DROP CASCADE en orden inverso |
+| `migracion/05_multiempleado.sql` | Actualización idempotente del inventario multi-empleado |
 | `migracion/migrate_sqlite_to_postgres.py` | Migra datos SQLite → PostgreSQL con conversión de tipos |
 | `migracion/verificar_migracion.py` | Compara conteos y verifica secuencias SERIAL |
 
@@ -22,11 +23,11 @@
 ## Orden de migración (respeta FK)
 ```
 clientes → tiendas → usuarios → productos → stock_thresholds
-→ producto_precios → delivery_productos → inventario_items
-→ historial → inventario_snapshots → inventario_desc_snapshots
+→ producto_precios → delivery_productos → inventario_periodos
+→ inventario_snapshots → inventario_items → historial → inventario_desc_snapshots
 → delivery_ventas → registros_averiados → registros_vencimiento
 → sincronizacion_log → configuracion_sistema
-→ inventario_periodos → conteo_detalle → ajustes_inventario
+→ conteo_detalle → ajustes_inventario
 → excel_importados → excel_detalles → auditoria_resultados
 → justificaciones → productos_relacionados
 ```
@@ -36,6 +37,9 @@ clientes → tiendas → usuarios → productos → stock_thresholds
 # 1. Crear schema
 psql -U user -d netward -f migracion/01_schema_completo.sql
 psql -U user -d netward -f migracion/03_indices_rendimiento.sql
+
+# Solo para una base existente anterior al inventario multi-empleado
+psql -U user -d netward -f migracion/05_multiempleado.sql
 
 # 2. Dry-run (ver cuántas filas hay)
 python migracion/migrate_sqlite_to_postgres.py --pg "postgresql://..." --dry-run
@@ -51,5 +55,16 @@ DATABASE_URL=postgresql://user:pass@host:5432/netward
 ```
 
 ## Tablas con columnas booleanas que se convierten
-`tiendas`, `productos`, `delivery_productos`, `registros_averiados`,
-`registros_vencimiento`, `conteo_detalle`, `auditoria_resultados`, `productos_relacionados`
+`tiendas`, `productos`, `delivery_productos`, `inventario_items`,
+`registros_averiados`, `registros_vencimiento`, `conteo_detalle`,
+`auditoria_resultados`, `productos_relacionados`
+
+## Cambio multi-empleado
+
+No se agregó una tabla nueva. Se ampliaron:
+
+- `inventario_items`: período, último usuario, versión y marca de sobreescritura.
+- `historial`: período, snapshot, tipo de movimiento, valores anteriores y versión.
+- `conteo_detalle`: primera carga, número de sincronizaciones, sobreescritura y última versión.
+
+En instalaciones nuevas los campos forman parte de `01_schema_completo.sql`. En una base PostgreSQL existente se ejecuta `05_multiempleado.sql` antes de usar la nueva versión.

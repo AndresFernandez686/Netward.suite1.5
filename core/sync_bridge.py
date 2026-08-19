@@ -9,8 +9,48 @@ del período activo. Funciona en dos sentidos:
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Callable, Optional
+from sqlalchemy import or_
 
 from .models import db, InventarioPeriodo, ConteoDetalle, InventarioItem, HistorialMovimiento
+
+
+def sincronizar_transaccional(
+    *,
+    cliente_id: str,
+    tienda_id: str,
+    usuario: str,
+    accion: str,
+    periodo: Optional[InventarioPeriodo] = None,
+    antes_commit: Optional[Callable[[dict], None]] = None,
+) -> dict:
+    """Propaga y sincroniza como una unidad atómica; cualquier fallo revierte todo."""
+    from . import empleado as empleado_service
+
+    try:
+        if periodo is not None:
+            propagar_conteo_a_periodo(
+                tienda_id=tienda_id,
+                cliente_id=cliente_id,
+                usuario=usuario,
+                periodo_id=periodo.id,
+            )
+            db.session.flush()
+
+        resumen = empleado_service.procesar_sincronizacion(
+            cliente_id=cliente_id,
+            tienda_id=tienda_id,
+            usuario=usuario,
+            accion=accion,
+        )
+        db.session.flush()
+        if antes_commit is not None:
+            antes_commit(resumen)
+        db.session.commit()
+        return resumen
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def _norm(s: str) -> str:
@@ -18,7 +58,8 @@ def _norm(s: str) -> str:
 
 
 def _upsert_conteo(periodo: InventarioPeriodo, nombre: str, categoria: str,
-                   total: float, usuario: str) -> None:
+                   total: float, usuario: str, *, fue_sobreescrito=False,
+                   version_ultima_carga=1) -> None:
     """
     Regla: ÚLTIMO GANA.
     Si el empleado sincroniza más de una vez en el mismo período,
@@ -35,6 +76,8 @@ def _upsert_conteo(periodo: InventarioPeriodo, nombre: str, categoria: str,
         cd.fecha_carga = datetime.utcnow()
         cd.usuario = usuario
         cd.veces_sincronizado = (cd.veces_sincronizado or 1) + 1
+        cd.fue_sobreescrito = bool(fue_sobreescrito)
+        cd.version_ultima_carga = int(version_ultima_carga or 1)
         # primera_carga NO se modifica — conserva el timestamp original
     else:
         ahora = datetime.utcnow()
@@ -53,6 +96,8 @@ def _upsert_conteo(periodo: InventarioPeriodo, nombre: str, categoria: str,
             primera_carga=ahora,
             fecha_carga=ahora,
             veces_sincronizado=1,
+            fue_sobreescrito=bool(fue_sobreescrito),
+            version_ultima_carga=int(version_ultima_carga or 1),
         )
         db.session.add(cd)
 
@@ -87,14 +132,33 @@ def propagar_conteo_a_periodo(
     if not periodo:
         return 0
 
-    items = InventarioItem.query.filter_by(
-        cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente"
-    ).all()
+    items = (
+        InventarioItem.query
+        .filter_by(
+            cliente_id=cliente_id,
+            tienda_id=tienda_id,
+            sinc_estado="pendiente",
+            periodo_id=periodo.id,
+        )
+        .filter(or_(
+            InventarioItem.usuario_ultima_carga == usuario,
+            InventarioItem.usuario_ultima_carga == "",
+            InventarioItem.usuario_ultima_carga.is_(None),
+        ))
+        .all()
+    )
 
     count = 0
     for item in items:
-        _upsert_conteo(periodo, item.producto, item.categoria,
-                       float(item.cantidad or 0), usuario)
+        _upsert_conteo(
+            periodo,
+            item.producto,
+            item.categoria,
+            float(item.cantidad or 0),
+            item.usuario_ultima_carga or usuario,
+            fue_sobreescrito=item.fue_sobreescrito,
+            version_ultima_carga=item.version,
+        )
         count += 1
 
     if count > 0 and periodo.estado in ("Abierto", "Pendiente"):
@@ -153,7 +217,9 @@ def retroalimentar_periodo_desde_items(periodo: InventarioPeriodo) -> int:
         ).all()
         for item in items:
             _upsert_conteo(periodo, item.producto, item.categoria,
-                           float(item.cantidad or 0), "sistema")
+                           float(item.cantidad or 0), item.usuario_ultima_carga or "sistema",
+                           fue_sobreescrito=item.fue_sobreescrito,
+                           version_ultima_carga=item.version)
         importados = len(items)
     else:
         from collections import defaultdict

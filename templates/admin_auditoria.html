@@ -36,7 +36,7 @@
         </div>
 
         <div class="audit-filter-tabs" role="tablist" aria-label="Filtrar resultados por estado">
-          {% for key, label in [('todos','Todos'),('faltante','Faltantes'),('sobrante','Sobrantes'),('compensado','Compensados'),('critico','Críticos'),('pendiente','Pendientes')] %}
+          {% for key, label in [('todos','Todos'),('faltante','Faltantes'),('sobrante','Sobrantes'),('compensado','Compensados'),('critico','Críticos'),('pendiente','Pendientes'),('sin_datos','Sin datos')] %}
           <button type="button" class="audit-filter-tab {{ 'is-active' if filtro == key }}" data-audit-filter="{{ key }}">{{ label }} <span class="audit-filter-count audit-filter-count--{{ key }}">{{ resumen[key] }}</span></button>
           {% endfor %}
         </div>
@@ -45,7 +45,7 @@
           <label class="audit-search"><span class="sr-only">Buscar</span><span aria-hidden="true">⌕</span><input type="search" id="auditSearch" placeholder="Buscar producto, código u observación..." autocomplete="off"></label>
           <label><span>Producto</span><select id="auditProduct"><option value="">Todos</option>{% for r in resultados|sort(attribute='producto_nombre') %}<option value="{{ r.producto_nombre|lower }}">{{ r.producto_nombre }}</option>{% endfor %}</select></label>
           <label><span>Categoría</span><select id="auditCategory"><option value="">Todas</option>{% for categoria in categorias %}<option value="{{ categoria|lower }}">{{ categoria }}</option>{% endfor %}</select></label>
-          <label><span>Estado</span><select id="auditState"><option value="">Todos</option><option value="critico">Crítico</option><option value="faltante">Faltante</option><option value="sobrante">Sobrante</option><option value="compensado">Compensado</option><option value="pendiente">Pendiente</option><option value="correcto">Correcto</option></select></label>
+          <label><span>Estado</span><select id="auditState"><option value="">Todos</option><option value="critico">Crítico</option><option value="faltante">Faltante</option><option value="sobrante">Sobrante</option><option value="compensado">Compensado</option><option value="pendiente">Pendiente</option><option value="sin_datos">Sin datos</option><option value="correcto">Correcto</option></select></label>
           <label class="audit-date-filter"><span>Fecha</span><input type="text" value="{{ fecha_es(periodo.fecha_desde) }} – {{ fecha_es(periodo.fecha_hasta) }}" readonly></label>
         </div>
 
@@ -55,8 +55,8 @@
             <thead><tr><th>Estado</th><th>Producto</th><th>Código</th><th>Categoría</th><th class="num">Sist. teórico</th><th class="num">Conteo físico</th><th class="num">Diferencia</th><th class="num">Impacto (Gs.)</th><th>Observación</th></tr></thead>
             <tbody>
               {% for r in resultados %}
-              {% set visual_state = 'critico' if r.severidad == 'Crítico' else ('pendiente' if r.estado_auditoria == 'Pendiente' else r.tipo_diferencia) %}
-              <tr class="audit-data-row" data-type="{{ r.tipo_diferencia }}" data-critical="{{ '1' if r.severidad == 'Crítico' else '0' }}" data-pending="{{ '1' if r.estado_auditoria == 'Pendiente' else '0' }}" data-state="{{ visual_state }}" data-product="{{ r.producto_nombre|lower }}" data-category="{{ r.categoria|lower }}" data-search="{{ (r.producto_nombre ~ ' ' ~ r.articulo_codigo ~ ' ' ~ r.categoria ~ ' ' ~ r.causa_sugerida ~ ' ' ~ r.evidencia)|lower|e }}">
+              {% set visual_state = 'sin_datos' if r.estado_auditoria == 'Sin datos' else ('critico' if r.severidad == 'Crítico' else ('pendiente' if r.estado_auditoria == 'Pendiente' else r.tipo_diferencia)) %}
+              <tr class="audit-data-row" data-type="{{ r.tipo_diferencia }}" data-critical="{{ '1' if r.severidad == 'Crítico' else '0' }}" data-pending="{{ '1' if r.estado_auditoria == 'Pendiente' else '0' }}" data-no-data="{{ '1' if r.estado_auditoria == 'Sin datos' else '0' }}" data-state="{{ visual_state }}" data-product="{{ r.producto_nombre|lower }}" data-category="{{ r.categoria|lower }}" data-search="{{ (r.producto_nombre ~ ' ' ~ r.articulo_codigo ~ ' ' ~ r.categoria ~ ' ' ~ r.causa_sugerida ~ ' ' ~ r.evidencia)|lower|e }}">
                 <td><span class="audit-status audit-status--{{ visual_state }}">{{ visual_state|capitalize }}</span></td>
                 <td><strong>{{ r.producto_nombre }}</strong></td>
                 <td><span class="audit-code">{{ r.articulo_codigo or '—' }}</span></td>
@@ -73,7 +73,7 @@
                 </dl></div>
                 <div class="audit-detail-actions"><h3>Diagnóstico y acciones</h3><p>{{ r.evidencia or 'Sin observaciones adicionales.' }}</p><p class="audit-detail-meta">Confianza {{ r.nivel_confianza }} · Estado {{ r.estado_auditoria }}{% if r.usuario_conteo %} · Conteo por {{ r.usuario_conteo }}{% endif %}</p>
                   {% for j in r.justificaciones %}<div class="audit-justification"><strong>{{ j.causa }}</strong> · {{ j.cantidad_justificada }} unid.<br>{{ j.observacion }} <small>· {{ j.usuario }}</small></div>{% endfor %}
-                  {% if r.diferencia != 0 and r.estado_auditoria not in ('Justificado', 'Revisado', 'Sin diferencia real') %}<div class="audit-row-actions"><details><summary class="btn btn--ghost btn--sm">Justificar diferencia</summary><form method="post" action="{{ url_for('admin_justificar', periodo_id=periodo.id, resultado_id=r.id) }}" class="audit-justify-form"><label>Causa<select name="causa" required>{% for c in causas_disponibles %}<option>{{ c }}</option>{% endfor %}</select></label><label>Cantidad<input type="number" name="cantidad_justificada" step="0.01" min="0" value="{{ r.diferencia|abs }}"></label><label>Observación<input type="text" name="observacion" maxlength="400" required></label><button type="submit" class="btn btn--primary btn--sm">Guardar</button></form></details><form method="post" action="{{ url_for('admin_marcar_revisado', periodo_id=periodo.id, resultado_id=r.id) }}"><button type="submit" class="btn btn--ghost btn--sm">Marcar revisado</button></form></div>{% endif %}
+                  {% if r.diferencia != 0 and r.estado_auditoria not in ('Justificado', 'Revisado', 'Sin diferencia real', 'Sin datos') %}<div class="audit-row-actions"><details><summary class="btn btn--ghost btn--sm">Justificar diferencia</summary><form method="post" action="{{ url_for('admin_justificar', periodo_id=periodo.id, resultado_id=r.id) }}" class="audit-justify-form"><label>Causa<select name="causa" required>{% for c in causas_disponibles %}<option>{{ c }}</option>{% endfor %}</select></label><label>Cantidad<input type="number" name="cantidad_justificada" step="0.01" min="0" value="{{ r.diferencia|abs }}"></label><label>Observación<input type="text" name="observacion" maxlength="400" required></label><button type="submit" class="btn btn--primary btn--sm">Guardar</button></form></details><form method="post" action="{{ url_for('admin_marcar_revisado', periodo_id=periodo.id, resultado_id=r.id) }}"><button type="submit" class="btn btn--ghost btn--sm">Marcar revisado</button></form></div>{% endif %}
                 </div>
               </div></td></tr>
               {% endfor %}
@@ -121,7 +121,7 @@
   var state = document.getElementById('auditState');
   var pageSize = document.getElementById('auditPageSize');
   function normalize(value) { return (value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
-  function matchesTab(row) { if (activeFilter === 'todos') return true; if (activeFilter === 'critico') return row.dataset.critical === '1'; if (activeFilter === 'pendiente') return row.dataset.pending === '1'; return row.dataset.type === activeFilter; }
+  function matchesTab(row) { if (activeFilter === 'todos') return true; if (activeFilter === 'critico') return row.dataset.critical === '1'; if (activeFilter === 'pendiente') return row.dataset.pending === '1'; if (activeFilter === 'sin_datos') return row.dataset.noData === '1'; return row.dataset.type === activeFilter; }
   function filteredRows() { var query = normalize(search.value); return rows.filter(function (row) { return matchesTab(row) && (!query || normalize(row.dataset.search).indexOf(query) !== -1) && (!product.value || row.dataset.product === product.value) && (!category.value || row.dataset.category === category.value) && (!state.value || row.dataset.state === state.value || (state.value === 'critico' && row.dataset.critical === '1')); }); }
   function render() {
     var filtered = filteredRows(); var size = Number(pageSize.value); var pages = Math.max(1, Math.ceil(filtered.length / size)); currentPage = Math.min(currentPage, pages); var start = (currentPage - 1) * size; var visible = filtered.slice(start, start + size);

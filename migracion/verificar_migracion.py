@@ -35,6 +35,26 @@ SERIAL_TABLES = [
     t for t in TABLAS if t != "clientes"
 ]
 
+COLUMNAS_CRITICAS = {
+    "inventario_items": {
+        "periodo_id", "usuario_ultima_carga", "version", "fue_sobreescrito",
+    },
+    "historial": {
+        "snapshot_id", "periodo_id", "tipo_movimiento", "usuario_anterior",
+        "cantidad_anterior", "version",
+    },
+    "conteo_detalle": {
+        "primera_carga", "veces_sincronizado", "fue_sobreescrito",
+        "version_ultima_carga",
+    },
+}
+
+CLAVES_CRITICAS = (
+    ("inventario_items", "periodo_id", "inventario_periodos"),
+    ("historial", "snapshot_id", "inventario_snapshots"),
+    ("historial", "periodo_id", "inventario_periodos"),
+)
+
 
 def verificar(sqlite_path: str, pg_url: str) -> bool:
     try:
@@ -79,13 +99,15 @@ def verificar(sqlite_path: str, pg_url: str) -> bool:
                 "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name=%s)",
                 (tabla,),
             )
-            if not cur_p.fetchone()[0]:
+            existe_tabla = cur_p.fetchone()
+            if not existe_tabla or not existe_tabla[0]:
                 print(f"  {tabla:<33} {count_sqlite:>8} {'—':>10}  ✗ NO EXISTE en Postgres")
                 errores += 1
                 continue
 
             cur_p.execute(f"SELECT COUNT(*) FROM {tabla}")
-            count_pg = cur_p.fetchone()[0]
+            fila_count_pg = cur_p.fetchone()
+            count_pg = fila_count_pg[0] if fila_count_pg else 0
 
             ok = count_pg >= count_sqlite
             estado = "✓ OK" if ok else f"✗ FALTAN {count_sqlite - count_pg}"
@@ -94,6 +116,41 @@ def verificar(sqlite_path: str, pg_url: str) -> bool:
             print(f"  {tabla:<33} {count_sqlite:>8} {count_pg:>10}  {estado}")
         except Exception as e:
             print(f"  {tabla:<33} {count_sqlite:>8} {'ERROR':>10}  ✗ {e}")
+            errores += 1
+
+    # ── Verificar esquema multi-empleado ─────────────────────────────────────
+    print(f"\n{'─'*70}")
+    print("Verificando columnas y claves multi-empleado...\n")
+    cur_p = pg_conn.cursor()
+    for tabla, esperadas in COLUMNAS_CRITICAS.items():
+        cur_p.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = %s",
+            (tabla,),
+        )
+        existentes = {row[0] for row in cur_p.fetchall()}
+        faltantes = sorted(esperadas - existentes)
+        if faltantes:
+            print(f"  {tabla:<35} ✗ faltan: {', '.join(faltantes)}")
+            errores += len(faltantes)
+        else:
+            print(f"  {tabla:<35} ✓ columnas completas")
+
+    for tabla, columna, destino in CLAVES_CRITICAS:
+        cur_p.execute(
+            "SELECT EXISTS ("
+            "SELECT 1 FROM pg_constraint c "
+            "JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=ANY(c.conkey) "
+            "WHERE c.contype='f' AND c.conrelid=%s::regclass "
+            "AND c.confrelid=%s::regclass AND a.attname=%s)",
+            (tabla, destino, columna),
+        )
+        etiqueta = f"{tabla}.{columna} → {destino}"
+        fila_fk = cur_p.fetchone()
+        if fila_fk and fila_fk[0]:
+            print(f"  {etiqueta:<50} ✓ FK presente")
+        else:
+            print(f"  {etiqueta:<50} ✗ FK ausente")
             errores += 1
 
     # ── Verificar secuencias ─────────────────────────────────────────────────
@@ -109,7 +166,8 @@ def verificar(sqlite_path: str, pg_url: str) -> bool:
             row = cur_p.fetchone()
             seq_val = row[0] if row else "—"
             cur_p.execute(f"SELECT COALESCE(MAX(id), 0) FROM {tabla}")
-            max_id = cur_p.fetchone()[0]
+            fila_max_id = cur_p.fetchone()
+            max_id = fila_max_id[0] if fila_max_id else 0
             ok = (seq_val is None or seq_val == "—" or seq_val >= max_id)
             estado = "✓" if ok else f"✗ seq={seq_val} max_id={max_id}"
             print(f"  {tabla:<35} seq_val={str(seq_val):>8}  max_id={max_id:>8}  {estado}")

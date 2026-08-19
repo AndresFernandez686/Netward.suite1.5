@@ -2,7 +2,7 @@
 
 Fecha de ejecución: 2026-08-19.
 
-Las pruebas se ejecutan con una base SQLite en memoria; no modifican la base de datos real.
+Las pruebas se ejecutan con bases SQLite aisladas, en memoria o en archivos temporales; no modifican la base de datos real.
 
 Comando:
 
@@ -10,7 +10,45 @@ Comando:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Resultado general: **55 pruebas automatizadas aprobadas**.
+Resultado general: **87 pruebas automatizadas aprobadas**.
+
+## Permisos y seguridad
+
+Los escenarios de roles, trazabilidad e inyección están documentados en el
+[índice de permisos y seguridad](permisos_seguridad/README.md).
+
+## Integridad transaccional
+
+1. [Rollback total de sincronización](integridad_transaccional/01-rollback-sincronizacion.md)
+2. [Importación Excel fallida](integridad_transaccional/02-importacion-excel-fallida.md)
+
+## Casos límite
+
+Los nueve escenarios defensivos están documentados en el
+[índice de casos límite](casos_limite/README.md).
+
+## Heavy: grandes volúmenes
+
+1. [Inventario masivo](heavy_volumen/01-inventario-masivo.md)
+2. [Historial extenso y períodos correlativos](heavy_volumen/02-historial-extenso.md)
+
+## Heavy: concurrencia
+
+1. [Múltiples empleados sobre el mismo producto](heavy_concurrencia/01-multiples-empleados.md)
+2. [Importación Excel y auditoría en paralelo](heavy_concurrencia/02-excel-auditoria-paralelo.md)
+
+## Inventario multi-empleado
+
+1. [Continuidad entre empleados](inventario_multiempleado/01-continuidad-entre-empleados.md)
+2. [Producto ya cargado](inventario_multiempleado/02-popup-producto-cargado.md)
+3. [Sobreescritura confirmada](inventario_multiempleado/03-sobreescritura.md)
+4. [Cancelación de sobreescritura](inventario_multiempleado/04-cancelacion.md)
+5. [Sincronización multi-empleado](inventario_multiempleado/05-sincronizacion.md)
+6. [Conflicto simultáneo](inventario_multiempleado/06-conflicto-simultaneo.md)
+7. [Auditoría sin duplicación](inventario_multiempleado/07-auditoria-sin-duplicacion.md)
+8. [Reporte gerencial trazable](inventario_multiempleado/08-reporte-gerencial.md)
+9. [Borradores compartidos](inventario_multiempleado/09-borradores-compartidos.md)
+10. [Aislamiento por empresa y tienda](inventario_multiempleado/10-aislamiento-empresa-tienda.md)
 
 ## Períodos
 

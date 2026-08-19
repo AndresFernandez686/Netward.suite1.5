@@ -6,11 +6,12 @@ AuditoriaResultado con causa sugerida, evidencia y nivel de confianza.
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime
 from typing import Optional
 
 from .models import (
-    db, InventarioPeriodo, ConteoDetalle, AjusteInventario,
+    db, InventarioPeriodo, ConteoDetalle, AjusteInventario, InventarioItem,
     ExcelDetalle, AuditoriaResultado, Justificacion,
     RegistroAveriado, RegistroVencimiento, ProductoPrecio,
     ProductoRelacionado,
@@ -33,6 +34,7 @@ SEVERIDAD_UMBRAL_MEDIO = 5        # diferencia > 5 unidades → Revisar
 SEVERIDAD_UMBRAL_CRITICO = 20     # diferencia > 20 unidades → Crítico
 COMPRA_RATIO_ALTO = 3.0           # compra > 3× promedio = sospechosa
 COMPRA_RATIO_BAJO = 0.3           # compra < 30 % promedio = sospechosa
+STOCK_ABSURDO = 1_000_000_000      # valor fuera de rango razonable; probable Excel corrupto
 
 
 # ─── Helpers internos ────────────────────────────────────────────────────────
@@ -233,10 +235,16 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
 
     # Mapa producto → fila Excel (producto_id como clave primaria; nombre como fallback)
     excel_map: dict[str, ExcelDetalle] = {}
+    excel_raw_map: dict[str, ExcelDetalle] = {}
     if excel_imp:
         for row in ExcelDetalle.query.filter_by(
             excel_id=excel_imp.id, excluido_auditoria=False
         ).all():
+            nombre_fila = row.producto_nombre_interno or row.artdescrip
+            if nombre_fila:
+                excel_raw_map[_norm(nombre_fila)] = row
+            if row.estado_vinculacion != "vinculado":
+                continue
             if row.producto_id:
                 # Resolver nombre del producto por ID (clave estable)
                 from .models import Producto
@@ -268,13 +276,29 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             n = row.producto_nombre_interno or row.artdescrip
             if n:
                 nombres.add(n)
+    # Delivery también debe dejar evidencia aunque falten Excel e inventario.
+    from .models import DeliveryVenta
+    ventas_delivery_periodo = (
+        DeliveryVenta.query
+        .filter_by(cliente_id=periodo.cliente_id, tienda_id=periodo.tienda_id)
+        .filter(DeliveryVenta.fecha >= periodo.fecha_desde)
+        .filter(DeliveryVenta.fecha <= periodo.fecha_hasta)
+        .all()
+    )
+    nombres.update(v.producto for v in ventas_delivery_periodo if v.producto)
 
     resultados: list[AuditoriaResultado] = []
 
     for nombre in sorted(nombres):
         pnorm = _norm(nombre)
         conteo = next((c for c in conteos if _norm(c.producto_nombre) == pnorm), None)
+        conteo_valido = conteo is not None and bool(conteo.fue_cargado)
         excel_row = excel_map.get(pnorm)
+        excel_raw = excel_raw_map.get(pnorm)
+        sin_vinculacion = (
+            excel_raw is not None
+            and excel_raw.estado_vinculacion != "vinculado"
+        )
         ajuste = ajustes_map.get(pnorm, 0.0)
 
         conteo_empleado = float(conteo.total_unidad_base) if conteo else 0.0
@@ -283,6 +307,14 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         # 1. Continuidad
         stock_anterior = _stock_final_anterior(periodo, nombre)
         stock_inicial_excel = float(excel_row.stockinicial) if excel_row else 0.0
+        stock_excel_invalido = bool(
+            excel_row
+            and (
+                not math.isfinite(stock_inicial_excel)
+                or stock_inicial_excel < 0
+                or abs(stock_inicial_excel) > STOCK_ABSURDO
+            )
+        )
         alerta_continuidad = False
         if stock_anterior is not None and excel_row:
             if abs(stock_anterior - stock_inicial_excel) > 0.5:
@@ -452,12 +484,67 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             else "Pendiente"
         )
 
+        # Estados defensivos: no convertir fuentes faltantes o corruptas en
+        # diferencias reales. Se conserva la fila para que el usuario pueda
+        # corregirla y volver a ejecutar la auditoría.
+        item_inventario = (
+            InventarioItem.query
+            .filter_by(
+                cliente_id=periodo.cliente_id,
+                tienda_id=periodo.tienda_id,
+                periodo_id=periodo.id,
+            )
+            .filter(db.func.lower(InventarioItem.producto) == pnorm)
+            .first()
+        )
+        ume_faltante = bool(
+            item_inventario is not None
+            and not str(item_inventario.ume or "").strip()
+        )
+        sin_excel = excel_raw is None
+        sin_inventario = not conteo_valido
+
+        if sin_vinculacion:
+            causa = "Pendiente de revisión"
+            evidencia = "Producto del Excel pendiente de vinculación. Requiere revisión manual."
+            confianza = "Bajo"
+            estado_auditoria = "Pendiente"
+        elif stock_excel_invalido:
+            causa = "Pendiente de revisión"
+            evidencia = (
+                f"Stock inicial del Excel fuera de rango ({stock_inicial_excel:g}). "
+                "Posible archivo corrupto; requiere revisión manual."
+            )
+            confianza = "Bajo"
+            estado_auditoria = "Pendiente"
+        elif ume_faltante:
+            causa = "Pendiente de revisión"
+            evidencia = "Producto sin UME definida; requiere revisión antes de conciliar."
+            confianza = "Bajo"
+            estado_auditoria = "Pendiente"
+        elif sin_excel or sin_inventario:
+            faltantes = []
+            if sin_excel:
+                faltantes.append("Excel oficial")
+            if sin_inventario:
+                faltantes.append("conteo de inventario")
+            causa = "Pendiente de revisión"
+            evidencia = (
+                f"Sin datos de {' y '.join(faltantes)}. "
+                "No se calcula una diferencia real; requiere revisión manual."
+            )
+            confianza = "Bajo"
+            estado_auditoria = "Sin datos"
+            tipo_diferencia = "correcto"
+            severidad = "Observación"
+            impacto = 0.0
+
         ar = AuditoriaResultado(
             periodo_id=periodo.id,
             cliente_id=periodo.cliente_id,
             producto_nombre=nombre,
             categoria=conteo.categoria if conteo else "",
-            articulo_codigo=excel_row.articulo if excel_row else "",
+            articulo_codigo=excel_raw.articulo if excel_raw else "",
             stock_inicial_anterior=stock_anterior if stock_anterior is not None else 0,
             stock_inicial_excel=stock_inicial_excel,
             alerta_continuidad=alerta_continuidad,
@@ -496,8 +583,10 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
 
     db.session.flush()
 
-    # Excel importado + auditoría ejecutada = Conciliado
-    periodo.estado = "Conciliado" if resultados else periodo.estado
+    # Solo se concilia automáticamente si existe al menos un resultado y
+    # ninguno quedó sin las fuentes mínimas para calcularlo.
+    if resultados and all(r.estado_auditoria != "Sin datos" for r in resultados):
+        periodo.estado = "Conciliado"
     db.session.flush()
 
     return resultados
@@ -538,6 +627,25 @@ def _verificar_relacionados(
     return " | ".join(alertas)
 
 
+def marcar_resultado_revisado(
+    resultado: AuditoriaResultado,
+    usuario: str,
+) -> Justificacion:
+    """Marca un resultado como revisado y registra quién realizó el cambio."""
+    traza = Justificacion(
+        resultado_id=resultado.id,
+        cliente_id=resultado.cliente_id,
+        causa="Marcado como revisado",
+        cantidad_justificada=0,
+        importe_justificado=0,
+        observacion="Resultado revisado manualmente sin modificar los datos históricos.",
+        usuario=usuario,
+    )
+    db.session.add(traza)
+    resultado.estado_auditoria = "Revisado"
+    return traza
+
+
 # ─── Reporte gerencial ────────────────────────────────────────────────────────
 
 def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
@@ -559,6 +667,12 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
         por_causa[c]["importe"] += r.impacto
 
     alertas_criticas = [r for r in resultados if r.severidad == "Crítico"]
+    cargas = (
+        ConteoDetalle.query
+        .filter_by(periodo_id=periodo.id, fue_cargado=True)
+        .order_by(ConteoDetalle.categoria, ConteoDetalle.producto_nombre)
+        .all()
+    )
 
     # KPI causa dominante: la causa con mayor importe acumulado
     causa_dominante = None
@@ -621,6 +735,7 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
         "por_causa": por_causa,
         "causa_dominante": causa_dominante,
         "alertas_criticas": alertas_criticas,
+        "cargas": cargas,
         "comparacion": comparacion,
     }
 
