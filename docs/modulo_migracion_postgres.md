@@ -9,6 +9,7 @@
 | `migracion/04_rollback.sql` | DROP CASCADE en orden inverso |
 | `migracion/05_multiempleado.sql` | Actualización idempotente del inventario multi-empleado |
 | `migracion/06_delivery_periodos.sql` | Asociación de ventas delivery con períodos y estado fuera de rango |
+| `migracion/07_asistente_ia.sql` | Trazabilidad de consultas del asistente explicativo |
 | `migracion/migrate_sqlite_to_postgres.py` | Migra datos SQLite → PostgreSQL con conversión de tipos |
 | `migracion/verificar_migracion.py` | Compara conteos y verifica secuencias SERIAL |
 
@@ -30,7 +31,7 @@ clientes → tiendas → usuarios → productos → stock_thresholds
 → sincronizacion_log → configuracion_sistema
 → conteo_detalle → ajustes_inventario
 → excel_importados → excel_detalles → auditoria_resultados
-→ justificaciones → productos_relacionados
+→ asistente_ia_consultas → justificaciones → productos_relacionados
 ```
 
 ## Uso rápido
@@ -42,6 +43,7 @@ psql -U user -d netward -f migracion/03_indices_rendimiento.sql
 # Solo para una base existente anterior al inventario multi-empleado
 psql -U user -d netward -f migracion/05_multiempleado.sql
 psql -U user -d netward -f migracion/06_delivery_periodos.sql
+psql -U user -d netward -f migracion/07_asistente_ia.sql
 
 # 2. Dry-run (ver cuántas filas hay)
 python migracion/migrate_sqlite_to_postgres.py --pg "postgresql://..." --dry-run
@@ -74,3 +76,7 @@ En instalaciones nuevas los campos forman parte de `01_schema_completo.sql`. En 
 ## Cambio delivery por período
 
 `delivery_ventas` incorpora `periodo_id` y `estado_periodo`. En bases existentes se debe ejecutar `06_delivery_periodos.sql`; las ventas nuevas quedan como `en_rango`, `fuera_rango` o `sin_periodo`.
+
+## Cambio del asistente explicativo
+
+`asistente_ia_consultas` registra quién consultó, el período o producto, el proveedor, el modelo, el contexto y la respuesta. No almacena claves de API. En bases existentes se debe ejecutar `07_asistente_ia.sql`.

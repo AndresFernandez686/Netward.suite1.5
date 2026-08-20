@@ -50,6 +50,7 @@ TABLAS_ORDEN = [
     "excel_importados",
     "excel_detalles",
     "auditoria_resultados",
+    "asistente_ia_consultas",
     "justificaciones",
     "productos_relacionados",
 ]
@@ -75,7 +76,7 @@ SERIAL_TABLES = [
     "registros_averiados", "registros_vencimiento", "sincronizacion_log",
     "inventario_periodos", "conteo_detalle", "ajustes_inventario",
     "excel_importados", "excel_detalles", "auditoria_resultados",
-    "justificaciones", "productos_relacionados",
+    "asistente_ia_consultas", "justificaciones", "productos_relacionados",
 ]
 
 

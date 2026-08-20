@@ -77,6 +77,7 @@ class PruebasPermisosSeguridad(unittest.TestCase):
             "admin_excel_vincular",
             "admin_auditoria_ejecutar",
             "admin_auditoria",
+            "admin_asistente_consultar",
             "admin_justificar",
             "admin_marcar_revisado",
             "admin_reporte_gerencial",

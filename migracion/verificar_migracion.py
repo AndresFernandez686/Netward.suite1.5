@@ -28,7 +28,7 @@ TABLAS = [
     "registros_averiados", "registros_vencimiento", "sincronizacion_log",
     "inventario_periodos", "conteo_detalle", "ajustes_inventario",
     "excel_importados", "excel_detalles", "auditoria_resultados",
-    "justificaciones", "productos_relacionados",
+    "asistente_ia_consultas", "justificaciones", "productos_relacionados",
 ]
 
 SERIAL_TABLES = [
@@ -48,6 +48,10 @@ COLUMNAS_CRITICAS = {
         "version_ultima_carga",
     },
     "delivery_ventas": {"periodo_id", "estado_periodo"},
+    "asistente_ia_consultas": {
+        "cliente_id", "tienda_id", "periodo_id", "resultado_id", "usuario",
+        "pregunta", "respuesta", "proveedor", "modelo", "estado", "creado",
+    },
 }
 
 CLAVES_CRITICAS = (
@@ -55,6 +59,8 @@ CLAVES_CRITICAS = (
     ("historial", "snapshot_id", "inventario_snapshots"),
     ("historial", "periodo_id", "inventario_periodos"),
     ("delivery_ventas", "periodo_id", "inventario_periodos"),
+    ("asistente_ia_consultas", "periodo_id", "inventario_periodos"),
+    ("asistente_ia_consultas", "resultado_id", "auditoria_resultados"),
 )
 
 

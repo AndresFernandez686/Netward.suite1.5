@@ -369,6 +369,29 @@ CREATE INDEX IF NOT EXISTS ix_auditoria_resultados_cliente_id ON auditoria_resul
 CREATE INDEX IF NOT EXISTS ix_auditoria_tipo ON auditoria_resultados(tipo_diferencia);
 CREATE INDEX IF NOT EXISTS ix_auditoria_severidad ON auditoria_resultados(severidad);
 
+CREATE TABLE IF NOT EXISTS asistente_ia_consultas (
+    id              SERIAL       PRIMARY KEY,
+    cliente_id      VARCHAR(10)  NOT NULL DEFAULT 'C001',
+    tienda_id       VARCHAR(10)  NOT NULL,
+    periodo_id      INTEGER      NOT NULL REFERENCES inventario_periodos(id) ON DELETE CASCADE,
+    resultado_id    INTEGER      REFERENCES auditoria_resultados(id) ON DELETE SET NULL,
+    usuario         VARCHAR(80)  NOT NULL,
+    tipo            VARCHAR(20)  NOT NULL DEFAULT 'periodo',
+    pregunta        VARCHAR(1000) NOT NULL,
+    respuesta       TEXT         NOT NULL,
+    proveedor       VARCHAR(40)  NOT NULL DEFAULT 'local',
+    modelo          VARCHAR(120) NOT NULL DEFAULT 'reglas-locales',
+    contexto_json   TEXT         NOT NULL DEFAULT '{}',
+    estado          VARCHAR(20)  NOT NULL DEFAULT 'ok',
+    error           VARCHAR(500) NOT NULL DEFAULT '',
+    creado          TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_asistente_ia_cliente_id ON asistente_ia_consultas(cliente_id);
+CREATE INDEX IF NOT EXISTS ix_asistente_ia_tienda_id ON asistente_ia_consultas(tienda_id);
+CREATE INDEX IF NOT EXISTS ix_asistente_ia_periodo_id ON asistente_ia_consultas(periodo_id);
+CREATE INDEX IF NOT EXISTS ix_asistente_ia_resultado_id ON asistente_ia_consultas(resultado_id);
+CREATE INDEX IF NOT EXISTS ix_asistente_ia_creado ON asistente_ia_consultas(creado);
+
 CREATE TABLE IF NOT EXISTS justificaciones (
     id                  SERIAL       PRIMARY KEY,
     resultado_id        INTEGER      NOT NULL REFERENCES auditoria_resultados(id) ON DELETE CASCADE,

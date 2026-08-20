@@ -50,7 +50,7 @@ class PruebasMigracionPostgresMultiempleado(unittest.TestCase):
         self.assertIn("version_ultima_carga", verificador.COLUMNAS_CRITICAS["conteo_detalle"])
         self.assertIn("periodo_id", verificador.COLUMNAS_CRITICAS["delivery_ventas"])
         self.assertIn("estado_periodo", verificador.COLUMNAS_CRITICAS["delivery_ventas"])
-        self.assertEqual(len(verificador.CLAVES_CRITICAS), 4)
+        self.assertEqual(len(verificador.CLAVES_CRITICAS), 6)
 
     def test_migracion_delivery_periodos_es_idempotente(self):
         completo = (MIGRACION / "01_schema_completo.sql").read_text(encoding="utf-8")
@@ -61,6 +61,23 @@ class PruebasMigracionPostgresMultiempleado(unittest.TestCase):
             self.assertIn("estado_periodo", texto)
             self.assertIn("fk_delivery_venta_periodo", texto)
         self.assertIn("ix_delivery_ventas_periodo_estado", indices)
+
+    def test_migracion_asistente_ia_es_trazable_e_idempotente(self):
+        completo = (MIGRACION / "01_schema_completo.sql").read_text(encoding="utf-8")
+        incremental = (MIGRACION / "07_asistente_ia.sql").read_text(encoding="utf-8")
+        indices = (MIGRACION / "03_indices_rendimiento.sql").read_text(encoding="utf-8")
+        migrador = cargar_modulo("migracion_asistente", "migrate_sqlite_to_postgres.py")
+        verificador = cargar_modulo("verificador_asistente", "verificar_migracion.py")
+        for texto in (completo, incremental):
+            self.assertIn("asistente_ia_consultas", texto)
+            self.assertIn("periodo_id", texto)
+            self.assertIn("resultado_id", texto)
+            self.assertIn("contexto_json", texto)
+        self.assertIn("ix_asistente_ia_periodo_creado", indices)
+        self.assertGreater(migrador.TABLAS_ORDEN.index("asistente_ia_consultas"),
+                           migrador.TABLAS_ORDEN.index("auditoria_resultados"))
+        self.assertIn("asistente_ia_consultas", verificador.TABLAS)
+        self.assertEqual(len(verificador.CLAVES_CRITICAS), 6)
 
 
 if __name__ == "__main__":

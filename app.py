@@ -30,7 +30,7 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     InventarioPeriodo, ConteoDetalle, InventarioBorrador, AjusteInventario,
                     ExcelImportado, ExcelDetalle, AuditoriaResultado,
                     Justificacion, ProductoRelacionado, ConfiguracionSistema,
-                    NotificacionUsuario)
+                    NotificacionUsuario, AsistenteIAConsulta)
 from core.auditoria import (ejecutar_auditoria, build_reporte_gerencial,
                             marcar_resultado_revisado)
 from core.excel_importer import importar_excel_transaccional
@@ -53,6 +53,8 @@ from core.admin_feedback import set_view_notice, pop_view_notice
 from core.time_utils import today_local_iso, format_utc_naive_to_local
 from core.security import rol_permitido
 from core.periodos import registrar_conteo_admin
+from core.ai_assistant import (AIConfig, build_period_context,
+                               build_product_context, explain)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=True)
@@ -2788,6 +2790,71 @@ def admin_auditoria(periodo_id):
         categorias=categorias,
         ultima_ejecucion=ultima_ejecucion,
         causas_disponibles=causas_disponibles,
+        asistente_estado=AIConfig.from_env().public_status(),
+    )
+
+
+@app.route("/admin/periodos/<int:periodo_id>/asistente/consultar", methods=["POST"])
+@login_required(rol="administrador")
+def admin_asistente_consultar(periodo_id):
+    """Explica resultados existentes sin permitir que la IA los modifique."""
+    cliente_id = get_cliente_filtro()
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if not periodo or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    payload = request.get_json(silent=True) or {}
+    pregunta = str(payload.get("pregunta") or "").strip()
+    if not pregunta:
+        return jsonify(ok=False, error="Escribe una consulta para el asistente."), 400
+    if len(pregunta) > 1000:
+        return jsonify(ok=False, error="La consulta no puede superar 1000 caracteres."), 400
+
+    resultado = None
+    resultado_id = payload.get("resultado_id")
+    if resultado_id not in (None, ""):
+        try:
+            resultado_id = int(resultado_id)
+        except (TypeError, ValueError):
+            return jsonify(ok=False, error="El resultado indicado no es válido."), 400
+        resultado = db.session.get(AuditoriaResultado, resultado_id)
+        if (
+            not resultado
+            or resultado.periodo_id != periodo.id
+            or resultado.cliente_id != cliente_id
+        ):
+            abort(404)
+
+    contexto = (
+        build_product_context(periodo, resultado)
+        if resultado is not None
+        else build_period_context(periodo)
+    )
+    respuesta = explain(pregunta, contexto)
+    consulta = AsistenteIAConsulta(
+        cliente_id=cliente_id,
+        tienda_id=periodo.tienda_id,
+        periodo_id=periodo.id,
+        resultado_id=resultado.id if resultado is not None else None,
+        usuario=session["usuario"],
+        tipo="producto" if resultado is not None else "periodo",
+        pregunta=pregunta,
+        respuesta=respuesta["answer"],
+        proveedor=respuesta["provider"],
+        modelo=respuesta["model"],
+        contexto_json=_json.dumps(contexto, ensure_ascii=False),
+        estado="fallback" if respuesta["fallback"] else "ok",
+        error=respuesta["error"],
+    )
+    db.session.add(consulta)
+    db.session.commit()
+    return jsonify(
+        ok=True,
+        answer=respuesta["answer"],
+        provider=respuesta["provider"],
+        model=respuesta["model"],
+        fallback=respuesta["fallback"],
+        consultation_id=consulta.id,
     )
 
 

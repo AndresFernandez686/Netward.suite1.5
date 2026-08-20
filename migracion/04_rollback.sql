@@ -8,6 +8,7 @@
 BEGIN;
 
 -- Orden inverso respeta las FK (hijos antes que padres)
+DROP TABLE IF EXISTS asistente_ia_consultas       CASCADE;
 DROP TABLE IF EXISTS justificaciones              CASCADE;
 DROP TABLE IF EXISTS auditoria_resultados         CASCADE;
 DROP TABLE IF EXISTS excel_detalles               CASCADE;

@@ -9,7 +9,7 @@
 {%- endmacro %}
 
 {% block content %}
-<div class="audit-page" data-initial-filter="{{ filtro }}">
+<div class="audit-page" data-initial-filter="{{ filtro }}" data-assistant-url="{{ url_for('admin_asistente_consultar', periodo_id=periodo.id) }}">
   <section class="audit-hero">
     <h1>Auditoría — Período #{{ periodo.numero }}</h1>
     <p>{{ periodo.fecha_desde }} → {{ periodo.fecha_hasta }} · {{ tienda_nombre }} <span>·</span> Impacto total faltantes:
@@ -20,6 +20,7 @@
   <div class="audit-toolbar">
     <a href="{{ url_for('admin_periodo_detalle', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm">← Período</a>
     <a href="{{ url_for('admin_reporte_gerencial', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm"><span aria-hidden="true">▣</span> Reporte gerencial</a>
+    <button type="button" class="btn btn--ghost btn--sm audit-ai-open" data-ai-open data-ai-result-id="" data-ai-context="Período #{{ periodo.numero }}"><span aria-hidden="true">✦</span> Asistente de auditoría</button>
     <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm audit-export"><span aria-hidden="true">↓</span> Exportar Excel</a>
     <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}"
           data-confirm-message="¿Re-ejecutar la auditoría? Se recalcularán todos los resultados.">
@@ -72,6 +73,7 @@
                   <div><dt>Stock inicial anterior</dt><dd>{{ r.stock_inicial_anterior }}</dd></div><div><dt>Stock inicial Excel</dt><dd>{{ r.stock_inicial_excel }}</dd></div><div><dt>Compras</dt><dd>{{ r.compras }}</dd></div><div><dt>Ventas</dt><dd>{{ r.ventas }}</dd></div><div><dt>Ajuste administrativo</dt><dd>{{ '%+.1f'|format(r.ajuste_admin) }}</dd></div>
                 </dl></div>
                 <div class="audit-detail-actions"><h3>Diagnóstico y acciones</h3><p>{{ r.evidencia or 'Sin observaciones adicionales.' }}</p><p class="audit-detail-meta">Confianza {{ r.nivel_confianza }} · Estado {{ r.estado_auditoria }}{% if r.usuario_conteo %} · Conteo por {{ r.usuario_conteo }}{% endif %}</p>
+                  <button type="button" class="btn btn--ghost btn--sm audit-ai-explain" data-ai-open data-ai-result-id="{{ r.id }}" data-ai-context="{{ r.producto_nombre|e }}"><span aria-hidden="true">✦</span> Explicar con IA</button>
                   {% for j in r.justificaciones %}<div class="audit-justification"><strong>{{ j.causa }}</strong> · {{ j.cantidad_justificada }} unid.<br>{{ j.observacion }} <small>· {{ j.usuario }}</small></div>{% endfor %}
                   {% if r.diferencia != 0 and r.estado_auditoria not in ('Justificado', 'Revisado', 'Sin diferencia real', 'Sin datos') %}<div class="audit-row-actions"><details><summary class="btn btn--ghost btn--sm">Justificar diferencia</summary><form method="post" action="{{ url_for('admin_justificar', periodo_id=periodo.id, resultado_id=r.id) }}" class="audit-justify-form"><label>Causa<select name="causa" required>{% for c in causas_disponibles %}<option>{{ c }}</option>{% endfor %}</select></label><label>Cantidad<input type="number" name="cantidad_justificada" step="0.01" min="0" value="{{ r.diferencia|abs }}"></label><label>Observación<input type="text" name="observacion" maxlength="400" required></label><button type="submit" class="btn btn--primary btn--sm">Guardar</button></form></details><form method="post" action="{{ url_for('admin_marcar_revisado', periodo_id=periodo.id, resultado_id=r.id) }}"><button type="submit" class="btn btn--ghost btn--sm">Marcar revisado</button></form></div>{% endif %}
                 </div>
@@ -103,6 +105,28 @@
       </section>
     </aside>
   </div>
+
+  <div class="audit-ai-overlay" id="auditAiOverlay" hidden></div>
+  <aside class="audit-ai-drawer" id="auditAiDrawer" aria-hidden="true" aria-labelledby="auditAiTitle">
+    <header class="audit-ai-header">
+      <div><span class="audit-ai-kicker">Asistente explicativo</span><h2 id="auditAiTitle">Auditoría en contexto</h2></div>
+      <button type="button" class="audit-ai-close" id="auditAiClose" aria-label="Cerrar asistente">×</button>
+    </header>
+    <div class="audit-ai-status"><span class="{{ 'is-connected' if asistente_estado.configured else 'is-local' }}"></span>{{ asistente_estado.label }} · {{ asistente_estado.provider }} / {{ asistente_estado.model }}</div>
+    <div class="audit-ai-context" id="auditAiContext">Período #{{ periodo.numero }}</div>
+    <div class="audit-ai-notice">Las respuestas son explicativas. No cambian los cálculos ni el estado oficial de la auditoría.</div>
+    <div class="audit-ai-messages" id="auditAiMessages" aria-live="polite"></div>
+    <div class="audit-ai-prompts">
+      <button type="button" data-ai-question="¿Cuáles son las evidencias que explican este resultado?">Ver evidencias</button>
+      <button type="button" data-ai-question="¿Qué debería verificar primero el administrador?">Qué revisar primero</button>
+      <button type="button" data-ai-question="Explícalo de forma breve y sencilla.">Resumen sencillo</button>
+    </div>
+    <form class="audit-ai-form" id="auditAiForm">
+      <label class="sr-only" for="auditAiQuestion">Consulta para el asistente</label>
+      <textarea id="auditAiQuestion" maxlength="1000" rows="3" placeholder="Pregunta por la diferencia, evidencia o siguiente verificación…" required></textarea>
+      <button type="submit" class="btn btn--primary btn--sm" id="auditAiSend">Consultar</button>
+    </form>
+  </aside>
 </div>
 {% endblock %}
 
@@ -112,7 +136,7 @@
 (function () {
   var page = document.querySelector('.audit-page');
   var rows = Array.prototype.slice.call(document.querySelectorAll('.audit-data-row'));
-  if (!page || !rows.length) return;
+  if (!page) return;
   var activeFilter = page.dataset.initialFilter || 'todos';
   var currentPage = 1;
   var search = document.getElementById('auditSearch');
@@ -133,10 +157,55 @@
   }
   document.querySelectorAll('[data-audit-filter]').forEach(function (button) { button.addEventListener('click', function () { activeFilter = button.dataset.auditFilter; currentPage = 1; document.querySelectorAll('[data-audit-filter]').forEach(function (item) { item.classList.toggle('is-active', item === button); }); render(); }); });
   document.querySelectorAll('[data-suggestion-filter]').forEach(function (button) { button.addEventListener('click', function () { var target = document.querySelector('[data-audit-filter="' + button.dataset.suggestionFilter + '"]'); if (target) target.click(); document.querySelector('.audit-results').scrollIntoView({ behavior: 'smooth', block: 'start' }); }); });
-  [search, product, category, state].forEach(function (control) { control.addEventListener(control === search ? 'input' : 'change', function () { currentPage = 1; render(); }); }); pageSize.addEventListener('change', function () { currentPage = 1; render(); });
-  document.getElementById('auditPrev').addEventListener('click', function () { if (currentPage > 1) { currentPage -= 1; render(); } }); document.getElementById('auditNext').addEventListener('click', function () { currentPage += 1; render(); }); document.getElementById('auditPageButtons').addEventListener('click', function (event) { if (event.target.dataset.page) { currentPage = Number(event.target.dataset.page); render(); } });
+  [search, product, category, state].filter(Boolean).forEach(function (control) { control.addEventListener(control === search ? 'input' : 'change', function () { currentPage = 1; render(); }); }); if (pageSize) pageSize.addEventListener('change', function () { currentPage = 1; render(); });
+  var prevButton = document.getElementById('auditPrev'); var nextButton = document.getElementById('auditNext'); var pageButtons = document.getElementById('auditPageButtons');
+  if (prevButton) prevButton.addEventListener('click', function () { if (currentPage > 1) { currentPage -= 1; render(); } }); if (nextButton) nextButton.addEventListener('click', function () { currentPage += 1; render(); }); if (pageButtons) pageButtons.addEventListener('click', function (event) { if (event.target.dataset.page) { currentPage = Number(event.target.dataset.page); render(); } });
   document.querySelectorAll('.audit-detail-toggle').forEach(function (button) { button.addEventListener('click', function () { var detail = document.getElementById(button.getAttribute('aria-controls')); var open = button.getAttribute('aria-expanded') === 'true'; button.setAttribute('aria-expanded', String(!open)); detail.hidden = open; }); });
-  render();
+  if (rows.length) render();
+
+  var drawer = document.getElementById('auditAiDrawer');
+  var overlay = document.getElementById('auditAiOverlay');
+  var messages = document.getElementById('auditAiMessages');
+  var question = document.getElementById('auditAiQuestion');
+  var send = document.getElementById('auditAiSend');
+  var currentResultId = '';
+  var requestSequence = 0;
+  function appendMessage(role, value, muted) {
+    var item = document.createElement('div');
+    item.className = 'audit-ai-message audit-ai-message--' + role + (muted ? ' is-muted' : '');
+    item.textContent = value;
+    messages.appendChild(item);
+    messages.scrollTop = messages.scrollHeight;
+    return item;
+  }
+  function openAssistant(button) {
+    var nextResultId = button.dataset.aiResultId || '';
+    if (nextResultId !== currentResultId) { requestSequence += 1; messages.textContent = ''; }
+    currentResultId = nextResultId;
+    document.getElementById('auditAiContext').textContent = button.dataset.aiContext || 'Período #{{ periodo.numero }}';
+    drawer.classList.add('is-open'); drawer.setAttribute('aria-hidden', 'false'); overlay.hidden = false;
+    if (!messages.children.length || currentResultId) {
+      askAssistant(currentResultId ? 'Explica esta diferencia, sus evidencias y qué debería verificar.' : 'Resume los principales hallazgos de este período y qué debería revisar primero.');
+    } else { question.focus(); }
+  }
+  function closeAssistant() { drawer.classList.remove('is-open'); drawer.setAttribute('aria-hidden', 'true'); overlay.hidden = true; }
+  function askAssistant(value) {
+    value = (value || '').trim(); if (!value || send.disabled) return;
+    var sequence = ++requestSequence; var requestedResultId = currentResultId;
+    appendMessage('user', value); send.disabled = true; send.textContent = 'Analizando…';
+    var pending = appendMessage('assistant', 'Revisando los datos oficiales de auditoría…', true);
+    fetch(page.dataset.assistantUrl, { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ pregunta: value, resultado_id: currentResultId || null }) })
+      .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || 'No se pudo consultar.'); return data; }); })
+      .then(function (data) { pending.remove(); if (sequence === requestSequence && requestedResultId === currentResultId) appendMessage('assistant', data.answer + (data.fallback ? '\n\nModo local: el proveedor externo no estaba disponible.' : '')); })
+      .catch(function (error) { pending.remove(); if (sequence === requestSequence) appendMessage('assistant', error.message || 'No fue posible obtener la explicación.'); })
+      .finally(function () { send.disabled = false; send.textContent = 'Consultar'; question.value = ''; question.focus(); });
+  }
+  document.querySelectorAll('[data-ai-open]').forEach(function (button) { button.addEventListener('click', function () { openAssistant(button); }); });
+  document.getElementById('auditAiClose').addEventListener('click', closeAssistant); overlay.addEventListener('click', closeAssistant);
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && drawer.classList.contains('is-open')) closeAssistant(); });
+  document.getElementById('auditAiForm').addEventListener('submit', function (event) { event.preventDefault(); askAssistant(question.value); });
+  document.querySelectorAll('[data-ai-question]').forEach(function (button) { button.addEventListener('click', function () { askAssistant(button.dataset.aiQuestion); }); });
 })();
 </script>
 {% endblock %}

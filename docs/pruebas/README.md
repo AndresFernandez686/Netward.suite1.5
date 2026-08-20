@@ -1,6 +1,6 @@
 # Evidencias de pruebas del sistema
 
-Fecha de ejecución: 2026-08-19.
+Fecha de ejecución: 2026-08-20.
 
 Las pruebas se ejecutan con bases SQLite aisladas, en memoria o en archivos temporales; no modifican la base de datos real.
 
@@ -10,7 +10,12 @@ Comando:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Resultado general: **90 pruebas automatizadas aprobadas**.
+Resultado general: **98 pruebas automatizadas aprobadas**.
+
+## Asistente explicativo de auditoría
+
+Los siete escenarios de proveedores, fallback, aislamiento y trazabilidad están en el
+[índice del asistente de IA](asistente_ia/README.md).
 
 ## Fallos parciales
 

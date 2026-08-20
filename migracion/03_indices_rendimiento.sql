@@ -74,6 +74,13 @@ CREATE INDEX IF NOT EXISTS ix_auditoria_impacto
 CREATE INDEX IF NOT EXISTS ix_justificaciones_resultado
     ON justificaciones(resultado_id);
 
+CREATE INDEX IF NOT EXISTS ix_asistente_ia_periodo_creado
+    ON asistente_ia_consultas(periodo_id, creado DESC);
+
+CREATE INDEX IF NOT EXISTS ix_asistente_ia_resultado_creado
+    ON asistente_ia_consultas(resultado_id, creado DESC)
+    WHERE resultado_id IS NOT NULL;
+
 -- ── Delivery ─────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS ix_delivery_ventas_fecha_tienda
     ON delivery_ventas(tienda_id, fecha DESC);

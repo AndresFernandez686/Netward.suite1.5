@@ -527,6 +527,37 @@ class AuditoriaResultado(BaseModel):
     )
 
 
+class AsistenteIAConsulta(BaseModel):
+    """Trazabilidad de consultas explicativas; nunca modifica la auditoría."""
+    __tablename__ = "asistente_ia_consultas"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    tienda_id = db.Column(db.String(10), nullable=False, index=True)
+    periodo_id = db.Column(
+        db.Integer,
+        db.ForeignKey("inventario_periodos.id"),
+        nullable=False,
+        index=True,
+    )
+    resultado_id = db.Column(
+        db.Integer,
+        db.ForeignKey("auditoria_resultados.id"),
+        nullable=True,
+        index=True,
+    )
+    usuario = db.Column(db.String(80), nullable=False)
+    tipo = db.Column(db.String(20), nullable=False, default="periodo")
+    pregunta = db.Column(db.String(1000), nullable=False)
+    respuesta = db.Column(db.Text, nullable=False)
+    proveedor = db.Column(db.String(40), nullable=False, default="local")
+    modelo = db.Column(db.String(120), nullable=False, default="reglas-locales")
+    contexto_json = db.Column(db.Text, nullable=False, default="{}")
+    estado = db.Column(db.String(20), nullable=False, default="ok")
+    error = db.Column(db.String(500), nullable=False, default="")
+    creado = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class Justificacion(BaseModel):
     """Justificación manual de una diferencia en auditoría."""
     __tablename__ = "justificaciones"
