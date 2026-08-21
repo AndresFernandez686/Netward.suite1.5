@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import re
+import unicodedata
 from typing import Optional
 
 from .models import db, ExcelImportado, ExcelDetalle, InventarioPeriodo, Producto
@@ -31,6 +32,11 @@ _COL_MAP = {
     "grudescrip": ["grudescrip", "grupo descrip", "grupo descripcion"],
 }
 
+_COLUMNAS_OBLIGATORIAS = {
+    "artdescrip", "stockinicial", "compras", "otrosingresos",
+    "otrassalidas", "stockfinal", "ventareal",
+}
+
 # Grupos a excluir (no se auditan)
 _GRUPOS_EXCLUIR = {
     "canjes", "congelados", "frizzio", "promociones",
@@ -39,7 +45,31 @@ _GRUPOS_EXCLUIR = {
 
 
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", str(s).strip().lower())
+    texto = unicodedata.normalize("NFKD", str(s or ""))
+    texto = "".join(ch for ch in texto if not unicodedata.combining(ch)).lower()
+    texto = re.sub(r"[^a-z0-9]+", " ", texto)
+    return re.sub(r"\s+", " ", texto).strip()
+
+
+def _norm_codigo(value) -> str:
+    """Normaliza códigos numéricos de XLS (p. ej. 38.0) sin alterar códigos alfanuméricos."""
+    codigo = str(value or "").strip()
+    if re.fullmatch(r"[+-]?\d+\.0+", codigo):
+        codigo = codigo.split(".", 1)[0]
+    return codigo.upper()
+
+
+def _cantidades_empaque(nombre: str) -> set[int]:
+    """Extrae presentaciones escritas como x54, x 78, ×120, etc."""
+    texto = unicodedata.normalize("NFKD", str(nombre or "")).lower().replace("×", "x")
+    return {int(valor) for valor in re.findall(r"(?<![a-z0-9])x\s*(\d+)\b", texto)}
+
+
+def empaques_compatibles(nombre_catalogo: str, nombre_excel: str) -> bool:
+    """Dos nombres con cantidades de empaque explícitas solo coinciden si comparten cantidad."""
+    catalogo = _cantidades_empaque(nombre_catalogo)
+    excel = _cantidades_empaque(nombre_excel)
+    return not catalogo or not excel or bool(catalogo & excel)
 
 
 def _detectar_columnas(headers: list[str]) -> dict[str, int]:
@@ -61,7 +91,22 @@ def _safe_float(value) -> Optional[float]:
     try:
         if value is None or str(value).strip() in ("", "-", "N/A"):
             return None
-        return float(str(value).replace(",", ".").strip())
+        if isinstance(value, (int, float)):
+            return float(value)
+        texto = str(value).strip().replace(" ", "")
+        negativo = texto.startswith("(") and texto.endswith(")")
+        if negativo:
+            texto = texto[1:-1]
+        texto = re.sub(r"[^0-9,\.\-+]", "", texto)
+        if "," in texto and "." in texto:
+            if texto.rfind(",") > texto.rfind("."):
+                texto = texto.replace(".", "").replace(",", ".")
+            else:
+                texto = texto.replace(",", "")
+        elif "," in texto:
+            texto = texto.replace(",", ".")
+        numero = float(texto)
+        return -numero if negativo else numero
     except (ValueError, TypeError):
         return None
 
@@ -75,12 +120,25 @@ def _build_nombre_map(cliente_id: str) -> dict[str, str]:
 def _build_codigo_map() -> dict[str, str]:
     """Mapa codigo_articulo → nombre_original para productos que tienen código asignado."""
     productos = Producto.query.filter(Producto.codigo_articulo.isnot(None)).all()
-    return {str(p.codigo_articulo).strip(): p.nombre for p in productos}
+    return {_norm_codigo(p.codigo_articulo): p.nombre for p in productos}
+
+
+def _build_alias_map(nombre_map: dict[str, str]) -> dict[str, str]:
+    """Mapea nombres conocidos del Excel al nombre vigente del catálogo."""
+    from .inventario import RENOMBRAR_CATALOGO
+
+    aliases: dict[str, str] = {}
+    for nombre_catalogo, nombre_excel in RENOMBRAR_CATALOGO.items():
+        nombre_real = nombre_map.get(_norm(nombre_catalogo))
+        if nombre_real and empaques_compatibles(nombre_real, nombre_excel):
+            aliases[_norm(nombre_excel)] = nombre_real
+    return aliases
 
 
 def _vincular_producto(articulo: str, artdescrip: str,
                        codigo_map: dict[str, str],
-                       nombre_map: dict[str, str]) -> Optional[str]:
+                       nombre_map: dict[str, str],
+                       alias_map: Optional[dict[str, str]] = None) -> Optional[str]:
     """
     Prioridad de vinculación:
     1. articulo vs productos.codigo_articulo  (clave estable)
@@ -89,8 +147,11 @@ def _vincular_producto(articulo: str, artdescrip: str,
     4. None → pendiente de vinculación manual
     """
     # 1. Por código de artículo
-    if articulo and articulo in codigo_map:
-        return codigo_map[articulo]
+    codigo = _norm_codigo(articulo)
+    if codigo and codigo in codigo_map:
+        candidato = codigo_map[codigo]
+        if empaques_compatibles(candidato, artdescrip):
+            return candidato
 
     artdescrip_norm = _norm(artdescrip)
 
@@ -98,12 +159,116 @@ def _vincular_producto(articulo: str, artdescrip: str,
     if artdescrip_norm in nombre_map:
         return nombre_map[artdescrip_norm]
 
-    # 3. Nombre parcial
+    # 3. Alias explícito entre el catálogo interno y el nombre del Excel.
+    if alias_map and artdescrip_norm in alias_map:
+        return alias_map[artdescrip_norm]
+
+    # 4. Nombre parcial conservador. Solo nombres compuestos y coincidencia
+    # completa dentro de la descripción; evita asociar cualquier producto que
+    # contenga "chocolate" con el producto genérico Chocolate.
+    coincidencias: list[str] = []
     for k, v in nombre_map.items():
-        if artdescrip_norm in k or k in artdescrip_norm:
-            return v
+        if len(k.split()) < 2 or len(k) < 8:
+            continue
+        if not empaques_compatibles(v, artdescrip):
+            continue
+        if artdescrip_norm.startswith(k + " ") or artdescrip_norm.endswith(" " + k):
+            coincidencias.append(v)
+        elif f" {k} " in f" {artdescrip_norm} ":
+            coincidencias.append(v)
+    coincidencias = list(dict.fromkeys(coincidencias))
+    if len(coincidencias) == 1:
+        return coincidencias[0]
 
     return None
+
+
+def corregir_vinculaciones_empaque(excel_id: int) -> int:
+    """Desvincula relaciones históricas xN/xM incompatibles del Excel indicado."""
+    detalles = ExcelDetalle.query.filter_by(excel_id=excel_id).filter(
+        ExcelDetalle.producto_id.isnot(None)
+    ).all()
+    corregidos = 0
+    for detalle in detalles:
+        producto = db.session.get(Producto, detalle.producto_id)
+        if not producto or empaques_compatibles(producto.nombre, detalle.artdescrip):
+            continue
+        if (
+            producto.codigo_articulo
+            and _norm_codigo(producto.codigo_articulo) == _norm_codigo(detalle.articulo)
+        ):
+            producto.codigo_articulo = None
+        detalle.producto_id = None
+        detalle.producto_nombre_interno = None
+        detalle.estado_vinculacion = "pendiente"
+        corregidos += 1
+    if corregidos:
+        excel = db.session.get(ExcelImportado, excel_id)
+        if excel:
+            excel.estado_validacion = "pendiente_vinculacion"
+            excel.productos_nuevos = max(int(excel.productos_nuevos or 0), corregidos)
+    return corregidos
+
+
+def revincular_detalles_pendientes(cliente_id: str) -> int:
+    """Reintenta filas pendientes después de crear o sincronizar el catálogo."""
+    excels = ExcelImportado.query.filter_by(cliente_id=cliente_id).filter(
+        ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion"))
+    ).all()
+    if not excels:
+        return 0
+
+    nombre_map = _build_nombre_map(cliente_id)
+    codigo_map = _build_codigo_map()
+    alias_map = _build_alias_map(nombre_map)
+    vinculados = 0
+
+    for excel in excels:
+        detalles = ExcelDetalle.query.filter_by(excel_id=excel.id).all()
+        for detalle in detalles:
+            if detalle.excluido_auditoria:
+                continue
+            producto_actual = (
+                db.session.get(Producto, detalle.producto_id)
+                if detalle.producto_id else None
+            )
+            if (
+                detalle.estado_vinculacion == "vinculado"
+                and producto_actual is not None
+                and empaques_compatibles(producto_actual.nombre, detalle.artdescrip)
+            ):
+                continue
+
+            nombre = _vincular_producto(
+                detalle.articulo,
+                detalle.artdescrip,
+                codigo_map,
+                nombre_map,
+                alias_map,
+            )
+            producto = Producto.query.filter_by(nombre=nombre).first() if nombre else None
+            if producto is None:
+                detalle.producto_id = None
+                detalle.producto_nombre_interno = None
+                detalle.estado_vinculacion = "sin_producto"
+                continue
+
+            detalle.producto_id = producto.id
+            detalle.producto_nombre_interno = producto.nombre
+            detalle.estado_vinculacion = "vinculado"
+            if detalle.articulo and not producto.codigo_articulo:
+                producto.codigo_articulo = _norm_codigo(detalle.articulo)
+                codigo_map[_norm_codigo(detalle.articulo)] = producto.nombre
+            vinculados += 1
+
+        pendientes = sum(
+            not d.excluido_auditoria and d.estado_vinculacion != "vinculado"
+            for d in detalles
+        )
+        excel.productos_nuevos = pendientes
+        excel.estado_validacion = "pendiente_vinculacion" if pendientes else "ok"
+
+    return vinculados
 
 
 def importar_excel(
@@ -141,8 +306,14 @@ def importar_excel(
         )
 
     data_rows = rows[header_row_idx + 1:]
+    faltantes = sorted(_COLUMNAS_OBLIGATORIAS - set(col_map))
+    if faltantes:
+        raise ValueError(
+            "Faltan columnas obligatorias del Excel oficial: " + ", ".join(faltantes)
+        )
     nombre_map = _build_nombre_map(cliente_id)
     codigo_map = _build_codigo_map()
+    alias_map = _build_alias_map(nombre_map)
 
     ei = ExcelImportado(
         periodo_id=periodo_id,
@@ -176,7 +347,7 @@ def importar_excel(
             (ex for ex in _GRUPOS_EXCLUIR if ex in grupo or ex in grudescrip), None
         )
 
-        articulo = str(_get("articulo") or "").strip()
+        articulo = _norm_codigo(_get("articulo"))
         artcosto = _safe_float(_get("artcosto"))
         stockinicial = _safe_float(_get("stockinicial")) or 0.0
         compras = _safe_float(_get("compras")) or 0.0
@@ -192,8 +363,19 @@ def importar_excel(
 
         # Vincular: código primero, luego nombre exacto, luego parcial
         nombre_interno = _vincular_producto(
-            articulo, str(_get("artdescrip") or ""), codigo_map, nombre_map
+            articulo, str(_get("artdescrip") or ""), codigo_map, nombre_map, alias_map
         )
+        if nombre_interno is None and articulo:
+            propietario_codigo = Producto.query.filter_by(codigo_articulo=articulo).first()
+            if propietario_codigo and not empaques_compatibles(
+                propietario_codigo.nombre, str(_get("artdescrip") or "")
+            ):
+                propietario_codigo.codigo_articulo = None
+                codigo_map.pop(articulo, None)
+                advertencias.append(
+                    f"Código {articulo} desvinculado de '{propietario_codigo.nombre}': "
+                    "la cantidad de empaque no coincide."
+                )
         # Si se encontró, resolver producto_id y actualizar codigo_articulo si faltaba
         prod_id: Optional[int] = None
         if nombre_interno and not grupo_excluido:

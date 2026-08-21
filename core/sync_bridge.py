@@ -12,7 +12,10 @@ from datetime import datetime
 from typing import Callable, Optional
 from sqlalchemy import or_
 
-from .models import db, InventarioPeriodo, ConteoDetalle, InventarioItem, HistorialMovimiento
+from .models import (
+    db, InventarioPeriodo, ConteoDetalle, InventarioItem,
+    HistorialMovimiento, utc_now,
+)
 
 
 def sincronizar_transaccional(
@@ -42,6 +45,7 @@ def sincronizar_transaccional(
             tienda_id=tienda_id,
             usuario=usuario,
             accion=accion,
+            periodo_id=periodo.id if periodo is not None else None,
         )
         db.session.flush()
         if antes_commit is not None:
@@ -73,14 +77,14 @@ def _upsert_conteo(periodo: InventarioPeriodo, nombre: str, categoria: str,
         cd.total_unidad_base = total
         cd.cantidad_unidad = total
         cd.fue_cargado = True
-        cd.fecha_carga = datetime.utcnow()
+        cd.fecha_carga = utc_now()
         cd.usuario = usuario
         cd.veces_sincronizado = (cd.veces_sincronizado or 1) + 1
         cd.fue_sobreescrito = bool(fue_sobreescrito)
         cd.version_ultima_carga = int(version_ultima_carga or 1)
         # primera_carga NO se modifica — conserva el timestamp original
     else:
-        ahora = datetime.utcnow()
+        ahora = utc_now()
         cd = ConteoDetalle(
             periodo_id=periodo.id,
             cliente_id=periodo.cliente_id,
@@ -271,7 +275,7 @@ def retroalimentar_periodo_desde_items(periodo: InventarioPeriodo) -> int:
             cd.total_unidad_base = total
             cd.cantidad_unidad = total
             cd.fue_cargado = True
-            cd.fecha_carga = datetime.utcnow()
+            cd.fecha_carga = utc_now()
             cd.usuario = usuario
         else:
             cd = ConteoDetalle(

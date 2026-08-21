@@ -27,7 +27,7 @@ TABLAS = [
     "inventario_desc_snapshots", "delivery_ventas",
     "registros_averiados", "registros_vencimiento", "sincronizacion_log",
     "inventario_periodos", "conteo_detalle", "ajustes_inventario",
-    "excel_importados", "excel_detalles", "auditoria_resultados",
+    "excel_importados", "excel_detalles", "excel_detalle_ediciones", "auditoria_resultados",
     "asistente_ia_consultas", "justificaciones", "productos_relacionados",
 ]
 
@@ -52,6 +52,10 @@ COLUMNAS_CRITICAS = {
         "cliente_id", "tienda_id", "periodo_id", "resultado_id", "usuario",
         "pregunta", "respuesta", "proveedor", "modelo", "estado", "creado",
     },
+    "excel_detalle_ediciones": {
+        "cliente_id", "periodo_id", "excel_id", "detalle_id", "usuario",
+        "cambios_json", "creado",
+    },
 }
 
 CLAVES_CRITICAS = (
@@ -59,6 +63,9 @@ CLAVES_CRITICAS = (
     ("historial", "snapshot_id", "inventario_snapshots"),
     ("historial", "periodo_id", "inventario_periodos"),
     ("delivery_ventas", "periodo_id", "inventario_periodos"),
+    ("excel_detalle_ediciones", "periodo_id", "inventario_periodos"),
+    ("excel_detalle_ediciones", "excel_id", "excel_importados"),
+    ("excel_detalle_ediciones", "detalle_id", "excel_detalles"),
     ("asistente_ia_consultas", "periodo_id", "inventario_periodos"),
     ("asistente_ia_consultas", "resultado_id", "auditoria_resultados"),
 )

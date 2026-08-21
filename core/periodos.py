@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from .models import AjusteInventario, ConteoDetalle, InventarioPeriodo, db
+from .models import AjusteInventario, ConteoDetalle, InventarioPeriodo, db, utc_now
 
 
 def cerrar_periodo(
@@ -28,7 +28,7 @@ def cerrar_periodo(
         return False, pendientes
 
     periodo.estado = "Cerrado"
-    periodo.fecha_cierre = datetime.utcnow()
+    periodo.fecha_cierre = utc_now()
     return True, pendientes
 
 
@@ -92,7 +92,7 @@ def registrar_conteo_admin(
         conteo.total_unidad_base = cantidad
         conteo.cantidad_unidad = cantidad
         conteo.fue_cargado = True
-        conteo.fecha_carga = datetime.utcnow()
+        conteo.fecha_carga = utc_now()
         conteo.usuario = usuario
     if periodo.estado in ("Abierto", "Pendiente"):
         periodo.estado = "Cargado"

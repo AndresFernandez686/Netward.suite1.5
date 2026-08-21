@@ -50,7 +50,7 @@ class PruebasMigracionPostgresMultiempleado(unittest.TestCase):
         self.assertIn("version_ultima_carga", verificador.COLUMNAS_CRITICAS["conteo_detalle"])
         self.assertIn("periodo_id", verificador.COLUMNAS_CRITICAS["delivery_ventas"])
         self.assertIn("estado_periodo", verificador.COLUMNAS_CRITICAS["delivery_ventas"])
-        self.assertEqual(len(verificador.CLAVES_CRITICAS), 6)
+        self.assertEqual(len(verificador.CLAVES_CRITICAS), 9)
 
     def test_migracion_delivery_periodos_es_idempotente(self):
         completo = (MIGRACION / "01_schema_completo.sql").read_text(encoding="utf-8")
@@ -77,7 +77,22 @@ class PruebasMigracionPostgresMultiempleado(unittest.TestCase):
         self.assertGreater(migrador.TABLAS_ORDEN.index("asistente_ia_consultas"),
                            migrador.TABLAS_ORDEN.index("auditoria_resultados"))
         self.assertIn("asistente_ia_consultas", verificador.TABLAS)
-        self.assertEqual(len(verificador.CLAVES_CRITICAS), 6)
+        self.assertEqual(len(verificador.CLAVES_CRITICAS), 9)
+
+    def test_ediciones_excel_tienen_trazabilidad_y_orden_de_fk(self):
+        completo = (MIGRACION / "01_schema_completo.sql").read_text(encoding="utf-8")
+        modulo = (MIGRACION / "02_modulo_auditoria.sql").read_text(encoding="utf-8")
+        incremental = (MIGRACION / "08_edicion_datos_excel.sql").read_text(encoding="utf-8")
+        migrador = cargar_modulo("migracion_ediciones_excel", "migrate_sqlite_to_postgres.py")
+        verificador = cargar_modulo("verificador_ediciones_excel", "verificar_migracion.py")
+        for texto in (completo, modulo, incremental):
+            self.assertIn("excel_detalle_ediciones", texto)
+            self.assertIn("cambios_json", texto)
+            self.assertIn("detalle_id", texto)
+        orden = migrador.TABLAS_ORDEN
+        self.assertGreater(orden.index("excel_detalle_ediciones"), orden.index("excel_detalles"))
+        self.assertIn("excel_detalle_ediciones", verificador.TABLAS)
+        self.assertIn("cambios_json", verificador.COLUMNAS_CRITICAS["excel_detalle_ediciones"])
 
 
 if __name__ == "__main__":

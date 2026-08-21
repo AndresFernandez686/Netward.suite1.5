@@ -12,9 +12,9 @@
       <span class="field__label">Período activo de tu tienda</span>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <select name="periodo_id" style="min-width:260px;" required>
-          <option value="" selected disabled>Selecciona un período</option>
+          <option value="" disabled>Selecciona un período</option>
           {% for p in periodos_abiertos %}
-          <option value="{{ p.id }}">
+          <option value="{{ p.id }}" {{ 'selected' if periodo_activo and p.id == periodo_activo.id else '' }}>
             #{{ p.numero }} · {{ p.fecha_desde }} → {{ p.fecha_hasta }} · {{ p.estado }}
           </option>
           {% endfor %}
@@ -23,7 +23,7 @@
       </div>
     </form>
     <div class="toolbar__hint" style="min-width:260px;">
-      Todo lo que cargues y sincronices se registra en este período.
+      Período seleccionado: <strong>#{{ periodo_activo.numero }}</strong>. Todo lo que cargues y sincronices se registra aquí.
     </div>
   </div>
   {% else %}
@@ -60,46 +60,6 @@
   </div>
 </div>
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    <div class="flash-stack">
-      {% for category, message in messages %}
-        <div class="flash flash--{{ category }}">{{ message }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
-{% endwith %}
-
-{% if cargas_existentes %}
-<section class="card card--skip-collapse" aria-labelledby="cargas-compartidas-title">
-  <div class="cart__head">
-    <div>
-      <h3 id="cargas-compartidas-title">Carga compartida del período</h3>
-      <small class="muted">Cargas guardadas y borradores visibles para todos los empleados de la tienda.</small>
-    </div>
-    <span class="badge badge--blue">{{ cargas_existentes|length }} producto(s)</span>
-  </div>
-  <div class="table-wrap">
-    <table class="table">
-      <thead><tr><th>Producto</th><th>Categoría</th><th>Estado compartido</th></tr></thead>
-      <tbody>
-        {% for carga in cargas_existentes %}
-        <tr>
-          <td><strong>{{ carga.producto }}</strong></td>
-          <td><span class="tag">{{ carga.categoria }}</span></td>
-          <td>
-            {{ '%g'|format(carga.cantidad) }} unidades cargadas por {{ carga.usuario }}.
-            {% if carga.es_borrador %}<span class="badge badge--warning">Pendiente de guardar</span>{% endif %}
-            {% if carga.fue_sobreescrito %}<span class="badge badge--warning">Sobreescrito</span>{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-{% endif %}
-
 <div class="tabs" id="invTabs">
   {% for cat in categorias %}
     <button type="button" class="tab {{ 'is-active' if cat == active_tab else '' }}" data-tab="{{ cat }}">{{ cat }}</button>
@@ -110,6 +70,7 @@
 <section class="tab-panel card {{ 'is-active' if cat == active_tab else '' }}" data-panel="{{ cat }}">
   <h3 class="panel__title">Producto de {{ cat }}</h3>
   <form method="post" action="{{ url_for('carrito_agregar') }}" class="inv-form">
+    <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />
     <input type="hidden" name="categoria" value="{{ cat }}" />
     <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
     <input type="hidden" name="anchor" value="sec-carga" />
@@ -173,16 +134,27 @@
 </section>
 {% endfor %}
 
+{# Los avisos de agregar/eliminar quedan junto al resultado de la acción. #}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-stack inventory-cart-flashes" aria-live="polite">
+      {% for category, message in messages %}
+        <div class="flash flash--{{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
 <section class="cart card card--skip-collapse" id="sec-carrito">
   <div class="cart__head">
     <div>
       <h3>Productos cargados</h3>
-      {% if carrito %}<small class="muted">Borrador guardado automáticamente para este período.</small>{% endif %}
+      {% if productos_cargados %}<small class="muted">Productos visibles para los empleados de esta tienda durante el período.</small>{% endif %}
     </div>
-    {% if carrito %}<span class="badge badge--blue">{{ carrito|length }} producto(s)</span>{% endif %}
+    {% if productos_cargados %}<span class="badge badge--blue">{{ productos_cargados|length }} producto(s)</span>{% endif %}
   </div>
 
-  {% if carrito %}
+  {% if productos_cargados %}
     <div class="table-wrap">
       <table class="table">
         <thead>
@@ -191,7 +163,7 @@
         <tbody>
           {# Calcular totales por producto para mostrar subtotal #}
           {% set ns = namespace(prev_key='', subtotal=0) %}
-          {% for item in carrito %}
+          {% for item in productos_cargados %}
             {% set key = item.categoria + '||' + item.producto %}
             {% set cu = item.cantidad_unidades if item.cantidad_unidades is defined else item.cantidad %}
 
@@ -221,15 +193,21 @@
                   <br><small class="muted">→ {{ item.desc_conversion }}</small>
                 {% endif %}
                 {% if item.detalle %}<small class="muted">({{ item.detalle }})</small>{% endif %}
+                {% if not item.es_propio %}
+                  <br><small class="muted">Cargado por {{ item.usuario }}{% if item.es_borrador %} · Pendiente de guardar{% endif %}</small>
+                {% endif %}
               </td>
-              <td class="muted">{{ item.hora }}</td>
+              <td class="muted">{{ item.hora or '—' }}</td>
               <td>
-                <form method="post" action="{{ url_for('carrito_eliminar', idx=loop.index0) }}"
+                {% if item.es_propio %}
+                <form method="post" action="{{ url_for('carrito_eliminar', idx=item.carrito_idx) }}"
                       data-confirm-message="¿Quitar este producto de la carga temporal?">
+                  <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />
                   <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
                   <input type="hidden" name="anchor" value="sec-carrito" />
                   <button class="btn btn--icon btn--ghost" title="Eliminar">&times;</button>
                 </form>
+                {% endif %}
               </td>
             </tr>
           {% endfor %}
@@ -250,19 +228,23 @@
       </table>
     </div>
 
+    {% if carrito %}
     <div class="cart__actions action-group">
       <form method="post" action="{{ url_for('carrito_guardar') }}" data-submit-delay="5000" data-loading-text="Guardando inventario...">
+        <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />
         <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
         <input type="hidden" name="anchor" value="sec-carrito" />
         <button class="btn btn--success">Guardar inventario</button>
       </form>
       <form method="post" action="{{ url_for('carrito_limpiar') }}"
             data-confirm-message="¿Limpiar todos los productos cargados? Esta acción vaciará el borrador del período.">
+        <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />
         <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
         <input type="hidden" name="anchor" value="sec-carrito" />
         <button class="btn btn--ghost">Limpiar carrito</button>
       </form>
     </div>
+    {% endif %}
   {% else %}
     <div class="empty">
       <p>No hay productos cargados.</p>
@@ -279,6 +261,7 @@
   <p class="muted">Carga vigente: {{ '%g'|format(conflicto_carga.cantidad_actual) }} unidades por {{ conflicto_carga.usuario }}.</p>
   {% if conflicto_carga.accion == 'agregar' %}
   <form method="post" action="{{ url_for('carrito_agregar') }}" class="action-group">
+    <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}">
     <input type="hidden" name="categoria" value="{{ conflicto_carga.categoria }}">
     <input type="hidden" name="producto" value="{{ conflicto_carga.producto }}">
     <input type="hidden" name="cantidad" value="{{ conflicto_carga.cantidad }}">
@@ -293,6 +276,7 @@
   </form>
   {% else %}
   <form method="post" action="{{ url_for('carrito_confirmar_conflicto') }}" class="action-group">
+    <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}">
     <input type="hidden" name="categoria" value="{{ conflicto_carga.categoria }}">
     <input type="hidden" name="producto" value="{{ conflicto_carga.producto }}">
     <button type="submit" class="btn btn--danger">Sí, sobreescribir</button>

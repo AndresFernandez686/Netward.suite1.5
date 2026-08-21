@@ -10,7 +10,37 @@ Comando:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Resultado general: **98 pruebas automatizadas aprobadas**.
+Resultado general: **130 pruebas automatizadas disponibles**; la regresión de contexto de períodos fue validada correctamente.
+
+## Flujo único del Excel oficial
+
+La importación sin descarga automática y el consumo desde Auditoría están documentados en
+[flujo definitivo de Excel oficial](excel_oficial/12-flujo-unico-desc.md).
+
+## Notificación de carga de inventario
+
+La ubicación del aviso inmediatamente antes de Productos cargados está documentada en
+[notificación del inventario](notificacion_inventario.md).
+
+## Navegación lateral
+
+La persistencia del desplazamiento y la visibilidad de la opción activa están documentadas en
+[persistencia del menú lateral](menu_lateral_scroll.md).
+
+## Separación de configuración
+
+La independencia visual entre Productos y Tiendas está documentada en
+[separación de Productos y Tiendas](configuracion_secciones.md).
+
+## Reinicio de períodos contables
+
+La eliminación segura y recuperación mediante respaldo están documentadas en
+[reinicio de períodos contables](reset_periodos_contables.md).
+
+## Inventario administrativo por período
+
+La selección del último período cargado por sucursal está documentada en
+[inventario del último período](inventario_ultimo_periodo.md).
 
 ## Asistente explicativo de auditoría
 
@@ -68,6 +98,7 @@ Los nueve escenarios defensivos están documentados en el
 4. [Cierre con todos los productos cargados](periodos/04-cierre-completo.md)
 5. [Continuidad coincidente](periodos/05-continuidad-coincidente.md)
 6. [Continuidad no coincidente](periodos/06-continuidad-no-coincidente.md)
+7. [Selección persistente del período del empleado](periodos/07-seleccion-empleado.md)
 
 ## Excel oficial
 
@@ -81,6 +112,11 @@ Los nueve escenarios defensivos están documentados en el
 8. [Venta Real con delivery](excel_oficial/08-venta-real-delivery.md)
 9. [Venta Real sin delivery](excel_oficial/09-venta-real-excel.md)
 10. [Cálculo de diferencia](excel_oficial/10-calculo-diferencia.md)
+11. [Robustez de estructura y vinculación](excel_oficial/11-robustez-estructura-vinculacion.md)
+12. [Flujo único desde Excel oficial](excel_oficial/12-flujo-unico-desc.md)
+13. [Edición de datos extraídos](excel_oficial/13-editor-datos-extraidos.md)
+14. [Presentaciones con cantidades incompatibles](excel_oficial/14-empaques-incompatibles.md)
+15. [Revinculación después de actualizar el catálogo](excel_oficial/15-revinculacion-catalogo.md)
 
 ## Motor de auditoría
 

@@ -1,5 +1,5 @@
 ﻿"""
-inventario.py — Módulo Desc.: procesamiento de Excel de inventario por período.
+inventario.py — Importación del Excel oficial de inventario por período.
 
 Flujo completo:
   1. Admin sube .xls/.xlsx de inventario + elige tienda y rango de fechas.
@@ -11,19 +11,19 @@ Flujo completo:
   5. Recalcula venta teórica y diferencia.
   6. Agrega columnas: separador vacío | unid_por_caja | unid_por_bulto.
   7. Guarda snapshot con el stock_final procesado (para el próximo inventario).
-  8. Descarga .xlsx coloreado.
+  8. Persiste el archivo y sus detalles para que Auditoría los consuma.
+  9. Redirige al resumen del período; la importación no descarga otro Excel.
 """
 import io
 import json
+import math
 import unicodedata
 from datetime import date, datetime
 from typing import Optional, Tuple
 
 import openpyxl
-import openpyxl.utils
-from openpyxl.styles import Font, PatternFill, Alignment
 from flask import (Blueprint, abort, flash, redirect, render_template,
-                   request, session, url_for, send_file)
+                   request, session, url_for, jsonify)
 
 desc_bp = Blueprint("desc", __name__)
 
@@ -45,13 +45,6 @@ desc_bp = Blueprint("desc", __name__)
 # Col 12-22              ELIMINAR
 
 COLS_MANTENER = [2, 4, 5, 6, 7, 8, 9, 10, 11]   # sin unidades (col16)
-
-LABELS_SALIDA = [
-    "Producto", "Stock Inicial", "Compras", "Otros Ingresos",
-    "Otras Salidas", "Stock Final", "Venta Teorica", "Venta Real", "Diferencia",
-]
-# 3 columnas extra al final: separador | unid_x_caja | unid_x_bulto
-LABELS_EXTRA = ["", "Unid. x Caja", "Cajas x Bulto"]
 
 # Índices ORIGINALES
 I_GRUPO     = 0
@@ -142,7 +135,7 @@ def _detectar_layout(filas_raw: list) -> Tuple[dict, int]:
 
         # Formato original esperado desde el sistema de inventario.
         if "grudescrip" in idx and "artdescrip" in idx and "stockinicial" in idx:
-            return {
+            original = {
                 "grupo": idx.get("grudescrip"),
                 "nombre": idx.get("artdescrip"),
                 "si": idx.get("stockinicial"),
@@ -153,7 +146,11 @@ def _detectar_layout(filas_raw: list) -> Tuple[dict, int]:
                 "vt": idx.get("ventateorica"),
                 "vr": idx.get("ventareal"),
                 "dif": idx.get("diferencia"),
-            }, header_idx
+            }
+            if all(original[k] is not None for k in (
+                "nombre", "si", "compras", "otros_ing", "otras_sal", "sf", "vt", "vr", "dif"
+            )):
+                return original, header_idx
 
         # Formato ya procesado/exportado (Producto, Stock Inicial, ...).
         nombre_idx = idx.get("producto", idx.get("artdescrip"))
@@ -172,7 +169,11 @@ def _detectar_layout(filas_raw: list) -> Tuple[dict, int]:
         if all(procesado[k] is not None for k in ("nombre", "si", "compras", "otros_ing", "otras_sal", "sf", "vt", "vr", "dif")):
             return procesado, header_idx
 
-    return dict(DEFAULT_LAYOUT), 0
+    raise ValueError(
+        "No se detectaron todas las columnas obligatorias: producto, stock inicial, "
+        "compras, otros ingresos, otras salidas, stock final, venta teórica, "
+        "venta real y diferencia."
+    )
 
 
 def _leer_excel(contenido: bytes, filename: str) -> list:
@@ -270,7 +271,7 @@ def _snapshot_anterior(tienda_id: str, mes: str):
 
 
 def _guardar_snapshot(tienda_id: str, mes: str, fecha: str, sf_dict: dict):
-    """Guarda o actualiza el snapshot del período procesado."""
+    """Guarda o actualiza el snapshot; el llamador confirma la transacción."""
     from core.models import InventarioDescSnapshot, db
     snap = InventarioDescSnapshot.query.filter_by(
         tienda_id=tienda_id, mes=mes, fecha_proceso=fecha).first()
@@ -281,7 +282,6 @@ def _guardar_snapshot(tienda_id: str, mes: str, fecha: str, sf_dict: dict):
         db.session.add(snap)
     else:
         snap.stock_final_json = json.dumps(sf_dict)
-    db.session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -389,74 +389,16 @@ def _procesar_filas(filas_raw: list, stock_map: dict, ventas_map: dict,
 
 
 # ---------------------------------------------------------------------------
-# Generación del Excel de salida
-# ---------------------------------------------------------------------------
-
-def _generar_xlsx(filas_procesadas: list, fecha_proceso: str,
-                  label_periodo: str) -> io.BytesIO:
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    assert ws is not None
-    ws.title = "Inventario Procesado"
-
-    # Estilos
-    HDR_FILL  = PatternFill("solid", fgColor="1D4ED8")
-    HDR_FONT  = Font(bold=True, color="FFFFFF", size=10)
-    SIS_FILL  = PatternFill("solid", fgColor="DBEAFE")   # azul  → sistema
-    SNAP_FILL = PatternFill("solid", fgColor="E0E7FF")   # violeta → snapshot
-    CALC_FILL = PatternFill("solid", fgColor="D1FAE5")   # verde → calculado
-    NEG_FILL  = PatternFill("solid", fgColor="FEE2E2")   # rojo  → negativo
-    POS_FILL  = PatternFill("solid", fgColor="DCFCE7")   # verde → ok
-    CENTER    = Alignment(horizontal="center", vertical="center")
-
-    # Fila 1: encabezado principal
-    header_row = LABELS_SALIDA + ["", fecha_proceso, label_periodo]
-    ws.append(header_row)
-    for cell in ws[1]:
-        cell.fill      = HDR_FILL
-        cell.font      = HDR_FONT
-        cell.alignment = CENTER
-    ws.row_dimensions[1].height = 22
-
-    # Datos
-    for fila in filas_procesadas:
-        fila_fmt = []
-        for v in fila:
-            if isinstance(v, float) and v == int(v):
-                fila_fmt.append(int(v))
-            else:
-                fila_fmt.append(v)
-        ws.append(fila_fmt)
-
-        rn = ws.max_row
-        ws.cell(rn, FI_SI  + 1).fill  = SIS_FILL   # Stock Inicial
-        ws.cell(rn, FI_VR  + 1).fill  = SIS_FILL   # Venta Real
-        ws.cell(rn, FI_VT  + 1).fill  = CALC_FILL  # Venta Teórica
-        dif_val = _f(fila[FI_DIF])
-        ws.cell(rn, FI_DIF + 1).fill  = NEG_FILL if dif_val < 0 else POS_FILL
-
-    # Anchos de columna
-    anchos = {1: 42, 2: 14, 3: 12, 4: 16, 5: 16, 6: 12,
-              7: 16, 8: 12, 9: 12, 10: 4, 11: 13, 12: 13}
-    for col_idx, width in anchos.items():
-        ws.column_dimensions[
-            openpyxl.utils.get_column_letter(col_idx)
-        ].width = width
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
-
-
-# ---------------------------------------------------------------------------
 # Rutas
 # ---------------------------------------------------------------------------
 
 @desc_bp.route("/admin/desc", methods=["GET", "POST"])
 def admin_desc():
     _requiere_admin()
-    from core.models import Tienda, InventarioDescSnapshot, Producto, InventarioPeriodo, ConteoDetalle
+    from core.models import (
+        db, Tienda, InventarioDescSnapshot, Producto, InventarioPeriodo,
+        ExcelImportado, ExcelDetalle,
+    )
 
     cliente_id = session.get("cliente_id", "C001")
     tiendas = Tienda.query.filter_by(cliente_id=cliente_id).all()
@@ -473,14 +415,33 @@ def admin_desc():
     if periodo_seleccionado is None and periodos_disponibles:
         periodo_seleccionado = periodos_disponibles[0]
 
-    conteos_periodo = []
+    excel_seleccionado = None
+    excel_detalles = []
     if periodo_seleccionado is not None:
-        conteos_periodo = (
-            ConteoDetalle.query
-            .filter_by(periodo_id=periodo_seleccionado.id)
-            .order_by(ConteoDetalle.categoria, ConteoDetalle.producto_nombre)
-            .all()
+        excel_seleccionado = (
+            ExcelImportado.query
+            .filter_by(
+                periodo_id=periodo_seleccionado.id,
+                cliente_id=cliente_id,
+            )
+            .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
+            .order_by(ExcelImportado.id.desc())
+            .first()
         )
+        if excel_seleccionado is not None:
+            from core.excel_importer import corregir_vinculaciones_empaque
+            if corregir_vinculaciones_empaque(excel_seleccionado.id):
+                db.session.commit()
+                flash(
+                    "Se desvincularon productos cuya cantidad de empaque no coincide con el Excel; requieren revisión.",
+                    "warning",
+                )
+            excel_detalles = (
+                ExcelDetalle.query
+                .filter_by(excel_id=excel_seleccionado.id)
+                .order_by(ExcelDetalle.grupo, ExcelDetalle.artdescrip, ExcelDetalle.id)
+                .all()
+            )
 
     # Historial de snapshots para mostrar en la UI
     snapshots = (InventarioDescSnapshot.query
@@ -503,8 +464,6 @@ def admin_desc():
         tienda_id = periodo.tienda_id
         fecha_ini = periodo.fecha_desde
         fecha_fin = periodo.fecha_hasta
-        label_periodo = f"Periodo #{periodo.numero}"
-
         if not archivo or not archivo.filename:
             flash("Selecciona un archivo Excel antes de continuar.", "error")
             return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
@@ -522,6 +481,18 @@ def admin_desc():
                 flash("El archivo no contiene datos.", "error")
                 return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
 
+            # Excel oficial y Auditoría deben usar exactamente el mismo
+            # Excel oficial. Antes solo se generaba la descarga/snapshot y la
+            # auditoría quedaba sin ExcelDetalle, por lo que Compras aparecía 0.
+            from core.excel_importer import importar_excel
+            excel_imp, advertencias_excel = importar_excel(
+                periodo_id=periodo.id,
+                cliente_id=cliente_id,
+                usuario=session.get("usuario", "administrador"),
+                filename=fname,
+                contenido=contenido,
+            )
+
             # Determinar mes para regla de continuidad
             mes = fecha_fin[:7]   # YYYY-MM
 
@@ -536,6 +507,7 @@ def admin_desc():
                 filas_raw, sm, vm, prev, pm)
 
             if not filas_proc:
+                db.session.rollback()
                 flash("No se encontraron filas válidas para procesar.", "warning")
                 return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
 
@@ -543,8 +515,8 @@ def admin_desc():
             if tienda_id and sf_dict:
                 _guardar_snapshot(tienda_id, mes, fecha_fin, sf_dict)
 
-            # Generar Excel
-            buf = _generar_xlsx(filas_proc, fecha_fin, label_periodo)
+            periodo.estado = "Excel Importado"
+            db.session.commit()
 
             # Resumen flash
             continuidad = "snapshot anterior" if prev else "sistema (InventarioItem)"
@@ -552,19 +524,28 @@ def admin_desc():
                 f"Procesadas {resumen['total']} filas "
                 f"({resumen['excluidos']} excluidas por grupo). "
                 f"SI desde período ({periodo.numero}) / {continuidad}: {resumen['si_snap'] + resumen['si_sys']} prods. "
-                f"VR desde sistema: {resumen['vr_sys']} prods.",
+                f"VR desde sistema: {resumen['vr_sys']} prods. "
+                f"Excel oficial #{excel_imp.id} registrado para auditoría.",
                 "success",
             )
+            for advertencia in advertencias_excel[:5]:
+                flash(advertencia, "warning")
+            if len(advertencias_excel) > 5:
+                flash(
+                    f"... y {len(advertencias_excel) - 5} advertencia(s) de vinculación más.",
+                    "warning",
+                )
 
-            tienda_nombre = tienda_id or "sintienda"
-            return send_file(
-                buf,
-                as_attachment=True,
-                download_name=f"inventario_{tienda_nombre}_{fecha_fin}.xlsx",
-                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            return redirect(
+                url_for(
+                    "desc.admin_desc",
+                    periodo_id=periodo.id,
+                    ver_datos=1,
+                ) + "#datos-extraidos-card"
             )
 
         except Exception as exc:
+            db.session.rollback()
             flash(f"Error al procesar: {exc}", "error")
             return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
 
@@ -574,7 +555,9 @@ def admin_desc():
         tiendas_map=tiendas_map,
         periodos_disponibles=periodos_disponibles,
         periodo_seleccionado=periodo_seleccionado,
-        conteos_periodo=conteos_periodo,
+        excel_seleccionado=excel_seleccionado,
+        excel_detalles=excel_detalles,
+        mostrar_datos=request.args.get("ver_datos") == "1",
         snapshots=snapshots,
         inventarios_procesados=InventarioDescSnapshot.query.count(),
         ultimo_snapshot=(snapshots[0] if snapshots else None),
@@ -585,6 +568,147 @@ def admin_desc():
         hoy=date.today().isoformat(),
         primer_dia=date.today().replace(day=1).isoformat(),
     )
+
+
+_CAMPOS_EXCEL_TEXTO = {
+    "articulo": 40,
+    "artdescrip": 255,
+    "grupo": 120,
+    "grudescrip": 120,
+    "motivo_exclusion": 120,
+}
+_CAMPOS_EXCEL_NUMERO = {
+    "artcosto", "stockinicial", "compras", "otrosingresos",
+    "otrassalidas", "stockfinal", "ventateorica", "ventareal",
+    "diferencia", "importedesvio", "kilos", "unidades",
+}
+
+
+class ConflictoEdicionExcel(RuntimeError):
+    pass
+
+
+def _normalizar_celda_excel(campo, valor_raw):
+    if campo in _CAMPOS_EXCEL_TEXTO:
+        valor = str(valor_raw or "").strip()[:_CAMPOS_EXCEL_TEXTO[campo]]
+        if campo == "articulo" and not valor:
+            raise ValueError("El código del artículo no puede quedar vacío.")
+        return None if campo == "motivo_exclusion" and not valor else valor
+    if campo in _CAMPOS_EXCEL_NUMERO:
+        if campo == "artcosto" and valor_raw in (None, ""):
+            return None
+        try:
+            valor = float(valor_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"El campo {campo} debe ser numérico.") from exc
+        if not math.isfinite(valor):
+            raise ValueError(f"El campo {campo} debe contener un número finito.")
+        return valor
+    if campo == "excluido_auditoria":
+        if isinstance(valor_raw, bool):
+            return valor_raw
+        if str(valor_raw).strip().lower() in {"true", "1", "sí", "si"}:
+            return True
+        if str(valor_raw).strip().lower() in {"false", "0", "no", ""}:
+            return False
+        raise ValueError("El campo excluido_auditoria debe ser booleano.")
+    raise ValueError(f"El campo {campo} no puede editarse.")
+
+
+@desc_bp.route("/admin/desc/excel/<int:excel_id>/datos", methods=["POST"])
+def desc_excel_datos_guardar(excel_id):
+    """Actualiza solo celdas modificadas y registra el antes/después de cada fila."""
+    _requiere_admin()
+    from core.models import (
+        db, ExcelImportado, ExcelDetalle, ExcelDetalleEdicion, InventarioPeriodo,
+    )
+
+    cliente_id = session.get("cliente_id", "C001")
+    excel = ExcelImportado.query.filter_by(id=excel_id, cliente_id=cliente_id).first()
+    if excel is None:
+        abort(404)
+    periodo = db.session.get(InventarioPeriodo, excel.periodo_id)
+    if periodo is None or periodo.cliente_id != cliente_id:
+        abort(404)
+
+    payload = request.get_json(silent=True) or {}
+    filas = payload.get("filas")
+    if not isinstance(filas, list) or not filas:
+        return jsonify(ok=False, error="No hay celdas modificadas para guardar."), 400
+    if len(filas) > 5000:
+        return jsonify(ok=False, error="La edición supera el límite de 5.000 filas."), 400
+
+    ids = []
+    for item in filas:
+        try:
+            ids.append(int(item.get("id")))
+        except (AttributeError, TypeError, ValueError):
+            return jsonify(ok=False, error="Se recibió una fila inválida."), 400
+    detalles = {
+        fila.id: fila for fila in ExcelDetalle.query.filter(
+            ExcelDetalle.excel_id == excel.id,
+            ExcelDetalle.id.in_(ids),
+        ).all()
+    }
+    if len(detalles) != len(set(ids)):
+        abort(404)
+
+    total_celdas = 0
+    try:
+        for item in filas:
+            detalle = detalles[int(item["id"])]
+            valores = item.get("valores")
+            originales = item.get("originales") or {}
+            if not isinstance(valores, dict):
+                raise ValueError("Formato de edición inválido.")
+            cambios = {}
+            for campo, valor_raw in valores.items():
+                valor = _normalizar_celda_excel(campo, valor_raw)
+                anterior = getattr(detalle, campo)
+                if campo in originales:
+                    original = _normalizar_celda_excel(campo, originales[campo])
+                    actual_normalizado = _normalizar_celda_excel(campo, anterior)
+                    if actual_normalizado != original:
+                        raise ConflictoEdicionExcel(
+                            f"La fila «{detalle.artdescrip or detalle.articulo}» cambió en otra sesión. Recarga los datos antes de guardar."
+                        )
+                if anterior != valor:
+                    cambios[campo] = {"anterior": anterior, "nuevo": valor}
+                    setattr(detalle, campo, valor)
+
+            if cambios:
+                total_celdas += len(cambios)
+                db.session.add(ExcelDetalleEdicion(
+                    cliente_id=cliente_id,
+                    periodo_id=periodo.id,
+                    excel_id=excel.id,
+                    detalle_id=detalle.id,
+                    usuario=session.get("usuario", "administrador"),
+                    cambios_json=json.dumps(cambios, ensure_ascii=False),
+                ))
+
+        if total_celdas == 0:
+            return jsonify(ok=True, filas=0, celdas=0, message="No había cambios nuevos.")
+        periodo.estado = "Excel Importado"
+        db.session.commit()
+        return jsonify(
+            ok=True,
+            filas=len(filas),
+            celdas=total_celdas,
+            message=(
+                f"Se guardaron {total_celdas} celda(s). "
+                "Auditoría usará estos valores en su próxima ejecución."
+            ),
+        )
+    except ConflictoEdicionExcel as exc:
+        db.session.rollback()
+        return jsonify(ok=False, error=str(exc)), 409
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify(ok=False, error=str(exc)), 400
+    except Exception:
+        db.session.rollback()
+        return jsonify(ok=False, error="No se pudieron guardar las modificaciones."), 500
 
 
 
@@ -613,10 +737,10 @@ RENOMBRAR_CATALOGO = {
     "Alfajor Bombon Suizo":            "Bombon suizo x unidad",
     "Alfajor Casatta":                 "Casatta x unidad",
     "Alfajor Bombon Cookies and Crema":"Alfajor cookies and cream x un.",
-    "Familiar 1":                      "Familiar n\u2551 1 (chocolate/d.leche/americana)",
-    "Familiar 2":                      "Familiar n\u2551 2 (chocolate/frutilla/dulce de leche)",
-    "Familiar 3":                      "Familiar n\u2551 3 (vainilla/frutilla/granizado)",
-    "Familiar 4":                      "Familiar n\u2551 4 (d.leche/frutilla/vainilla)",
+    "Familiar 1":                      "Familiar nº 1 (chocolate/d.leche/americana)",
+    "Familiar 2":                      "Familiar nº 2 (chocolate/frutilla/dulce de leche)",
+    "Familiar 3":                      "Familiar nº 3 (vainilla/frutilla/granizado)",
+    "Familiar 4":                      "Familiar nº 4 (d.leche/frutilla/vainilla)",
     "Palito Bombon":                   "Palito bombon x unidad",
     "Palito Crema Americana":          "Palito cremoso americana x unidad",
     "Palito Crema Frutilla":           "Palito cremoso frutilla x unidad",
@@ -641,7 +765,9 @@ RENOMBRAR_CATALOGO = {
     # Extras
     "Bolsa 40x50":                     "Bolsa grido (40x50)",
     "Cucurucho Cascao x120":           "Cucurucho cascao chips x 120 u (nello)",
-    "Cucurucho Nacional x54":          "Cucuruch\u2264n nacional x 78 u",
+    "Cucurucho Nacional x54":          "Cucuruchón nacional x 78 u",
+    "Cucharita Grido":                 "Cucharita coloridax 1000 grs.",
+    "Delicia":                         "Barra delicia chocolate y mani",
     "Isopor 1 kilo":                   "Isopor 1/1 grido",
     "Isopor 1/2 kilo":                 "Isopor de 1/2 grido",
     "Isopor 1/4":                      "Isopor de 1/4",
@@ -660,17 +786,16 @@ def _calcular_plan_renombrado():
     accion: 'renombrar' | 'eliminar_duplicado' | 'conflicto'
     """
     from core.models import Producto
-    existentes = {p.nombre: p for p in Producto.query.all()}
-    existentes_lower = {k.lower(): v for k, v in existentes.items()}
+    existentes = {_norm(p.nombre): p for p in Producto.query.all()}
     plan = []
     for nombre_sys, nombre_excel in RENOMBRAR_CATALOGO.items():
-        prod = existentes.get(nombre_sys)
+        prod = existentes.get(_norm(nombre_sys))
         if prod is None:
             plan.append({"de": nombre_sys, "a": nombre_excel,
                          "accion": "no_existe", "id": None})
             continue
         # ¿El nombre destino ya existe?
-        destino_existe = existentes_lower.get(nombre_excel.lower())
+        destino_existe = existentes.get(_norm(nombre_excel))
         if destino_existe and destino_existe.id != prod.id:
             plan.append({"de": nombre_sys, "a": nombre_excel,
                          "accion": "eliminar_duplicado", "id": prod.id,
@@ -728,8 +853,15 @@ def desc_sincronizar():
             except Exception as e:
                 errores.append(f"{item['de']}: {e}")
 
+        from core.excel_importer import revincular_detalles_pendientes
+        revinculados = revincular_detalles_pendientes(
+            session.get("cliente_id", "C001")
+        )
         db.session.commit()
-        msg = f"Sincronizado: {renombrados} renombrados, {eliminados} duplicados eliminados."
+        msg = (
+            f"Sincronizado: {renombrados} renombrados, "
+            f"{eliminados} duplicados eliminados y {revinculados} fila(s) del Excel vinculada(s)."
+        )
         if errores:
             msg += f" Errores: {'; '.join(errores)}"
         flash(msg, "success" if not errores else "warning")

@@ -2,11 +2,16 @@
 Modelos de base de datos (SQLAlchemy) para el Sistema Netward.
 Migracion desde el sistema Streamlit original a Flask + SQLite.
 """
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
+
+
+def utc_now():
+    """UTC sin zona para las columnas DateTime históricamente ingenuas."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class BaseModel(db.Model):
@@ -83,7 +88,7 @@ class NotificacionUsuario(BaseModel):
     titulo = db.Column(db.String(160), nullable=False)
     mensaje = db.Column(db.String(300), nullable=False)
     leida = db.Column(db.Boolean, nullable=False, default=False, index=True)
-    creada = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    creada = db.Column(db.DateTime, default=utc_now, index=True)
 
 
 class Producto(BaseModel):
@@ -118,7 +123,7 @@ class InventarioItem(BaseModel):
     usuario_ultima_carga = db.Column(db.String(80), default="", nullable=False)
     version = db.Column(db.Integer, default=1, nullable=False)
     fue_sobreescrito = db.Column(db.Boolean, default=False, nullable=False)
-    actualizado = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    actualizado = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         db.UniqueConstraint("tienda_id", "categoria", "producto", name="uq_inv_item"),
@@ -148,7 +153,7 @@ class HistorialMovimiento(BaseModel):
     usuario_anterior = db.Column(db.String(80), default="")
     cantidad_anterior = db.Column(db.Float, nullable=True)
     version = db.Column(db.Integer, default=1, nullable=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
 
 class InventarioSnapshot(BaseModel):
@@ -162,7 +167,7 @@ class InventarioSnapshot(BaseModel):
     usuario = db.Column(db.String(80), nullable=False)
     tipo_inventario = db.Column(db.String(20), default="Diario")
     total_items = db.Column(db.Integer, default=0)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
     __table_args__ = (
         db.UniqueConstraint("tienda_id", "fecha", "usuario", name="uq_snapshot_fecha_usuario"),
@@ -235,7 +240,7 @@ class ProductoPrecio(BaseModel):
 
 
 class InventarioDescSnapshot(BaseModel):
-    """Guarda el stock_final de cada inventario Desc. procesado (regla de continuidad por período)."""
+    """Guarda el stock_final de cada Excel oficial procesado para continuidad."""
     __tablename__ = "inventario_desc_snapshots"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -244,7 +249,7 @@ class InventarioDescSnapshot(BaseModel):
     mes = db.Column(db.String(7), nullable=False)           # YYYY-MM
     fecha_proceso = db.Column(db.String(20), nullable=False)
     stock_final_json = db.Column(db.Text, nullable=False)   # JSON {nombre_lower: float}
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
     __table_args__ = (
         db.UniqueConstraint("tienda_id", "mes", "fecha_proceso",
@@ -271,7 +276,7 @@ class RegistroAveriado(BaseModel):
     detalle = db.Column(db.String(255), default="")
     sinc_estado = db.Column(db.String(20), default="pendiente")  # pendiente | sincronizado
     revisado = db.Column(db.Boolean, default=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
 
 class RegistroVencimiento(BaseModel):
@@ -294,7 +299,7 @@ class RegistroVencimiento(BaseModel):
     detalle = db.Column(db.String(255), default="")
     sinc_estado = db.Column(db.String(20), default="pendiente")  # pendiente | sincronizado
     revisado = db.Column(db.Boolean, default=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
 
 class SincronizacionLog(BaseModel):
@@ -307,7 +312,7 @@ class SincronizacionLog(BaseModel):
     usuario = db.Column(db.String(80), nullable=False)
     tipo = db.Column(db.String(20), nullable=False)   # "envio" | "recepcion"
     accion = db.Column(db.String(30), default="")     # "solo_enviar" | "enviar_recibir"
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=utc_now)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -328,7 +333,7 @@ class InventarioPeriodo(BaseModel):
     # Abierto | Pendiente | Cargado | Sincronizado | Cerrado | Conciliado | Auditado
     estado = db.Column(db.String(20), default="Abierto")
     usuario_creador = db.Column(db.String(80), nullable=False)
-    fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_creacion = db.Column(db.DateTime, default=utc_now)
     fecha_cierre = db.Column(db.DateTime, nullable=True)
     observacion = db.Column(db.String(500), default="")
 
@@ -363,8 +368,8 @@ class ConteoDetalle(BaseModel):
     total_unidad_base = db.Column(db.Float, default=0)  # siempre en unidades
     fue_cargado = db.Column(db.Boolean, default=True)   # False = NULL/sin cargar
     observacion = db.Column(db.String(255), default="")
-    primera_carga = db.Column(db.DateTime, default=datetime.utcnow)  # jamás se sobreescribe
-    fecha_carga = db.Column(db.DateTime, default=datetime.utcnow)     # última sincronización
+    primera_carga = db.Column(db.DateTime, default=utc_now)  # jamás se sobreescribe
+    fecha_carga = db.Column(db.DateTime, default=utc_now)     # última sincronización
     # Regla: último gana. Este contador registra cuántas veces se sincronizó en el período.
     veces_sincronizado = db.Column(db.Integer, default=1)
     fue_sobreescrito = db.Column(db.Boolean, default=False, nullable=False)
@@ -386,7 +391,7 @@ class InventarioBorrador(BaseModel):
     tienda_id = db.Column(db.String(10), nullable=False, index=True)
     usuario = db.Column(db.String(80), nullable=False, index=True)
     contenido_json = db.Column(db.Text, nullable=False, default="[]")
-    actualizado = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    actualizado = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     __table_args__ = (
         db.UniqueConstraint(
@@ -411,7 +416,7 @@ class AjusteInventario(BaseModel):
     observacion = db.Column(db.String(500), default="")
     # False = solo trazabilidad; no modifica conteo_final (evita doble descuento con mermas/vencidos)
     impacta_stock = db.Column(db.Boolean, default=True)
-    fecha_ajuste = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_ajuste = db.Column(db.DateTime, default=utc_now)
 
 
 class ExcelImportado(BaseModel):
@@ -422,7 +427,7 @@ class ExcelImportado(BaseModel):
     periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=False)
     cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     nombre_archivo = db.Column(db.String(255), nullable=False)
-    fecha_importacion = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_importacion = db.Column(db.DateTime, default=utc_now)
     usuario_importador = db.Column(db.String(80), nullable=False)
     # ok | errores | pendiente_vinculacion | fallido
     estado_validacion = db.Column(db.String(40), default="ok")
@@ -462,6 +467,26 @@ class ExcelDetalle(BaseModel):
     # Fila excluida de la auditoría (canjes, congelados, etc.)
     excluido_auditoria = db.Column(db.Boolean, default=False)
     motivo_exclusion = db.Column(db.String(120), nullable=True)
+
+
+class ExcelDetalleEdicion(BaseModel):
+    """Trazabilidad de cada fila del Excel oficial modificada por un administrador."""
+    __tablename__ = "excel_detalle_ediciones"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    periodo_id = db.Column(
+        db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=False, index=True
+    )
+    excel_id = db.Column(
+        db.Integer, db.ForeignKey("excel_importados.id"), nullable=False, index=True
+    )
+    detalle_id = db.Column(
+        db.Integer, db.ForeignKey("excel_detalles.id"), nullable=False, index=True
+    )
+    usuario = db.Column(db.String(80), nullable=False)
+    cambios_json = db.Column(db.Text, nullable=False, default="{}")
+    creado = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)
 
 
 class AuditoriaResultado(BaseModel):
@@ -517,7 +542,7 @@ class AuditoriaResultado(BaseModel):
     usuario_conteo = db.Column(db.String(80), default="")
     usuario_ajuste = db.Column(db.String(80), default="")
     fecha_ajuste = db.Column(db.String(20), default="")
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
     justificaciones = db.relationship("Justificacion", backref="resultado", lazy=True,
                                        cascade="all, delete-orphan")
@@ -555,7 +580,7 @@ class AsistenteIAConsulta(BaseModel):
     contexto_json = db.Column(db.Text, nullable=False, default="{}")
     estado = db.Column(db.String(20), nullable=False, default="ok")
     error = db.Column(db.String(500), nullable=False, default="")
-    creado = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    creado = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)
 
 
 class Justificacion(BaseModel):
@@ -572,7 +597,7 @@ class Justificacion(BaseModel):
     importe_justificado = db.Column(db.Float, default=0)
     observacion = db.Column(db.String(500), nullable=False)
     usuario = db.Column(db.String(80), nullable=False)
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha = db.Column(db.DateTime, default=utc_now)
 
 
 class ProductoRelacionado(BaseModel):
@@ -597,7 +622,7 @@ class ConfiguracionSistema(BaseModel):
     clave = db.Column(db.String(80), nullable=False)    # ej: autoclose_horas
     valor = db.Column(db.String(255), nullable=False)   # ej: 24
     descripcion = db.Column(db.String(255), default="")
-    actualizado = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    actualizado = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         db.UniqueConstraint("cliente_id", "clave", name="uq_config_cliente_clave"),

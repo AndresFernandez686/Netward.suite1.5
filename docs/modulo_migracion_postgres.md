@@ -10,6 +10,7 @@
 | `migracion/05_multiempleado.sql` | Actualización idempotente del inventario multi-empleado |
 | `migracion/06_delivery_periodos.sql` | Asociación de ventas delivery con períodos y estado fuera de rango |
 | `migracion/07_asistente_ia.sql` | Trazabilidad de consultas del asistente explicativo |
+| `migracion/08_edicion_datos_excel.sql` | Trazabilidad de ediciones sobre filas del Excel oficial |
 | `migracion/migrate_sqlite_to_postgres.py` | Migra datos SQLite → PostgreSQL con conversión de tipos |
 | `migracion/verificar_migracion.py` | Compara conteos y verifica secuencias SERIAL |
 
@@ -30,7 +31,7 @@ clientes → tiendas → usuarios → productos → stock_thresholds
 → delivery_ventas → registros_averiados → registros_vencimiento
 → sincronizacion_log → configuracion_sistema
 → conteo_detalle → ajustes_inventario
-→ excel_importados → excel_detalles → auditoria_resultados
+→ excel_importados → excel_detalles → excel_detalle_ediciones → auditoria_resultados
 → asistente_ia_consultas → justificaciones → productos_relacionados
 ```
 
@@ -44,6 +45,7 @@ psql -U user -d netward -f migracion/03_indices_rendimiento.sql
 psql -U user -d netward -f migracion/05_multiempleado.sql
 psql -U user -d netward -f migracion/06_delivery_periodos.sql
 psql -U user -d netward -f migracion/07_asistente_ia.sql
+psql -U user -d netward -f migracion/08_edicion_datos_excel.sql
 
 # 2. Dry-run (ver cuántas filas hay)
 python migracion/migrate_sqlite_to_postgres.py --pg "postgresql://..." --dry-run
@@ -80,3 +82,9 @@ En instalaciones nuevas los campos forman parte de `01_schema_completo.sql`. En 
 ## Cambio del asistente explicativo
 
 `asistente_ia_consultas` registra quién consultó, el período o producto, el proveedor, el modelo, el contexto y la respuesta. No almacena claves de API. En bases existentes se debe ejecutar `07_asistente_ia.sql`.
+
+## Edición de datos extraídos del Excel
+
+`excel_detalle_ediciones` conserva el usuario, la fecha y los valores anterior/nuevo
+de cada fila modificada. En bases existentes se debe ejecutar
+`08_edicion_datos_excel.sql` antes de habilitar la cuadrícula editable.

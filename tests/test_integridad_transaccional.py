@@ -110,10 +110,11 @@ class PruebasIntegridadTransaccional(unittest.TestCase):
         db.session.commit()
         periodo_id = periodo.id
         filas = [
-            ["articulo", "artdescrip", "stockinicial", "stockfinal"],
-            ["TX-1", "Producto Excel 0", 10, 10],
-            ["TX-2", "Producto Excel 1", 20, 20],
-            ["TX-3", "Producto Excel 2", 30, 30],
+            ["articulo", "artdescrip", "stockinicial", "compras",
+             "otrosingresos", "otrassalidas", "stockfinal", "ventareal"],
+            ["TX-1", "Producto Excel 0", 10, 0, 0, 0, 10, 0],
+            ["TX-2", "Producto Excel 1", 20, 0, 0, 0, 20, 0],
+            ["TX-3", "Producto Excel 2", 30, 0, 0, 0, 30, 0],
         ]
         agregar_real = db.session.add
         detalles_agregados = 0

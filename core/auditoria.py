@@ -17,6 +17,7 @@ from .models import (
     RegistroAveriado, RegistroVencimiento, ProductoPrecio,
     ProductoRelacionado,
 )
+from .excel_importer import empaques_compatibles
 
 # ─── Constantes ──────────────────────────────────────────────────────────────
 CAUSAS = [
@@ -106,7 +107,10 @@ def _promedio_compras(periodo: InventarioPeriodo, producto_nombre: str, n: int =
             continue
         # Buscar en ExcelDetalle (del Excel del período anterior)
         from .models import ExcelImportado
-        ei = ExcelImportado.query.filter_by(periodo_id=prev.id).order_by(ExcelImportado.id.desc()).first()
+        ei = (ExcelImportado.query
+              .filter_by(periodo_id=prev.id)
+              .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
+              .order_by(ExcelImportado.id.desc()).first())
         if ei:
             ed = (ExcelDetalle.query
                   .filter_by(excel_id=ei.id)
@@ -237,7 +241,8 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
     # Obtener Excel del período (el más reciente)
     from .models import ExcelImportado
     excel_imp = (ExcelImportado.query
-                 .filter_by(periodo_id=periodo.id)
+                 .filter_by(periodo_id=periodo.id, cliente_id=periodo.cliente_id)
+                 .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
                  .order_by(ExcelImportado.id.desc())
                  .first())
 
@@ -248,10 +253,14 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         for row in ExcelDetalle.query.filter_by(
             excel_id=excel_imp.id, excluido_auditoria=False
         ).all():
-            nombre_fila = row.producto_nombre_interno or row.artdescrip
+            vinculo_incompatible = bool(
+                row.producto_nombre_interno
+                and not empaques_compatibles(row.producto_nombre_interno, row.artdescrip)
+            )
+            nombre_fila = row.artdescrip if vinculo_incompatible else (row.producto_nombre_interno or row.artdescrip)
             if nombre_fila:
                 excel_raw_map[_norm(nombre_fila)] = row
-            if row.estado_vinculacion != "vinculado":
+            if row.estado_vinculacion != "vinculado" or vinculo_incompatible:
                 continue
             if row.producto_id:
                 # Resolver nombre del producto por ID (clave estable)
@@ -281,7 +290,11 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
     nombres: set[str] = {c.producto_nombre for c in conteos}
     if excel_imp:
         for row in ExcelDetalle.query.filter_by(excel_id=excel_imp.id).all():
-            n = row.producto_nombre_interno or row.artdescrip
+            n = (
+                row.artdescrip
+                if row.producto_nombre_interno and not empaques_compatibles(row.producto_nombre_interno, row.artdescrip)
+                else (row.producto_nombre_interno or row.artdescrip)
+            )
             if n:
                 nombres.add(n)
     # Delivery también debe dejar evidencia aunque falten Excel e inventario.
@@ -310,9 +323,22 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         conteo_valido = conteo is not None and bool(conteo.fue_cargado)
         excel_row = excel_map.get(pnorm)
         excel_raw = excel_raw_map.get(pnorm)
+        # Una fila nueva o aún no vinculada debe conservar los valores del
+        # Excel (compras, stocks, ventas, costo). Su estado seguirá Pendiente,
+        # pero nunca se reemplazan silenciosamente esos datos por cero.
+        excel_data = excel_row or excel_raw
         sin_vinculacion = (
             excel_raw is not None
-            and excel_raw.estado_vinculacion != "vinculado"
+            and (
+                excel_raw.estado_vinculacion != "vinculado"
+                or (
+                    excel_raw.producto_nombre_interno
+                    and not empaques_compatibles(
+                        excel_raw.producto_nombre_interno,
+                        excel_raw.artdescrip,
+                    )
+                )
+            )
         )
         ajuste = ajustes_map.get(pnorm, 0.0)
 
@@ -321,9 +347,9 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
 
         # 1. Continuidad
         stock_anterior = _stock_final_anterior(periodo, nombre)
-        stock_inicial_excel = float(excel_row.stockinicial) if excel_row else 0.0
+        stock_inicial_excel = float(excel_data.stockinicial) if excel_data else 0.0
         stock_excel_invalido = bool(
-            excel_row
+            excel_data
             and (
                 not math.isfinite(stock_inicial_excel)
                 or stock_inicial_excel < 0
@@ -331,7 +357,7 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             )
         )
         alerta_continuidad = False
-        if stock_anterior is not None and excel_row:
+        if stock_anterior is not None and excel_data:
             if abs(stock_anterior - stock_inicial_excel) > 0.5:
                 alerta_continuidad = True
 
@@ -339,11 +365,11 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         stock_inicial = stock_anterior if stock_anterior is not None else stock_inicial_excel
 
         # 2. Datos del Excel
-        compras = float(excel_row.compras) if excel_row else 0.0
-        otros_ingresos = float(excel_row.otrosingresos) if excel_row else 0.0
-        otras_salidas = float(excel_row.otrassalidas) if excel_row else 0.0
-        ventas_excel = float(excel_row.ventareal) if excel_row else 0.0
-        stock_final_excel = float(excel_row.stockfinal) if excel_row else 0.0
+        compras = float(excel_data.compras) if excel_data else 0.0
+        otros_ingresos = float(excel_data.otrosingresos) if excel_data else 0.0
+        otras_salidas = float(excel_data.otrassalidas) if excel_data else 0.0
+        ventas_excel = float(excel_data.ventareal) if excel_data else 0.0
+        stock_final_excel = float(excel_data.stockfinal) if excel_data else 0.0
 
         # Delivery reemplaza la Venta Real del Excel cuando tiene movimientos.
         ventas_delivery = _ventas_delivery_periodo(periodo, nombre)
@@ -369,7 +395,7 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             tipo_diferencia = "sobrante"
 
         # 6. Costo y fuente
-        costo_unit, fuente_costo = _precio_unitario(nombre, excel_row)
+        costo_unit, fuente_costo = _precio_unitario(nombre, excel_data)
         impacto = abs(diferencia) * costo_unit if costo_unit and diferencia != 0 else 0.0
 
         # 7. Promedio compras histórico

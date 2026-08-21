@@ -1,4 +1,6 @@
+import ast
 import unittest
+from pathlib import Path
 
 from flask import Flask
 
@@ -87,6 +89,23 @@ class PruebasPeriodos(unittest.TestCase):
         db.session.add(conteo)
         db.session.flush()
         return conteo
+
+    def test_vista_admin_periodos_envia_mapa_de_tiendas_a_la_plantilla(self):
+        """Evita el 500 de Jinja cuando la tabla muestra el nombre de tienda."""
+        codigo = Path(__file__).resolve().parents[1].joinpath("app.py").read_text(encoding="utf-8")
+        arbol = ast.parse(codigo)
+        funcion = next(
+            nodo for nodo in ast.walk(arbol)
+            if isinstance(nodo, ast.FunctionDef) and nodo.name == "admin_periodos"
+        )
+        render = next(
+            nodo for nodo in ast.walk(funcion)
+            if isinstance(nodo, ast.Call)
+            and isinstance(nodo.func, ast.Name)
+            and nodo.func.id == "render_template"
+        )
+        argumentos = {kw.arg for kw in render.keywords}
+        self.assertIn("tiendas_map", argumentos)
 
     def test_crear_periodo_sin_historial_deja_producto_pendiente(self):
         periodo = self.crear_periodo(1, "2026-08-01", "2026-08-08")

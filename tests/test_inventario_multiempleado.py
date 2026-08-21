@@ -339,6 +339,96 @@ class PruebasInventarioMultiempleado(unittest.TestCase):
         self.assertNotIn("Empleado otra tienda", {c["usuario"] for c in cargas})
         self.assertNotIn("Empleado otra empresa", {c["usuario"] for c in cargas})
 
+    def test_11_otro_empleado_ve_cargas_en_la_misma_tabla_sin_poder_eliminarlas(self):
+        carrito_propio = self.carrito(PRODUCTO, 5)
+        cargas_periodo = [
+            {
+                "producto": PRODUCTO,
+                "categoria": "Impulsivo",
+                "cantidad": 5,
+                "usuario": "Empleado A",
+                "hora": "10:00:00",
+                "es_borrador": True,
+            },
+            {
+                "producto": OTRO_PRODUCTO,
+                "categoria": "Impulsivo",
+                "cantidad": 7,
+                "usuario": "Empleado B",
+                "hora": "10:01:00",
+                "es_borrador": True,
+            },
+        ]
+
+        visibles = empleado_service.combinar_cargas_para_vista(
+            carrito=carrito_propio,
+            cargas_periodo=cargas_periodo,
+            usuario="Empleado A",
+        )
+
+        self.assertEqual(len(visibles), 2)
+        propia = next(v for v in visibles if v["producto"] == PRODUCTO)
+        compartida = next(v for v in visibles if v["producto"] == OTRO_PRODUCTO)
+        self.assertTrue(propia["es_propio"])
+        self.assertEqual(propia["carrito_idx"], 0)
+        self.assertFalse(compartida["es_propio"])
+        self.assertIsNone(compartida["carrito_idx"])
+        self.assertEqual(compartida["usuario"], "Empleado B")
+
+    def test_12_dos_periodos_conservan_cargas_separadas_del_mismo_producto(self):
+        periodo_dos = InventarioPeriodo(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            numero=2,
+            fecha_desde="2026-08-21",
+            fecha_hasta="2026-08-22",
+            dias_periodo=2,
+            estado="Abierto",
+            usuario_creador="admin",
+        )
+        db.session.add(periodo_dos)
+        db.session.commit()
+
+        self.guardar("Empleado A", self.carrito(PRODUCTO, 5))
+        with self.app.test_request_context():
+            session.update(
+                cliente_id=CLIENTE,
+                tienda_id=TIENDA,
+                usuario="Empleado A",
+                empleado_periodo_id=periodo_dos.id,
+            )
+            empleado_service.guardar_carrito_transaccional(
+                self.carrito(PRODUCTO, 9),
+                TIENDA,
+                "Empleado A",
+                cliente_id=CLIENTE,
+                periodo_id=periodo_dos.id,
+            )
+
+        conteo_uno = ConteoDetalle.query.filter_by(
+            periodo_id=self.periodo.id,
+            producto_nombre=PRODUCTO,
+        ).one()
+        conteo_dos = ConteoDetalle.query.filter_by(
+            periodo_id=periodo_dos.id,
+            producto_nombre=PRODUCTO,
+        ).one()
+        cargas_uno = empleado_service.listar_cargas_periodo(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            periodo_id=self.periodo.id,
+        )
+        cargas_dos = empleado_service.listar_cargas_periodo(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            periodo_id=periodo_dos.id,
+        )
+
+        self.assertEqual(conteo_uno.total_unidad_base, 5)
+        self.assertEqual(conteo_dos.total_unidad_base, 9)
+        self.assertEqual(next(c for c in cargas_uno if c["producto"] == PRODUCTO)["cantidad"], 5)
+        self.assertEqual(next(c for c in cargas_dos if c["producto"] == PRODUCTO)["cantidad"], 9)
+
 
 if __name__ == "__main__":
     unittest.main()

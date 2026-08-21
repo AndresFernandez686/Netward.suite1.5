@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from .models import db, InventarioPeriodo, ConfiguracionSistema, ConteoDetalle
+from .models import db, InventarioPeriodo, ConfiguracionSistema, ConteoDetalle, utc_now
 from .time_utils import get_app_timezone, now_local
 
 # ── Constantes ──────────────────────────────────────────────────────────────
@@ -61,7 +61,7 @@ def actualizar_estados_periodos(
 
         if ahora_local >= limite:
             p.estado = "Cerrado"
-            p.fecha_cierre = datetime.utcnow()
+            p.fecha_cierre = utc_now()
             cerrados += 1
             continue
 

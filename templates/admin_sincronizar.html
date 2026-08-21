@@ -42,19 +42,14 @@
   </div>
 
   {% set total_cambios = plan | selectattr('accion', 'in', ['renombrar', 'eliminar_duplicado']) | list | length %}
-  {% if total_cambios > 0 %}
     <form method="post" action="{{ url_for('desc.desc_sincronizar') }}"
-      data-confirm-message="Se aplicaran {{ total_cambios }} cambios en el catalogo. Esta accion no se puede deshacer facilmente. Continuar?">
+      {% if total_cambios > 0 %}data-confirm-message="Se aplicaran {{ total_cambios }} cambios en el catalogo y se reintentaran las filas pendientes del Excel. Continuar?"{% endif %}>
     <button type="submit" class="btn btn--primary">
-      Aplicar {{ total_cambios }} cambio(s)
+      {{ 'Aplicar ' ~ total_cambios ~ ' cambio(s) y revincular Excel' if total_cambios > 0 else 'Reintentar vinculaciones pendientes' }}
     </button>
     <a href="{{ url_for('desc.admin_desc') }}" class="btn btn--ghost" style="margin-left:8px;">
       Cancelar
     </a>
   </form>
-  {% else %}
-  <p class="muted">El catalogo ya esta sincronizado.</p>
-  <a href="{{ url_for('desc.admin_desc') }}" class="btn btn--ghost">Volver</a>
-  {% endif %}
 </section>
 {% endblock %}

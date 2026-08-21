@@ -82,10 +82,9 @@
   </section>
   {% endif %}
 
-  {% if periodo.estado in ('Cerrado','Conciliado','Auditado') %}
   <section class="panel periodo-det-panel">
     <div class="periodo-det-panel__head">
-      <h3>Importar Excel oficial</h3>
+      <h3>Excel oficial del período</h3>
     </div>
     {% if excel_imp %}
     <p class="periodo-det-note-ok">
@@ -95,18 +94,13 @@
       · <span class="periodo-det-note-warn">{{ excel_imp.productos_nuevos }} producto(s) sin vincular</span>
       {% endif %}
     </p>
+    {% else %}
+    <p class="periodo-det-note-warn">Este período todavía no tiene un Excel oficial importado.</p>
     {% endif %}
-    <form method="post" action="{{ url_for('admin_periodo_excel_importar', periodo_id=periodo.id) }}" enctype="multipart/form-data" class="periodo-det-inline-form">
-      <label class="field field--grow">
-        <span class="field__label">Archivo Excel (.xlsx / .xls)</span>
-        <input type="file" name="archivo_excel" accept=".xlsx,.xls" required>
-      </label>
-      <div class="periodo-det-inline-form__action">
-        <button type="submit" class="btn btn--primary">Importar</button>
-      </div>
-    </form>
+    <a href="{{ url_for('desc.admin_desc', periodo_id=periodo.id) }}" class="btn btn--primary">
+      {{ 'Reemplazar Excel oficial' if excel_imp else 'Cargar Excel oficial' }}
+    </a>
   </section>
-  {% endif %}
 
   <section class="panel periodo-det-panel">
     <div class="periodo-det-panel__head">

@@ -26,7 +26,7 @@ def xlsx_producto_desconocido():
         "articulo", "artdescrip", "stockinicial", "compras",
         "otrosingresos", "otrassalidas", "stockfinal", "ventareal",
     ])
-    hoja.append(["X-404", "Producto inexistente", 10, 0, 0, 0, 10, 0])
+    hoja.append(["X-404", "Producto inexistente", 10, 7, 2, 1, 17, 1])
     stream = io.BytesIO()
     libro.save(stream)
     libro.close()
@@ -139,6 +139,16 @@ class PruebasErroresBugs(unittest.TestCase):
         self.assertEqual(detalle.estado_vinculacion, "sin_producto")
         self.assertIsNone(detalle.producto_id)
         self.assertEqual(len(advertencias), 1)
+
+        resultados = ejecutar_auditoria(periodo)
+        resultado = next(r for r in resultados if r.producto_nombre == "Producto inexistente")
+        self.assertEqual(resultado.stock_inicial_excel, 10)
+        self.assertEqual(resultado.compras, 7)
+        self.assertEqual(resultado.otros_ingresos, 2)
+        self.assertEqual(resultado.otras_salidas, 1)
+        self.assertEqual(resultado.ventas, 1)
+        self.assertEqual(resultado.stock_final_excel, 17)
+        self.assertEqual(resultado.estado_auditoria, "Pendiente")
 
 
 if __name__ == "__main__":

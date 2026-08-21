@@ -9,7 +9,8 @@ from typing import Dict, Iterable, List
 
 from flask import url_for
 
-from core.models import InventarioItem, Producto, ProductoPrecio, RegistroVencimiento, StockThreshold
+from core.models import (ConteoDetalle, InventarioItem, InventarioPeriodo, Producto,
+                         ProductoPrecio, RegistroVencimiento, StockThreshold)
 from core.seed_data import CATEGORIAS, stock_status
 
 
@@ -36,24 +37,60 @@ def _productos_por_categoria() -> Dict[str, List[str]]:
     return result
 
 
-def _inventario_agregado(tienda_id: str):
-    """Agrupa inventario sincronizado por categoria/producto en una tienda o en todas."""
-    inventario = {}
-    query = InventarioItem.query.filter_by(sinc_estado="sincronizado")
+PERIODOS_CON_CARGA = ("Cargado", "Cerrado", "Excel Importado", "Conciliado", "Auditado")
+
+
+def _ultimos_periodos_cargados(cliente_id: str, tienda_id: str) -> dict[str, InventarioPeriodo]:
+    """Último período con carga real de cada sucursal solicitada."""
+    query = (
+        InventarioPeriodo.query
+        .filter_by(cliente_id=cliente_id)
+        .filter(InventarioPeriodo.estado.in_(PERIODOS_CON_CARGA))
+    )
     if tienda_id != "ALL":
         query = query.filter_by(tienda_id=tienda_id)
+    periodos = query.order_by(
+        InventarioPeriodo.tienda_id,
+        InventarioPeriodo.numero.desc(),
+        InventarioPeriodo.id.desc(),
+    ).all()
+    ultimos: dict[str, InventarioPeriodo] = {}
+    for periodo in periodos:
+        ultimos.setdefault(periodo.tienda_id, periodo)
+    return ultimos
 
-    for item in query.all():
-        key = (item.categoria, item.producto)
+
+def _inventario_agregado(tienda_id: str, cliente_id: str):
+    """Agrupa los conteos del último período cargado de cada sucursal."""
+    inventario = {}
+    ultimos = _ultimos_periodos_cargados(cliente_id, tienda_id)
+    periodo_ids = [periodo.id for periodo in ultimos.values()]
+    if not periodo_ids:
+        return inventario
+
+    modos = {
+        (item.periodo_id, item.producto): item.ume or "N/A"
+        for item in InventarioItem.query.filter(
+            InventarioItem.cliente_id == cliente_id,
+            InventarioItem.periodo_id.in_(periodo_ids),
+        ).all()
+    }
+    conteos = ConteoDetalle.query.filter(
+        ConteoDetalle.cliente_id == cliente_id,
+        ConteoDetalle.periodo_id.in_(periodo_ids),
+        ConteoDetalle.fue_cargado.is_(True),
+    ).all()
+
+    for conteo in conteos:
+        key = (conteo.categoria, conteo.producto_nombre)
         dato = inventario.setdefault(key, {
             "cantidad": 0,
-            "ume": item.ume or "N/A",
+            "ume": modos.get((conteo.periodo_id, conteo.producto_nombre), "N/A"),
             "tiendas": set(),
+            "cargado": True,
         })
-        dato["cantidad"] += item.cantidad or 0
-        dato["tiendas"].add(item.tienda_id)
-        if dato["ume"] in (None, "", "N/A") and item.ume:
-            dato["ume"] = item.ume
+        dato["cantidad"] += conteo.total_unidad_base or 0
+        dato["tiendas"].add(conteo.tienda_id)
     return inventario
 
 
@@ -89,7 +126,7 @@ def build_admin_inventory_context(
         for t in StockThreshold.query.all()
     }
     precios = _precios_lookup()
-    inventario_map = _inventario_agregado(tienda_id)
+    inventario_map = _inventario_agregado(tienda_id, cliente_id)
     productos_db = _productos_por_categoria()
 
     productos_totales = 0
@@ -112,7 +149,8 @@ def build_admin_inventory_context(
             cantidad = item["cantidad"] if item else 0
             modo = item["ume"] if item else "N/A"
             nivel, etiqueta = stock_status(producto, cantidad, thresholds)
-            cargado = cantidad > 0
+            # Un conteo explícito en cero sigue siendo un producto cargado.
+            cargado = bool(item and item.get("cargado"))
             precio = precios.get(producto.strip().lower())
             valor = (cantidad * precio.precio) if precio and precio.precio is not None else 0
 

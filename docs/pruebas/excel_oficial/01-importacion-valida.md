@@ -21,4 +21,13 @@ Comprobar la creación de la cabecera `excel_importados` y un `excel_detalles` p
 
 **APROBADO.** La cabecera, el detalle y el estado fueron correctos.
 
-Prueba: `test_importar_excel_valido_crea_cabecera_y_detalle`.
+También se validó el archivo definitivo `templates/exceltest/andresdefinitivo.xls`:
+
+- 22 productos tienen compras mayores que cero.
+- La suma de compras de productos auditables es 4.270.
+- `Almendrado x unidad` conserva 48 unidades compradas.
+- El procesamiento desde Desc. registra el mismo archivo en `excel_importados` y
+  `excel_detalles`, evitando que la auditoría reemplace las compras por cero.
+
+Pruebas: `test_importar_excel_valido_crea_cabecera_y_detalle` y
+`test_excel_definitivo_conserva_compras_reales`.

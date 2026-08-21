@@ -330,6 +330,20 @@ CREATE TABLE IF NOT EXISTS excel_detalles (
 );
 CREATE INDEX IF NOT EXISTS ix_excel_detalles_articulo ON excel_detalles(articulo);
 
+CREATE TABLE IF NOT EXISTS excel_detalle_ediciones (
+    id           SERIAL       PRIMARY KEY,
+    cliente_id   VARCHAR(10)  NOT NULL DEFAULT 'C001',
+    periodo_id   INTEGER      NOT NULL REFERENCES inventario_periodos(id) ON DELETE CASCADE,
+    excel_id     INTEGER      NOT NULL REFERENCES excel_importados(id) ON DELETE CASCADE,
+    detalle_id   INTEGER      NOT NULL REFERENCES excel_detalles(id) ON DELETE CASCADE,
+    usuario      VARCHAR(80)  NOT NULL,
+    cambios_json TEXT         NOT NULL DEFAULT '{}',
+    creado       TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_excel_ediciones_cliente_id ON excel_detalle_ediciones(cliente_id);
+CREATE INDEX IF NOT EXISTS ix_excel_ediciones_periodo_creado ON excel_detalle_ediciones(periodo_id, creado DESC);
+CREATE INDEX IF NOT EXISTS ix_excel_ediciones_detalle_creado ON excel_detalle_ediciones(detalle_id, creado DESC);
+
 CREATE TABLE IF NOT EXISTS auditoria_resultados (
     id                        SERIAL       PRIMARY KEY,
     periodo_id                INTEGER      NOT NULL REFERENCES inventario_periodos(id) ON DELETE CASCADE,

@@ -2,11 +2,15 @@
 Modelos de base de datos (SQLAlchemy) para el Sistema Netward.
 Migracion desde el sistema Streamlit original a Flask + SQLite.
 """
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
+
+
+def utc_now():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class BaseModel(db.Model):
@@ -76,7 +80,7 @@ class InventarioItem(BaseModel):
     ume = db.Column(db.String(30), default="Unidad")
     tipo_inventario = db.Column(db.String(20), default="Diario")
     fecha = db.Column(db.String(20), default=lambda: date.today().isoformat())
-    actualizado = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    actualizado = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         db.UniqueConstraint("tienda_id", "categoria", "producto", name="uq_inv_item"),
@@ -98,7 +102,7 @@ class HistorialMovimiento(BaseModel):
     tipo_inventario = db.Column(db.String(20), default="Diario")
     detalle = db.Column(db.String(255), default="")
     tienda_id = db.Column(db.String(10), default="T001")
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
 
 class InventarioSnapshot(BaseModel):
@@ -111,7 +115,7 @@ class InventarioSnapshot(BaseModel):
     usuario = db.Column(db.String(80), nullable=False)
     tipo_inventario = db.Column(db.String(20), default="Diario")
     total_items = db.Column(db.Integer, default=0)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
     __table_args__ = (
         db.UniqueConstraint("tienda_id", "fecha", "usuario", name="uq_snapshot_fecha_usuario"),
@@ -176,7 +180,7 @@ class InventarioDescSnapshot(BaseModel):
     mes = db.Column(db.String(7), nullable=False)           # YYYY-MM
     fecha_proceso = db.Column(db.String(20), nullable=False)
     stock_final_json = db.Column(db.Text, nullable=False)   # JSON {nombre_lower: float}
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
     __table_args__ = (
         db.UniqueConstraint("tienda_id", "mes", "fecha_proceso",

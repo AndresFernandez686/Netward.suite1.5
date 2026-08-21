@@ -43,7 +43,7 @@
     <div class="inventory-overview__head">
       <div>
         <h3>Selecciona una categoria para ver su inventario cargado</h3>
-        <p>Resumen por sucursal de {{ tienda_label }} con totales, valor de stock y estado de carga.</p>
+        <p>Último período cargado por sucursal de {{ tienda_label }}, con totales, valor de stock y estado de carga.</p>
       </div>
       {% if alerta_filtro != 'Todos' %}
         <a class="btn btn--ghost btn--sm" href="{{ url_for('admin_inventario', tienda=tienda_id, categoria=categoria_filtro, estado=estado_filtro, busqueda=busqueda) }}">Limpiar filtro especial</a>

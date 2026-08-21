@@ -1,7 +1,7 @@
 ﻿{% extends 'admin_base.html' %}
-{% block title %}Desc. - {{ app_nombre }}{% endblock %}
-{% block heading %}Descarga de inventario{% endblock %}
-{% block subheading %}Comparación Período vs Excel oficial{% endblock %}
+{% block title %}Excel oficial - {{ app_nombre }}{% endblock %}
+{% block heading %}Excel oficial{% endblock %}
+{% block subheading %}Importación, validación y preparación para auditoría{% endblock %}
 
 {% block content %}
 <div class="desc-layout">
@@ -32,10 +32,10 @@
     <div class="panel__head" style="margin-bottom:8px;">
       <h3 class="panel__title">Nuevo procesamiento</h3>
     </div>
-    <form method="post" action="{{ url_for('desc.admin_desc') }}" enctype="multipart/form-data" id="proc-form" class="desc-form" data-submit-delay="15000" data-loading-text="Procesando inventario...">
+    <form method="post" action="{{ url_for('desc.admin_desc') }}" enctype="multipart/form-data" id="proc-form" class="desc-form">
       <div class="desc-dropzone">
         <label for="file-input" class="desc-dropzone__box">
-          <span class="desc-dropzone__title">Archivo de inventario (XLSX)</span>
+          <span class="desc-dropzone__title">Excel oficial (.XLS / .XLSX)</span>
           <span class="desc-dropzone__sub">Arrastra o selecciona un archivo</span>
           <span class="desc-dropzone__hint">Tamaño recomendado: hasta 20 MB</span>
           <span class="btn btn--ghost btn--sm">Seleccionar archivo</span>
@@ -56,24 +56,24 @@
             </select>
           </label>
           <div class="field field--grow" style="display:flex;align-items:flex-end;">
-            <button type="button" id="btn-ver-inventario" class="btn btn--ghost" style="width:100%;">
-              Ver Inventario cargado
+            <button type="button" id="btn-ver-datos" class="btn btn--ghost" style="width:100%;">
+              Ver datos extraídos
             </button>
           </div>
         </div>
 
         <div class="desc-inline-kpis">
-          <div><strong>{{ conteos_periodo|length if periodo_seleccionado else 0 }}</strong><span>Productos en período</span></div>
+          <div><strong>{{ excel_detalles|length }}</strong><span>Filas extraídas</span></div>
           <div><strong>{{ categorias_registradas }}</strong><span>Categorías registradas</span></div>
           <div><strong>{{ grupos_excluidos_count }}</strong><span>Exclusiones activas</span></div>
           <div><strong>{{ ultimo_snapshot.fecha_proceso if ultimo_snapshot else '—' }}</strong><span>Última carga</span></div>
         </div>
 
         <div class="desc-actions">
-          <a href="{{ url_for('desc.desc_sincronizar') }}" class="btn btn--ghost">Sincronizar catálogo con Excel</a>
+          <a href="{{ url_for('desc.desc_sincronizar') }}" class="btn btn--ghost">Revisar y sincronizar catálogo</a>
           <button type="submit" class="btn btn--primary" id="btn-proc">
             <span class="nav__icon">{% include 'icons/upload.svg' %}</span>
-            Procesar inventario
+            Importar y validar
           </button>
         </div>
       </div>
@@ -103,36 +103,71 @@
     </article>
   </section>
 
-  <section class="card card--skip-collapse" id="inventario-cargado-card" style="display:none;">
-    <h3 class="panel__title">Datos cargados por empleado en el período</h3>
-    {% if periodo_seleccionado and conteos_periodo %}
-    <div class="table-wrap" style="margin-bottom:14px;">
-      <table class="table">
-        <thead>
-          <tr><th>Estado</th><th>Producto</th><th>Categoría</th><th>Total (unid.)</th><th>Última carga</th></tr>
-        </thead>
+  <section class="card card--skip-collapse desc-excel-card" id="datos-extraidos-card"
+           style="display:{{ 'block' if mostrar_datos else 'none' }};"
+           {% if excel_seleccionado %}data-save-url="{{ url_for('desc.desc_excel_datos_guardar', excel_id=excel_seleccionado.id) }}"{% endif %}>
+    <div class="desc-excel-head">
+      <div>
+        <h3 class="panel__title">Datos extraídos del Excel</h3>
+        {% if excel_seleccionado %}
+        <p class="muted">{{ excel_seleccionado.nombre_archivo }} · {{ excel_detalles|length }} fila(s). Las modificaciones quedan registradas y serán utilizadas al volver a ejecutar Auditoría.</p>
+        {% endif %}
+      </div>
+      {% if excel_detalles %}
+      <label class="desc-excel-search"><span class="sr-only">Buscar fila</span><input type="search" id="excel-data-search" placeholder="Buscar producto o código…"></label>
+      {% endif %}
+    </div>
+    {% if excel_seleccionado and excel_detalles %}
+    <div class="desc-excel-notice" id="excel-edit-status">Haz clic en cualquier celda para modificarla. Guarda antes de volver a ejecutar Auditoría.</div>
+    <div class="desc-excel-grid-wrap">
+      <table class="desc-excel-grid" id="excel-data-grid">
+        <thead><tr>
+          <th>Vínculo</th><th>Código</th><th>Producto Excel</th><th>Costo</th>
+          <th>Stock inicial</th><th>Compras</th><th>Otros ingresos</th><th>Otras salidas</th>
+          <th>Stock final</th><th>Venta teórica</th><th>Venta real</th><th>Diferencia</th>
+          <th>Importe desvío</th><th>Kilos</th><th>Unidades</th><th>Grupo</th>
+          <th>Descripción grupo</th><th>Excluir</th><th>Motivo exclusión</th>
+        </tr></thead>
         <tbody>
-          {% for c in conteos_periodo %}
-          <tr>
-            <td>{% if c.fue_cargado %}<span class="badge badge--green">Cargado</span>{% else %}<span class="badge badge--amber">Pendiente</span>{% endif %}</td>
-            <td>{{ c.producto_nombre }}</td>
-            <td>{{ c.categoria }}</td>
-            <td>{{ '%g'|format(c.total_unidad_base or 0) }}</td>
-            <td class="muted">{{ c.fecha_carga.strftime('%d/%m/%Y %H:%M') if c.fecha_carga else '—' }}</td>
+          {% for d in excel_detalles %}
+          <tr data-row-id="{{ d.id }}" data-search="{{ (d.articulo ~ ' ' ~ d.artdescrip ~ ' ' ~ (d.producto_nombre_interno or ''))|lower|e }}">
+            <td class="desc-excel-link"><span class="badge {{ 'badge--green' if d.estado_vinculacion == 'vinculado' else 'badge--amber' }}">{{ d.producto_nombre_interno or d.estado_vinculacion }}</span></td>
+            <td><input data-field="articulo" value="{{ d.articulo|e }}" maxlength="40"></td>
+            <td><input data-field="artdescrip" value="{{ d.artdescrip|e }}" maxlength="255"></td>
+            <td><input data-field="artcosto" type="number" step="any" value="{{ '' if d.artcosto is none else d.artcosto }}"></td>
+            <td><input data-field="stockinicial" type="number" step="any" value="{{ d.stockinicial or 0 }}"></td>
+            <td><input data-field="compras" type="number" step="any" value="{{ d.compras or 0 }}"></td>
+            <td><input data-field="otrosingresos" type="number" step="any" value="{{ d.otrosingresos or 0 }}"></td>
+            <td><input data-field="otrassalidas" type="number" step="any" value="{{ d.otrassalidas or 0 }}"></td>
+            <td><input data-field="stockfinal" type="number" step="any" value="{{ d.stockfinal or 0 }}"></td>
+            <td><input data-field="ventateorica" type="number" step="any" value="{{ d.ventateorica or 0 }}"></td>
+            <td><input data-field="ventareal" type="number" step="any" value="{{ d.ventareal or 0 }}"></td>
+            <td><input data-field="diferencia" type="number" step="any" value="{{ d.diferencia or 0 }}"></td>
+            <td><input data-field="importedesvio" type="number" step="any" value="{{ d.importedesvio or 0 }}"></td>
+            <td><input data-field="kilos" type="number" step="any" value="{{ d.kilos or 0 }}"></td>
+            <td><input data-field="unidades" type="number" step="any" value="{{ d.unidades or 0 }}"></td>
+            <td><input data-field="grupo" value="{{ d.grupo|e }}" maxlength="120"></td>
+            <td><input data-field="grudescrip" value="{{ d.grudescrip|e }}" maxlength="120"></td>
+            <td class="desc-excel-check"><input data-field="excluido_auditoria" type="checkbox" {{ 'checked' if d.excluido_auditoria else '' }}></td>
+            <td><input data-field="motivo_exclusion" value="{{ (d.motivo_exclusion or '')|e }}" maxlength="120"></td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    <div class="desc-excel-actions">
+      <span id="excel-edited-count">Sin cambios pendientes</span>
+      <button type="button" class="btn btn--ghost" id="excel-discard" disabled>Descartar cambios</button>
+      <button type="button" class="btn btn--primary" id="excel-save" disabled>Guardar modificaciones</button>
+    </div>
     {% elif periodo_seleccionado %}
-    <div class="empty" style="margin-bottom:14px;"><p>El período seleccionado no tiene conteos aún.</p></div>
+    <div class="empty"><p>Este período todavía no tiene datos extraídos. Selecciona el Excel oficial y pulsa “Importar y validar”.</p></div>
     {% else %}
-    <div class="empty" style="margin-bottom:14px;"><p>Selecciona un período abierto para ver los datos cargados.</p></div>
+    <div class="empty"><p>Selecciona un período para consultar sus datos extraídos.</p></div>
     {% endif %}
-
   </section>
 
-  <section class="card card--skip-collapse">
+  <section class="card card--skip-collapse" id="procesamientos-recientes">
     <h3 class="panel__title">Procesamientos recientes</h3>
     {% if snapshots %}
     <div class="table-wrap">
@@ -173,9 +208,9 @@
     var fileInput = document.getElementById('file-input');
     var btn = document.getElementById('btn-proc');
     var periodoSelect = document.getElementById('periodo-select');
-    var btnVerInventario = document.getElementById('btn-ver-inventario');
-    var inventarioCard = document.getElementById('inventario-cargado-card');
-    var defaultLabel = 'Procesar y descargar';
+    var btnVerDatos = document.getElementById('btn-ver-datos');
+    var datosCard = document.getElementById('datos-extraidos-card');
+    var defaultLabel = 'Importar y validar';
 
     fileInput.addEventListener('change', function() {
       if (this.files.length > 0) {
@@ -186,7 +221,7 @@
     });
 
     form.addEventListener('submit', function() {
-      btn.textContent = 'Procesando inventario...';
+        btn.textContent = 'Importando y validando...';
     });
 
     if (periodoSelect) {
@@ -197,16 +232,71 @@
       });
     }
 
-    if (btnVerInventario && inventarioCard) {
-      btnVerInventario.addEventListener('click', function() {
-        var hidden = inventarioCard.style.display === 'none';
-        inventarioCard.style.display = hidden ? 'block' : 'none';
-        btnVerInventario.textContent = hidden ? 'Ocultar Inventario cargado' : 'Ver Inventario cargado';
+    if (btnVerDatos && datosCard) {
+      btnVerDatos.textContent = datosCard.style.display === 'none' ? 'Ver datos extraídos' : 'Ocultar datos extraídos';
+      btnVerDatos.addEventListener('click', function() {
+        var hidden = datosCard.style.display === 'none';
+        datosCard.style.display = hidden ? 'block' : 'none';
+        btnVerDatos.textContent = hidden ? 'Ocultar datos extraídos' : 'Ver datos extraídos';
         if (hidden) {
-          inventarioCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          datosCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       });
     }
+
+    var grid = document.getElementById('excel-data-grid');
+    var save = document.getElementById('excel-save');
+    var discard = document.getElementById('excel-discard');
+    var editedCount = document.getElementById('excel-edited-count');
+    var editStatus = document.getElementById('excel-edit-status');
+    var search = document.getElementById('excel-data-search');
+    function refreshEditedState() {
+      var rows = grid ? grid.querySelectorAll('tr.has-edits').length : 0;
+      if (editedCount) editedCount.textContent = rows ? rows + ' fila(s) modificada(s)' : 'Sin cambios pendientes';
+      if (save) save.disabled = rows === 0;
+      if (discard) discard.disabled = rows === 0;
+    }
+    if (grid) {
+      grid.querySelectorAll('tbody input[data-field]').forEach(function(input) {
+        input.dataset.original = input.type === 'checkbox' ? String(input.checked) : input.value;
+        input.addEventListener('input', function() {
+          var current = input.type === 'checkbox' ? String(input.checked) : input.value;
+          input.classList.toggle('is-edited', current !== input.dataset.original);
+          input.closest('tr').classList.toggle('has-edits', input.closest('tr').querySelector('.is-edited') !== null);
+          refreshEditedState();
+        });
+        input.addEventListener('change', function() { input.dispatchEvent(new Event('input')); });
+      });
+    }
+    if (discard) discard.addEventListener('click', function() { window.location.reload(); });
+    if (search && grid) search.addEventListener('input', function() {
+      var term = search.value.trim().toLowerCase();
+      grid.querySelectorAll('tbody tr').forEach(function(row) {
+        row.hidden = term && row.dataset.search.indexOf(term) === -1;
+      });
+    });
+    if (save && grid && datosCard) save.addEventListener('click', function() {
+      var filas = [];
+      grid.querySelectorAll('tbody tr.has-edits').forEach(function(row) {
+        var valores = {}; var originales = {};
+        row.querySelectorAll('input.is-edited').forEach(function(input) {
+          valores[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;
+          originales[input.dataset.field] = input.dataset.original;
+        });
+        filas.push({id: Number(row.dataset.rowId), valores: valores, originales: originales});
+      });
+      if (!filas.length) return;
+      save.disabled = true; save.textContent = 'Guardando…';
+      fetch(datosCard.dataset.saveUrl, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({filas: filas})})
+        .then(function(response) { return response.json().then(function(data) { if (!response.ok) throw new Error(data.error || 'No se pudieron guardar los cambios.'); return data; }); })
+        .then(function(data) {
+          grid.querySelectorAll('input.is-edited').forEach(function(input) { input.dataset.original = input.type === 'checkbox' ? String(input.checked) : input.value; input.classList.remove('is-edited'); });
+          grid.querySelectorAll('tr.has-edits').forEach(function(row) { row.classList.remove('has-edits'); });
+          editStatus.textContent = data.message; editStatus.classList.add('is-success'); refreshEditedState();
+        })
+        .catch(function(error) { editStatus.textContent = error.message; editStatus.classList.remove('is-success'); refreshEditedState(); })
+        .finally(function() { save.textContent = 'Guardar modificaciones'; });
+    });
   })();
 </script>
 {% endblock %}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 import json
 from typing import Callable, Optional
 from sqlalchemy import or_
@@ -13,7 +14,7 @@ from core.models import (
     db, InventarioItem, HistorialMovimiento, InventarioSnapshot,
     RegistroAveriado, RegistroVencimiento, ProductoPrecio, SincronizacionLog,
     DeliveryProducto, DeliveryVenta, InventarioPeriodo, ConteoDetalle,
-    InventarioBorrador,
+    InventarioBorrador, utc_now,
 )
 from core.seed_data import CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME, ESTADOS_BALDE
 from core.time_utils import today_local_iso, now_local_time_str, format_utc_naive_to_local
@@ -83,6 +84,7 @@ def _cargas_en_borradores(*, cliente_id, tienda_id, periodo_id, excluir_usuario=
                     "fue_sobreescrito": False,
                     "es_borrador": True,
                     "origen": "borrador",
+                    "hora": format_utc_naive_to_local(borrador.actualizado, "%H:%M:%S") or "—",
                 }
     if excluir_usuario:
         return {
@@ -199,6 +201,8 @@ def listar_cargas_periodo(*, cliente_id, tienda_id, periodo_id):
             "usuario": conteo.usuario,
             "version": int(conteo.version_ultima_carga or 1),
             "fue_sobreescrito": bool(conteo.fue_sobreescrito),
+            "es_borrador": False,
+            "hora": format_utc_naive_to_local(conteo.fecha_carga, "%H:%M:%S") or "—",
         }
     for item in InventarioItem.query.filter_by(
         cliente_id=cliente_id,
@@ -213,6 +217,7 @@ def listar_cargas_periodo(*, cliente_id, tienda_id, periodo_id):
             "version": int(item.version or 1),
             "fue_sobreescrito": bool(item.fue_sobreescrito),
             "es_borrador": False,
+            "hora": format_utc_naive_to_local(item.actualizado, "%H:%M:%S") or "—",
         }
     for clave, carga in _cargas_en_borradores(
         cliente_id=cliente_id,
@@ -225,8 +230,40 @@ def listar_cargas_periodo(*, cliente_id, tienda_id, periodo_id):
     return sorted(cargas.values(), key=lambda c: (c["categoria"], c["producto"]))
 
 
+def combinar_cargas_para_vista(*, carrito: list, cargas_periodo: list, usuario: str) -> list:
+    """Integra el carrito propio y las cargas de la tienda en una sola tabla visual."""
+    visibles = []
+    claves_propias = set()
+    for indice, entrada in enumerate(carrito):
+        item = dict(entrada)
+        clave = (str(item.get("categoria") or ""), str(item.get("producto") or ""))
+        claves_propias.add(clave)
+        item.update(
+            es_propio=True,
+            carrito_idx=indice,
+            usuario=usuario,
+            es_borrador=True,
+        )
+        visibles.append(item)
+
+    for carga in cargas_periodo:
+        clave = (str(carga.get("categoria") or ""), str(carga.get("producto") or ""))
+        if clave in claves_propias:
+            continue
+        item = dict(carga)
+        item.update(
+            cantidad_unidades=float(carga.get("cantidad") or 0),
+            ume="Unidad",
+            detalle="",
+            es_propio=False,
+            carrito_idx=None,
+        )
+        visibles.append(item)
+    return visibles
+
+
 def build_empleado_inventario_context(*, active_tab: str, carrito: list, hoy: str,
-                                      cargas_existentes=None, conflicto_carga=None):
+                                      productos_cargados=None, conflicto_carga=None):
     return {
         "productos": get_productos_db(),
         "active_tab": _safe_inv_tab(active_tab),
@@ -235,8 +272,8 @@ def build_empleado_inventario_context(*, active_tab: str, carrito: list, hoy: st
         "opciones_ume": OPCIONES_UME,
         "estados_balde": ESTADOS_BALDE,
         "carrito": carrito,
+        "productos_cargados": productos_cargados or [],
         "hoy": hoy,
-        "cargas_existentes": cargas_existentes or [],
         "conflicto_carga": conflicto_carga,
         "hide_global_flash": True,
     }
@@ -303,7 +340,15 @@ def remove_carrito_item(carrito: list, idx: int):
 
 def _periodo_destino(cliente_id, tienda_id, periodo_id=None):
     if periodo_id:
-        return db.session.get(InventarioPeriodo, int(periodo_id))
+        periodo = db.session.get(InventarioPeriodo, int(periodo_id))
+        if (
+            periodo
+            and periodo.cliente_id == cliente_id
+            and periodo.tienda_id == tienda_id
+            and periodo.estado in ("Abierto", "Pendiente", "Cargado")
+        ):
+            return periodo
+        return None
     seleccionado = session.get("empleado_periodo_id")
     if seleccionado:
         periodo = db.session.get(InventarioPeriodo, int(seleccionado))
@@ -512,6 +557,42 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             cantidad_anterior=cantidad_anterior,
             version=version_nueva,
         ))
+
+        # Estado por período: InventarioItem representa el stock operativo más
+        # reciente y puede cambiar de período. ConteoDetalle conserva cada
+        # carga en el período elegido para que dos períodos abiertos no se mezclen.
+        conteo = ConteoDetalle.query.filter_by(
+            periodo_id=periodo_id,
+            cliente_id=cliente_id,
+            tienda_id=tienda_id,
+            producto_nombre=producto,
+        ).first()
+        ahora = utc_now()
+        if conteo:
+            conteo.usuario = usuario
+            conteo.categoria = categoria
+            conteo.cantidad_unidad = cantidad_total
+            conteo.total_unidad_base = cantidad_total
+            conteo.fue_cargado = True
+            conteo.fecha_carga = ahora
+            conteo.fue_sobreescrito = tipo_movimiento == "sobreescritura"
+            conteo.version_ultima_carga = version_nueva
+        else:
+            db.session.add(ConteoDetalle(
+                periodo_id=periodo_id,
+                cliente_id=cliente_id,
+                tienda_id=tienda_id,
+                usuario=usuario,
+                producto_nombre=producto,
+                categoria=categoria,
+                cantidad_unidad=cantidad_total,
+                total_unidad_base=cantidad_total,
+                fue_cargado=True,
+                primera_carga=ahora,
+                fecha_carga=ahora,
+                fue_sobreescrito=tipo_movimiento == "sobreescritura",
+                version_ultima_carga=version_nueva,
+            ))
         guardados += 1
 
     snapshot.total_items = guardados
@@ -598,8 +679,8 @@ def registrar_vencimiento(*, tienda_id: str, usuario: str, categoria: str, produ
     return cu, desc
 
 
-def _pendientes_inventario_usuario(cliente_id, tienda_id, usuario):
-    return (
+def _pendientes_inventario_usuario(cliente_id, tienda_id, usuario, periodo_id=None):
+    query = (
         InventarioItem.query
         .filter_by(cliente_id=cliente_id, tienda_id=tienda_id, sinc_estado="pendiente")
         .filter(or_(
@@ -608,11 +689,16 @@ def _pendientes_inventario_usuario(cliente_id, tienda_id, usuario):
             InventarioItem.usuario_ultima_carga.is_(None),
         ))
     )
+    if periodo_id is not None:
+        query = query.filter(InventarioItem.periodo_id == int(periodo_id))
+    return query
 
 
-def build_sincronizacion_context(*, cliente_id: str, tienda_id: str):
+def build_sincronizacion_context(*, cliente_id: str, tienda_id: str, periodo_id=None):
     usuario = session.get("usuario", "")
-    pend_inv = _pendientes_inventario_usuario(cliente_id, tienda_id, usuario).count()
+    pend_inv = _pendientes_inventario_usuario(
+        cliente_id, tienda_id, usuario, periodo_id=periodo_id
+    ).count()
     pend_aver = RegistroAveriado.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, sinc_estado="pendiente").count()
     pend_venc = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, sinc_estado="pendiente").count()
     return {
@@ -641,7 +727,8 @@ def sync_ultima_recepcion_empleado():
     return format_utc_naive_to_local(r.timestamp) if r else None
 
 
-def procesar_sincronizacion(*, cliente_id: str, tienda_id: str, usuario: str, accion: str):
+def procesar_sincronizacion(*, cliente_id: str, tienda_id: str, usuario: str,
+                            accion: str, periodo_id=None):
     db.session.add(SincronizacionLog(
         cliente_id=cliente_id,
         tienda_id=tienda_id,
@@ -650,7 +737,9 @@ def procesar_sincronizacion(*, cliente_id: str, tienda_id: str, usuario: str, ac
         accion=accion,
     ))
 
-    pendientes = _pendientes_inventario_usuario(cliente_id, tienda_id, usuario).all()
+    pendientes = _pendientes_inventario_usuario(
+        cliente_id, tienda_id, usuario, periodo_id=periodo_id
+    ).all()
     for item in pendientes:
         item.sinc_estado = "sincronizado"
     n_inv = len(pendientes)

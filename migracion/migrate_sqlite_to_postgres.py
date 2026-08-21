@@ -49,6 +49,7 @@ TABLAS_ORDEN = [
     "ajustes_inventario",
     "excel_importados",
     "excel_detalles",
+    "excel_detalle_ediciones",
     "auditoria_resultados",
     "asistente_ia_consultas",
     "justificaciones",
@@ -64,6 +65,7 @@ BOOL_COLS: dict[str, set[str]] = {
     "registros_averiados": {"revisado"},
     "registros_vencimiento": {"revisado"},
     "conteo_detalle":      {"fue_cargado", "fue_sobreescrito"},
+    "excel_detalles":      {"excluido_auditoria"},
     "auditoria_resultados": {"alerta_continuidad"},
     "productos_relacionados": {"activo"},
 }
@@ -75,7 +77,7 @@ SERIAL_TABLES = [
     "inventario_snapshots", "inventario_desc_snapshots", "delivery_ventas",
     "registros_averiados", "registros_vencimiento", "sincronizacion_log",
     "inventario_periodos", "conteo_detalle", "ajustes_inventario",
-    "excel_importados", "excel_detalles", "auditoria_resultados",
+    "excel_importados", "excel_detalles", "excel_detalle_ediciones", "auditoria_resultados",
     "asistente_ia_consultas", "justificaciones", "productos_relacionados",
 ]
 

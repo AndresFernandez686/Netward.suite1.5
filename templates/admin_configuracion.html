@@ -1,11 +1,12 @@
 {% extends 'admin_base.html' %}
-{% block title %}Configuracion - {{ app_nombre }}{% endblock %}
-{% block heading %}Configuracion{% endblock %}
-{% block subheading %}Catalogo de productos y tiendas del sistema{% endblock %}
+{% block title %}{{ 'Productos' if active_section == 'productos' else 'Tiendas' }} - {{ app_nombre }}{% endblock %}
+{% block heading %}{{ 'Productos' if active_section == 'productos' else 'Tiendas' }}{% endblock %}
+{% block subheading %}{{ 'Catálogo de productos' if active_section == 'productos' else 'Administración de sucursales' }}{% endblock %}
 
 {% block content %}
 
 {# ── Seccion: Catalogo de productos ── #}
+{% if active_section == 'productos' %}
 <section class="card card--skip-collapse" id="sec-productos">
   <h3 class="panel__title">Catalogo de productos</h3>
   {% if local_notice and local_notice.section == 'productos' %}
@@ -85,8 +86,10 @@
   </div>
   {% endfor %}
 </section>
+{% endif %}
 
 {# ── Seccion: Tiendas ── #}
+{% if active_section == 'tiendas' %}
 <section class="card card--skip-collapse" id="sec-tiendas">
   <h3 class="panel__title">Tiendas registradas</h3>
   {% if local_notice and local_notice.section == 'tiendas' %}
@@ -148,6 +151,7 @@
     </div>
   </form>
 </section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

@@ -495,16 +495,36 @@
   function restoreSidebarScroll(sidebarEl) {
     if (!sidebarEl) return;
     var raw = safeGet(SIDEBAR_SCROLL_KEY);
-    if (raw == null) return;
-    var y = parseInt(raw, 10);
-    if (!isNaN(y)) {
-      sidebarEl.scrollTop = y;
+    var y = raw == null ? null : parseInt(raw, 10);
+
+    function ensureActiveVisible() {
+      var active = sidebarEl.querySelector('.nav__link.is-active');
+      if (!active) return;
+      var containerRect = sidebarEl.getBoundingClientRect();
+      var activeRect = active.getBoundingClientRect();
+      if (activeRect.top < containerRect.top) {
+        sidebarEl.scrollTop -= containerRect.top - activeRect.top + 8;
+      } else if (activeRect.bottom > containerRect.bottom) {
+        sidebarEl.scrollTop += activeRect.bottom - containerRect.bottom + 8;
+      }
     }
+
+    requestAnimationFrame(function () {
+      if (y !== null && !isNaN(y)) sidebarEl.scrollTop = y;
+      ensureActiveVisible();
+      // Esperar fuentes y SVG para estabilizar la altura definitiva del menú.
+      setTimeout(function () {
+        if (y !== null && !isNaN(y)) sidebarEl.scrollTop = y;
+        ensureActiveVisible();
+      }, 80);
+    });
   }
 
   // Menu lateral en moviles
   var toggle = document.getElementById('menuToggle');
   var sidebar = document.getElementById('sidebar');
+  // En escritorio el elemento desplazable real es el nav, no el aside.
+  var sidebarScroll = sidebar ? (sidebar.querySelector('.sidebar__nav') || sidebar) : null;
   var backdrop = document.getElementById('backdrop');
 
   function closeMenu() {
@@ -516,17 +536,17 @@
     toggle.addEventListener('click', function () {
       sidebar.classList.toggle('is-open');
       backdrop.classList.toggle('is-open');
-      restoreSidebarScroll(sidebar);
+      restoreSidebarScroll(sidebarScroll);
     });
     backdrop.addEventListener('click', closeMenu);
   }
 
   restorePageScroll();
-  restoreSidebarScroll(sidebar);
+  restoreSidebarScroll(sidebarScroll);
 
-  if (sidebar) {
-    sidebar.addEventListener('scroll', function () {
-      saveSidebarScroll(sidebar);
+  if (sidebarScroll) {
+    sidebarScroll.addEventListener('scroll', function () {
+      saveSidebarScroll(sidebarScroll);
     }, { passive: true });
   }
 
@@ -536,13 +556,13 @@
 
   window.addEventListener('beforeunload', function () {
     savePageScroll();
-    saveSidebarScroll(sidebar);
+    saveSidebarScroll(sidebarScroll);
   });
 
   document.querySelectorAll('.nav__link').forEach(function (link) {
     link.addEventListener('click', function () {
       savePageScroll();
-      saveSidebarScroll(sidebar);
+      saveSidebarScroll(sidebarScroll);
     });
   });
 
@@ -552,12 +572,12 @@
         path: window.location.pathname,
         x: window.scrollX || 0,
         y: window.scrollY || 0,
-        sidebarY: sidebar ? (sidebar.scrollTop || 0) : 0,
+        sidebarY: sidebarScroll ? (sidebarScroll.scrollTop || 0) : 0,
         ts: Date.now(),
       };
       safeSet(PENDING_SCROLL_KEY, JSON.stringify(payload));
       savePageScroll();
-      saveSidebarScroll(sidebar);
+      saveSidebarScroll(sidebarScroll);
     });
   });
 

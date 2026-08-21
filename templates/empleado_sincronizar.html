@@ -7,6 +7,12 @@
 <section class="card card--skip-collapse">
   <h3 class="panel__title">Estado de sincronización</h3>
 
+  {% if periodo_activo %}
+  <div class="banner banner--info" style="margin-bottom:16px;">
+    <div>Sincronizando únicamente el período seleccionado: <strong>#{{ periodo_activo.numero }}</strong> · {{ periodo_activo.fecha_desde }} → {{ periodo_activo.fecha_hasta }}</div>
+  </div>
+  {% endif %}
+
   <div class="sync-status-grid">
     <div class="sync-status-box">
       <div class="sync-status-label">Última transmisión</div>
@@ -52,6 +58,7 @@
         data-countdown-label="Sincronizando en">
 
     <input type="hidden" name="accion" id="accion-hidden" value="solo_enviar" />
+    {% if periodo_activo %}<input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />{% endif %}
 
     <div class="sync-opcion-grid">
       <button type="button" class="sync-opcion is-active" data-value="solo_enviar">

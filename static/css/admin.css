@@ -677,6 +677,88 @@
 .desc-rule--green { border-top: 3px solid #16a34a; }
 .desc-rule--violet { border-top: 3px solid #7c3aed; }
 
+.desc-excel-head,
+.desc-excel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desc-excel-head p { margin: 5px 0 0; }
+.desc-excel-search input { min-width: 260px; }
+.desc-excel-notice {
+  margin: 14px 0 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: #1e3a8a;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+.desc-excel-notice.is-success {
+  color: #166534;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.desc-excel-grid-wrap {
+  max-height: 62vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.desc-excel-grid {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: .78rem;
+}
+.desc-excel-grid th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 9px 8px;
+  white-space: nowrap;
+  text-align: left;
+  color: #334155;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--line);
+}
+.desc-excel-grid td {
+  padding: 0;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+.desc-excel-grid tr.has-edits td { background: #fffbeb; }
+.desc-excel-grid input:not([type="checkbox"]) {
+  width: 118px;
+  min-width: 118px;
+  padding: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+}
+.desc-excel-grid td:nth-child(3) input,
+.desc-excel-grid td:nth-child(17) input,
+.desc-excel-grid td:nth-child(19) input { width: 230px; }
+.desc-excel-grid input:focus {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+  background: #fff;
+}
+.desc-excel-grid input.is-edited { background: #fef3c7; }
+.desc-excel-link { min-width: 170px; padding: 7px 8px !important; }
+.desc-excel-check { min-width: 62px; text-align: center; }
+.desc-excel-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.desc-excel-actions span { margin-right: auto; color: var(--muted); }
+
 /* ---------- Auditoria / Periodos ---------- */
 .periodos-page {
   display: flex;

@@ -48,7 +48,7 @@
           {% if notif_vencimientos > 0 %}<span class="nav__badge">{{ notif_vencimientos }}</span>{% endif %}
         </a>
         <a href="{{ url_for('desc.admin_desc') }}" class="nav__link {{ 'is-active' if request.endpoint and request.endpoint.startswith('desc.') }}">
-          <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Desc.
+          <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Excel oficial
         </a>
         <a href="{{ url_for('admin_periodos') }}" class="nav__link {{ 'is-active' if request.endpoint and 'periodo' in (request.endpoint or '') or 'auditoria' in (request.endpoint or '') }}">
           <span class="nav__icon">{% include 'icons/chart.svg' %}</span> Auditoría
@@ -158,7 +158,7 @@
   </div>
   <div class="sidebar-backdrop" id="backdrop"></div>
 
-  <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-confirm-fix-2') }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-sidebar-scroll-fix-1') }}"></script>
   <script>
     function cambiarTiendaGlobal(valor) {
       var url = new URL(window.location.href);

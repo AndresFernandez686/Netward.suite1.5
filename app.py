@@ -11,7 +11,7 @@ Estructura:
 """
 import io
 import os
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from functools import wraps
 import secrets
 from sqlalchemy import inspect
@@ -33,7 +33,9 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     NotificacionUsuario, AsistenteIAConsulta)
 from core.auditoria import (ejecutar_auditoria, build_reporte_gerencial,
                             marcar_resultado_revisado)
-from core.excel_importer import importar_excel_transaccional
+from core.excel_importer import (
+    importar_excel_transaccional, revincular_detalles_pendientes,
+)
 from core.sync_bridge import (propagar_conteo_a_periodo, retroalimentar_periodo_desde_items,
                               sincronizar_transaccional)
 from core.scheduler import (job_autoclose_periodos, actualizar_estados_periodos,
@@ -61,7 +63,15 @@ load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=True)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or "netward-dev-secret-change-me"
-app.config["ASSET_VERSION"] = os.getenv("ASSET_VERSION", datetime.utcnow().strftime("%Y%m%d%H%M%S"))
+app.config["ASSET_VERSION"] = os.getenv(
+    "ASSET_VERSION",
+    datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"),
+)
+
+
+def utc_now():
+    """UTC sin zona para columnas DateTime existentes, compatible con Python 3.14."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 # ── Seguridad de sesion ───────────────────────────────────────────────────────
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)  # Sesion expira en 8 h
 app.config["SESSION_COOKIE_HTTPONLY"] = True    # JS no puede leer la cookie de sesion
@@ -352,7 +362,7 @@ def ensure_multitenant_schema():
             # aquí solo migramos columnas faltantes si la tabla ya existía)
             audit_tables = [
                 "inventario_periodos", "conteo_detalle", "ajustes_inventario",
-                "excel_importados", "excel_detalles", "auditoria_resultados",
+                "excel_importados", "excel_detalles", "excel_detalle_ediciones", "auditoria_resultados",
                 "justificaciones", "productos_relacionados", "configuracion_sistema",
             ]
             for tbl in audit_tables:
@@ -680,7 +690,7 @@ def set_carrito(carrito, periodo_id=None, *, commit=True):
         contenido = _json.dumps(carrito, ensure_ascii=False)
         if borrador:
             borrador.contenido_json = contenido
-            borrador.actualizado = datetime.utcnow()
+            borrador.actualizado = utc_now()
         else:
             db.session.add(InventarioBorrador(
                 cliente_id=get_cliente_filtro(),
@@ -706,7 +716,11 @@ def _safe_inv_tab(tab_value):
 def _redirect_inventario_context(default_anchor="sec-carga"):
     active_tab = _safe_inv_tab(request.form.get("active_tab"))
     anchor = (request.form.get("anchor") or default_anchor).strip() or default_anchor
-    return redirect(url_for("empleado_periodo_abierto", tab=active_tab) + f"#{anchor}")
+    periodo_id = request.form.get("periodo_id", type=int) or session.get("empleado_periodo_id")
+    return redirect(
+        url_for("empleado_periodo_abierto", tab=active_tab, periodo_id=periodo_id)
+        + f"#{anchor}"
+    )
 
 
 def _periodos_abiertos_empleado(cliente_id: str, tienda_id: str):
@@ -726,7 +740,13 @@ def _resolve_periodo_seleccionado_empleado(cliente_id: str, tienda_id: str):
         session.pop("empleado_periodo_id", None)
         return None, []
 
-    selected_id = request.args.get("periodo_id", type=int) or session.get("empleado_periodo_id")
+    # En POST manda el período incrustado en el formulario: evita que otra
+    # pestaña del navegador cambie la sesión y desvíe una carga de período.
+    selected_id = (
+        request.form.get("periodo_id", type=int)
+        or request.args.get("periodo_id", type=int)
+        or session.get("empleado_periodo_id")
+    )
     seleccionado = next((p for p in abiertos if p.id == selected_id), None)
     if seleccionado is None:
         seleccionado = abiertos[0]
@@ -767,12 +787,17 @@ def empleado_periodo_abierto():
         session["ultimo_periodo_flash_id"] = periodo_activo.id
 
     carrito = get_carrito(periodo_activo.id) if periodo_activo else []
-    cargas_existentes = (
+    cargas_periodo = (
         empleado_service.listar_cargas_periodo(
             cliente_id=cliente_id,
             tienda_id=tienda_id,
             periodo_id=periodo_activo.id,
         ) if periodo_activo else []
+    )
+    productos_cargados = empleado_service.combinar_cargas_para_vista(
+        carrito=carrito,
+        cargas_periodo=cargas_periodo,
+        usuario=session.get("usuario") or "",
     )
     conflicto_carga = session.pop("conflicto_carga", None)
     periodos_vistos = session.get("borradores_vistos", [])
@@ -791,7 +816,7 @@ def empleado_periodo_abierto():
             active_tab=request.args.get("tab") or CATEGORIAS[0],
             carrito=carrito,
             hoy=today_local_iso(),
-            cargas_existentes=cargas_existentes,
+            productos_cargados=productos_cargados,
             conflicto_carga=conflicto_carga,
         ),
         periodo_activo=periodo_activo,
@@ -819,7 +844,7 @@ def empleado_periodo_seleccionar():
         db.session.commit()
     session["ultimo_periodo_flash_id"] = seleccionado.id
     flash(f"Período #{seleccionado.numero} seleccionado.", "success")
-    return redirect(url_for("empleado_periodo_abierto"))
+    return redirect(url_for("empleado_periodo_abierto", periodo_id=seleccionado.id))
 
 
 @app.route("/empleado/notificaciones")
@@ -1347,8 +1372,16 @@ def vencimiento_eliminar(reg_id):
 def empleado_sincronizar_page():
     cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
-    return render_template("empleado_sincronizar.html",
-                           **empleado_service.build_sincronizacion_context(cliente_id=cliente_id, tienda_id=tienda_id))
+    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
+    return render_template(
+        "empleado_sincronizar.html",
+        **empleado_service.build_sincronizacion_context(
+            cliente_id=cliente_id,
+            tienda_id=tienda_id,
+            periodo_id=periodo_activo.id if periodo_activo else None,
+        ),
+        periodo_activo=periodo_activo,
+    )
 
 
 def sync_ultimo_envio_empleado():
@@ -1372,9 +1405,15 @@ def empleado_sincronizar():
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
 
+    # El período viaja dentro del formulario y prevalece sobre la sesión.
+    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
+
     # 1. Comprobar las tres fuentes; ninguna debe quedar fuera del envío.
     pend_inv = empleado_service._pendientes_inventario_usuario(
-        cliente_id, tienda_id, usuario
+        cliente_id,
+        tienda_id,
+        usuario,
+        periodo_id=periodo_activo.id if periodo_activo else None,
     ).count()
     pend_aver = RegistroAveriado.query.filter_by(
         cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, sinc_estado="pendiente"
@@ -1388,7 +1427,6 @@ def empleado_sincronizar():
         return redirect(url_for("empleado_sincronizar_page"))
 
     # 2. ¿El período activo (seleccionado por empleado) está disponible?
-    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
     if periodo_activo is None:
         # No hay período abierto — la sincronización de inventario operativo sigue funcionando
         # pero el empleado debe saberlo
@@ -1503,7 +1541,7 @@ def _hace_texto(dt):
     """'Hace 2 horas' / 'Ayer' / 'Hace 3 dias' a partir de un datetime UTC."""
     if not dt:
         return ""
-    delta = datetime.utcnow() - dt
+    delta = utc_now() - dt
     if delta.days == 0:
         horas = delta.seconds // 3600
         if horas == 0:
@@ -2151,8 +2189,13 @@ def producto_crear():
         return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
     db.session.add(Producto(nombre=nombre, categoria=categoria, visible_empleado=False,
                             codigo_articulo=(request.form.get("codigo_articulo") or "").strip() or None))
+    db.session.flush()
+    revinculados = revincular_detalles_pendientes(get_cliente_filtro())
     db.session.commit()
-    _set_admin_config_notice("productos", f"Producto '{nombre}' agregado a {categoria}.", "success", active_tab)
+    mensaje = f"Producto '{nombre}' agregado a {categoria}."
+    if revinculados:
+        mensaje += f" {revinculados} fila(s) pendiente(s) del Excel fueron vinculadas."
+    _set_admin_config_notice("productos", mensaje, "success", active_tab)
     return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
 
 
@@ -2476,10 +2519,12 @@ def admin_periodos():
     if tienda_sel != "ALL":
         q = q.filter_by(tienda_id=tienda_sel)
     periodos = q.order_by(InventarioPeriodo.id.desc()).all()
+    tiendas_map = {tienda.id: tienda.nombre for tienda in tiendas}
     return render_template(
         "admin_periodos.html",
         periodos=periodos,
         tiendas=tiendas,
+        tiendas_map=tiendas_map,
         autoclose_horas=get_autoclose_horas(cliente_id),
     )
 
@@ -2594,7 +2639,7 @@ def admin_periodo_cerrar(periodo_id):
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
     periodo.estado = "Cerrado"
-    periodo.fecha_cierre = datetime.utcnow()
+    periodo.fecha_cierre = utc_now()
     db.session.commit()
     flash("Período cerrado correctamente.", "success")
     return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
