@@ -28,13 +28,13 @@
     </div>
   </div>
 
-  {% if pendientes > 0 %}
+  {% if pendientes > 0 or catalogo_pendiente %}
   <div class="sync-banner sync-banner--warning">
     <div>
-      <strong class="sync-banner-title">{{ pendientes }} registro(s) pendiente(s) de envío</strong>
+      <strong class="sync-banner-title">Sincronización pendiente</strong>
       <p class="sync-banner-text">
-        Guardaste inventario que aún no fue enviado al administrador.
-        Presiona Sincronizar para enviar todos los datos.
+        {% if pendientes > 0 %}Tienes {{ pendientes }} registro(s) pendientes de envío.{% endif %}
+        {% if catalogo_pendiente %}Hay {{ catalogo_cambios }} cambio(s) nuevo(s) de catálogo. Selecciona “Enviar y Recibir” para descargarlos.{% endif %}
       </p>
       <p class="sync-banner-meta">
         Inventario: {{ pend_inv or 0 }} | Averiados: {{ pend_aver or 0 }} | Vencimientos: {{ pend_venc or 0 }}
@@ -57,15 +57,15 @@
         data-loading-text="Procesando sincronización..."
         data-countdown-label="Sincronizando en">
 
-    <input type="hidden" name="accion" id="accion-hidden" value="solo_enviar" />
+    <input type="hidden" name="accion" id="accion-hidden" value="{{ 'enviar_recibir' if catalogo_pendiente else 'solo_enviar' }}" />
     {% if periodo_activo %}<input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />{% endif %}
 
     <div class="sync-opcion-grid">
-      <button type="button" class="sync-opcion is-active" data-value="solo_enviar">
+      <button type="button" class="sync-opcion {{ '' if catalogo_pendiente else 'is-active' }}" data-value="solo_enviar">
         <span class="sync-opcion__titulo">Solo Enviar</span>
         <span class="sync-opcion__desc">Inventario, averiados y vencimientos</span>
       </button>
-      <button type="button" class="sync-opcion" data-value="enviar_recibir">
+      <button type="button" class="sync-opcion {{ 'is-active' if catalogo_pendiente else '' }}" data-value="enviar_recibir">
         <span class="sync-opcion__titulo">Enviar y Recibir</span>
         <span class="sync-opcion__desc">También descarga productos nuevos del admin</span>
       </button>

@@ -223,7 +223,6 @@ class PruebasInventarioMultiempleado(unittest.TestCase):
             excel_id=excel.id,
             articulo="ALF-001",
             artdescrip=PRODUCTO,
-            artcosto=500,
             stockinicial=9,
             stockfinal=9,
             producto_id=producto.id,

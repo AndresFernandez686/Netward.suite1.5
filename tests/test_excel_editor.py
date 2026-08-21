@@ -5,6 +5,7 @@ from flask import Flask
 
 from core.auditoria import ejecutar_auditoria
 from core.inventario import desc_bp
+from core.excel_importer import contar_detalles_pendientes, contar_detalles_revinculables
 from core.models import (
     ConteoDetalle,
     ExcelDetalle,
@@ -84,14 +85,15 @@ class PruebasEditorExcel(unittest.TestCase):
         respuesta = self.client.post(
             f"/admin/desc/excel/{self.excel.id}/datos",
             json={"filas": [{"id": self.detalle.id, "valores": {
-                "compras": "5", "artcosto": "1000", "artdescrip": "Alfajor editado",
+                "compras": "5",
             }}]},
         )
         self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(respuesta.get_json()["requiere_sincronizacion"])
+        self.assertEqual(respuesta.get_json()["sincronizacion"]["total"], 0)
         db.session.expire_all()
         detalle = db.session.get(ExcelDetalle, self.detalle.id)
         self.assertEqual(detalle.compras, 5)
-        self.assertEqual(detalle.artcosto, 1000)
         edicion = ExcelDetalleEdicion.query.one()
         cambios = json.loads(edicion.cambios_json)
         self.assertEqual(edicion.usuario, "admin-editor")
@@ -102,6 +104,34 @@ class PruebasEditorExcel(unittest.TestCase):
         self.assertEqual(resultado.compras, 5)
         self.assertEqual(resultado.stock_esperado, 13)
         self.assertEqual(resultado.diferencia, 0)
+
+    def test_artcosto_no_puede_guardarse_en_los_datos_extraidos(self):
+        respuesta = self.client.post(
+            f"/admin/desc/excel/{self.excel.id}/datos",
+            json={"filas": [{"id": self.detalle.id, "valores": {
+                "artcosto": "1000",
+            }}]},
+        )
+        self.assertEqual(respuesta.status_code, 400)
+
+    def test_renombre_extraido_activa_aviso_y_exige_revinculacion(self):
+        respuesta = self.client.post(
+            f"/admin/desc/excel/{self.excel.id}/datos",
+            json={"filas": [{"id": self.detalle.id, "valores": {
+                "artdescrip": "Alfajor renombrado",
+            }}]},
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.get_json()["requiere_sincronizacion"])
+        self.assertEqual(respuesta.get_json()["sincronizacion"]["total"], 1)
+        db.session.expire_all()
+        detalle = db.session.get(ExcelDetalle, self.detalle.id)
+        excel = db.session.get(ExcelImportado, self.excel.id)
+        self.assertEqual(detalle.estado_vinculacion, "pendiente")
+        self.assertIsNone(detalle.producto_id)
+        self.assertEqual(excel.estado_validacion, "pendiente_vinculacion")
+        self.assertEqual(contar_detalles_pendientes("C-EDIT"), 1)
+        self.assertEqual(contar_detalles_revinculables("C-EDIT"), 1)
 
     def test_no_permite_editar_excel_de_otro_cliente(self):
         with self.client.session_transaction() as sesion:

@@ -36,6 +36,8 @@ SERIAL_TABLES = [
 ]
 
 COLUMNAS_CRITICAS = {
+    "usuarios": {"catalogo_version_recibida"},
+    "productos": {"catalogo_version"},
     "inventario_items": {
         "periodo_id", "usuario_ultima_carga", "version", "fue_sobreescrito",
     },

@@ -74,6 +74,7 @@ class Usuario(BaseModel):
     rol = db.Column(db.String(20), nullable=False)           # empleado | administrador
     tienda_id = db.Column(db.String(10), nullable=True)      # ALL para administradores
     ultimo_periodo_notificado_id = db.Column(db.Integer, nullable=False, default=0)
+    catalogo_version_recibida = db.Column(db.Integer, nullable=False, default=0)
 
 
 class NotificacionUsuario(BaseModel):
@@ -101,6 +102,7 @@ class Producto(BaseModel):
     visible_empleado = db.Column(db.Boolean, default=True, nullable=False)
     # Código estable del sistema externo — clave principal de vinculación con el Excel oficial
     codigo_articulo = db.Column(db.String(40), nullable=True, index=True)
+    catalogo_version = db.Column(db.Integer, nullable=False, default=0, index=True)
 
     __table_args__ = (db.UniqueConstraint("nombre", "categoria", name="uq_producto_categoria"),)
 
@@ -429,7 +431,7 @@ class ExcelImportado(BaseModel):
     nombre_archivo = db.Column(db.String(255), nullable=False)
     fecha_importacion = db.Column(db.DateTime, default=utc_now)
     usuario_importador = db.Column(db.String(80), nullable=False)
-    # ok | errores | pendiente_vinculacion | fallido
+    # ok | errores | pendiente_vinculacion | fallido | reemplazado
     estado_validacion = db.Column(db.String(40), default="ok")
     productos_nuevos = db.Column(db.Integer, default=0)  # productos sin mapear
 
@@ -445,7 +447,6 @@ class ExcelDetalle(BaseModel):
     excel_id = db.Column(db.Integer, db.ForeignKey("excel_importados.id"), nullable=False)
     articulo = db.Column(db.String(40), nullable=False)     # código estable del sistema externo
     artdescrip = db.Column(db.String(255), default="")
-    artcosto = db.Column(db.Float, nullable=True)
     stockinicial = db.Column(db.Float, default=0)
     compras = db.Column(db.Float, default=0)
     otrosingresos = db.Column(db.Float, default=0)
@@ -529,7 +530,7 @@ class AuditoriaResultado(BaseModel):
     severidad = db.Column(db.String(20), default="Correcto")
     # Pendiente | Sugerido | Justificado | Revisado | Sin diferencia | Sin diferencia real
     estado_auditoria = db.Column(db.String(20), default="Pendiente")
-    # Excel oficial | Precio interno | Sin costo
+    # Precio interno | Sin costo
     fuente_costo = db.Column(db.String(20), default="Sin costo")
     # Evidencia estructurada (datos crudos que construyen el texto de evidencia)
     factor_desvio_compra = db.Column(db.Float, default=0)            # compras / promedio

@@ -5,16 +5,27 @@ from pathlib import Path
 import openpyxl
 from flask import Flask
 
+from core import empleado as empleado_service
+from core.catalogo import catalogo_pendiente_usuario, get_productos_db
 from core.excel_importer import (
-    _safe_float, corregir_vinculaciones_empaque, importar_excel,
+    descartar_detalles_sin_producto,
+    _safe_float, corregir_vinculaciones_empaque, contar_detalles_pendientes,
+    contar_detalles_revinculables,
+    importar_excel, importar_excel_transaccional,
     revincular_detalles_pendientes,
 )
-from core.inventario import _calcular_plan_renombrado, _procesar_filas
+from core.inventario import (
+    _calcular_plan_renombrado,
+    _procesar_filas,
+    desc_bp,
+    estado_sincronizacion_catalogo,
+)
 from core.models import (
     ExcelDetalle,
     ExcelImportado,
     InventarioPeriodo,
     Producto,
+    Usuario,
     db,
 )
 
@@ -81,12 +92,15 @@ class PruebasExcelOficial(unittest.TestCase):
         cls.app = Flask(__name__)
         cls.app.config.update(
             TESTING=True,
+            SECRET_KEY="test",
             SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
             SQLALCHEMY_TRACK_MODIFICATIONS=False,
         )
         db.init_app(cls.app)
+        cls.app.register_blueprint(desc_bp)
         cls.contexto = cls.app.app_context()
         cls.contexto.push()
+        cls.client = cls.app.test_client()
 
     @classmethod
     def tearDownClass(cls):
@@ -140,6 +154,21 @@ class PruebasExcelOficial(unittest.TestCase):
         detalles = ExcelDetalle.query.filter_by(excel_id=excel.id).all()
         self.assertEqual(len(detalles), 1)
         self.assertEqual(detalles[0].articulo, "A-001")
+
+    def test_importar_excel_no_cambia_el_estado_operativo_del_periodo(self):
+        self.periodo.estado = "Abierto"
+        db.session.commit()
+
+        importar_excel_transaccional(
+            periodo_id=self.periodo.id,
+            cliente_id=CLIENTE,
+            usuario="tester",
+            filename="oficial.xlsx",
+            contenido=crear_xlsx(HEADERS, [fila_oficial()]),
+        )
+
+        db.session.refresh(self.periodo)
+        self.assertEqual(self.periodo.estado, "Abierto")
 
     def test_importar_excel_con_columnas_faltantes_es_rechazado(self):
         contenido = crear_xlsx(
@@ -288,7 +317,7 @@ class PruebasExcelOficial(unittest.TestCase):
 
         self.assertEqual(almendrado.compras, 48)
         self.assertEqual(almendrado.articulo, "38")
-        self.assertEqual(almendrado.artcosto, 1705)
+        self.assertFalse(hasattr(almendrado, "artcosto"))
         self.assertEqual(almendrado.stockinicial, 88)
         self.assertEqual(almendrado.stockfinal, 166)
         self.assertEqual(almendrado.ventateorica, -30)
@@ -321,6 +350,20 @@ class PruebasExcelOficial(unittest.TestCase):
         self.assertEqual(excel.estado_validacion, "pendiente_vinculacion")
         self.assertEqual(detalle.estado_vinculacion, "sin_producto")
         self.assertIsNone(detalle.producto_nombre_interno)
+
+    def test_descarta_sin_producto_y_deja_el_excel_listo_para_auditoria(self):
+        excel, _ = self.importar([fila_oficial("", "Salsa de frutilla especial")])
+        detalle = ExcelDetalle.query.filter_by(excel_id=excel.id).one()
+
+        self.assertEqual(descartar_detalles_sin_producto(excel.id), 1)
+        self.assertTrue(detalle.excluido_auditoria)
+        self.assertEqual(
+            detalle.motivo_exclusion,
+            "Sin producto coincidente; descartado automáticamente",
+        )
+        self.assertEqual(excel.productos_nuevos, 0)
+        self.assertEqual(excel.estado_validacion, "ok")
+        self.assertEqual(contar_detalles_pendientes(CLIENTE), 0)
 
     def test_presentaciones_x54_y_x78_no_se_vinculan_aunque_compartan_codigo_y_alias(self):
         producto = Producto(
@@ -377,10 +420,20 @@ class PruebasExcelOficial(unittest.TestCase):
         ])
         detalle = ExcelDetalle.query.filter_by(excel_id=excel.id).one()
         self.assertEqual(detalle.estado_vinculacion, "sin_producto")
+        self.assertEqual(contar_detalles_pendientes(CLIENTE), 1)
+        self.assertEqual(
+            estado_sincronizacion_catalogo(CLIENTE)["revinculables"], 0
+        )
 
         producto = Producto(nombre="Torta Frutilla", categoria="Impulsivo")
         db.session.add(producto)
         db.session.flush()
+        self.assertEqual(contar_detalles_revinculables(CLIENTE), 1)
+        self.assertEqual(contar_detalles_pendientes(CLIENTE), 1)
+        estado = estado_sincronizacion_catalogo(CLIENTE)
+        self.assertGreater(estado["total"], 0)
+        self.assertEqual(estado["revinculables"], 1)
+        self.assertEqual(detalle.estado_vinculacion, "sin_producto")
         self.assertEqual(revincular_detalles_pendientes(CLIENTE), 1)
         db.session.flush()
 
@@ -390,6 +443,11 @@ class PruebasExcelOficial(unittest.TestCase):
         self.assertEqual(producto.codigo_articulo, "1814")
         self.assertEqual(excel.estado_validacion, "ok")
         self.assertEqual(excel.productos_nuevos, 0)
+        self.assertEqual(contar_detalles_revinculables(CLIENTE), 0)
+        self.assertEqual(contar_detalles_pendientes(CLIENTE), 0)
+        self.assertEqual(
+            estado_sincronizacion_catalogo(CLIENTE)["revinculables"], 0
+        )
 
     def test_plan_de_sincronizacion_normaliza_el_nombre_del_catalogo(self):
         producto = Producto(nombre="TORTA FRUTILLA", categoria="Impulsivo")
@@ -402,6 +460,127 @@ class PruebasExcelOficial(unittest.TestCase):
         )
         self.assertEqual(item["accion"], "renombrar")
         self.assertEqual(item["id"], producto.id)
+
+        producto.nombre = "Torta frutillas con crema"
+        db.session.flush()
+        aplicado = next(
+            fila for fila in _calcular_plan_renombrado()
+            if fila["de"] == "Torta Frutilla"
+        )
+        self.assertEqual(aplicado["accion"], "sin_cambios")
+
+    def test_todos_los_productos_nuevos_aparecen_y_se_publican_al_aplicar(self):
+        nuevos = [
+            Producto(nombre="Pizza", categoria="Extras", visible_empleado=False),
+            Producto(nombre="Empanada", categoria="Extras", visible_empleado=False),
+        ]
+        empleado = Usuario(
+            username="empleado-catalogo",
+            cliente_id=CLIENTE,
+            rol="empleado",
+            tienda_id=TIENDA,
+            catalogo_version_recibida=0,
+        )
+        db.session.add_all(nuevos + [empleado])
+        db.session.commit()
+
+        plan = _calcular_plan_renombrado()
+        nombres_nuevos = {
+            item["de"] for item in plan if item["accion"] == "nuevo_producto"
+        }
+        self.assertEqual(nombres_nuevos, {"Pizza", "Empanada"})
+        self.assertEqual(
+            [item["de"] for item in plan[:2]],
+            ["Empanada", "Pizza"],
+        )
+        estado = estado_sincronizacion_catalogo(CLIENTE)
+        self.assertEqual(estado["nuevos_productos"], 2)
+        self.assertEqual(estado["total"], 2)
+
+        with self.client.session_transaction() as sesion:
+            sesion["rol"] = "administrador"
+            sesion["usuario"] = "admin"
+            sesion["cliente_id"] = CLIENTE
+        respuesta = self.client.post("/admin/desc/sincronizar")
+        self.assertEqual(respuesta.status_code, 302)
+
+        db.session.expire_all()
+        self.assertTrue(all(db.session.get(Producto, p.id).visible_empleado for p in nuevos))
+        self.assertEqual(estado_sincronizacion_catalogo(CLIENTE)["total"], 0)
+
+        catalogo_antes = get_productos_db(
+            cliente_id=CLIENTE,
+            username=empleado.username,
+        )
+        self.assertNotIn("Pizza", catalogo_antes["Extras"])
+        self.assertEqual(catalogo_pendiente_usuario(CLIENTE, empleado.username), (True, 2))
+
+        solo_envio = empleado_service.procesar_sincronizacion(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            usuario=empleado.username,
+            accion="solo_enviar",
+        )
+        self.assertEqual(solo_envio["catalogo_actualizado"], 0)
+        self.assertTrue(catalogo_pendiente_usuario(CLIENTE, empleado.username)[0])
+
+        recepcion = empleado_service.procesar_sincronizacion(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            usuario=empleado.username,
+            accion="enviar_recibir",
+        )
+        db.session.commit()
+        self.assertEqual(recepcion["catalogo_actualizado"], 2)
+        self.assertEqual(catalogo_pendiente_usuario(CLIENTE, empleado.username), (False, 0))
+        catalogo_despues = get_productos_db(
+            cliente_id=CLIENTE,
+            username=empleado.username,
+        )
+        self.assertIn("Pizza", catalogo_despues["Extras"])
+        self.assertIn("Empanada", catalogo_despues["Extras"])
+
+    def test_producto_publicado_rescata_fila_de_un_grupo_excluido(self):
+        fila_pizza = fila_oficial("158", "Pizza frizzio mozzarella")
+        fila_sobre = fila_oficial("583", "Sobre pizza")
+        for fila in (fila_pizza, fila_sobre):
+            fila[14] = "Frizzio"
+            fila[15] = "Frizzio"
+        excel, _ = self.importar([fila_pizza, fila_sobre])
+        detalle = ExcelDetalle.query.filter_by(
+            excel_id=excel.id,
+            articulo="158",
+        ).one()
+        self.assertTrue(detalle.excluido_auditoria)
+        self.assertEqual(detalle.estado_vinculacion, "excluido")
+
+        pizza = Producto(
+            nombre="Pizza",
+            categoria="Impulsivo",
+            visible_empleado=False,
+        )
+        db.session.add(pizza)
+        db.session.commit()
+        with self.client.session_transaction() as sesion:
+            sesion["rol"] = "administrador"
+            sesion["usuario"] = "admin"
+            sesion["cliente_id"] = CLIENTE
+        respuesta = self.client.post("/admin/desc/sincronizar")
+        self.assertEqual(respuesta.status_code, 302)
+
+        db.session.expire_all()
+        detalle = db.session.get(ExcelDetalle, detalle.id)
+        pizza = db.session.get(Producto, pizza.id)
+        self.assertFalse(detalle.excluido_auditoria)
+        self.assertIsNone(detalle.motivo_exclusion)
+        self.assertEqual(detalle.estado_vinculacion, "vinculado")
+        self.assertEqual(detalle.producto_id, pizza.id)
+        self.assertEqual(detalle.producto_nombre_interno, "Pizza")
+        self.assertEqual(pizza.codigo_articulo, "158")
+        sobre = ExcelDetalle.query.filter_by(excel_id=excel.id, articulo="583").one()
+        self.assertTrue(sobre.excluido_auditoria)
+        self.assertEqual(sobre.estado_vinculacion, "excluido")
+        self.assertIsNone(sobre.producto_id)
 
     def procesar(self, *, venta_real_excel=6, ventas_delivery=None):
         headers = [

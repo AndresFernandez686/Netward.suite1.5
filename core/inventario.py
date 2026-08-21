@@ -461,17 +461,29 @@ def admin_desc():
             flash("Selecciona un período contable válido para procesar el Excel oficial.", "warning")
             return redirect(url_for("desc.admin_desc"))
 
+        volver_al_periodo = request.form.get("return_to") == "periodo"
+
+        def redirigir_importacion(*, ver_datos=False):
+            if volver_al_periodo:
+                return redirect(url_for("admin_periodo_detalle", periodo_id=periodo.id))
+            destino = url_for(
+                "desc.admin_desc",
+                periodo_id=periodo.id,
+                **({"ver_datos": 1} if ver_datos else {}),
+            )
+            return redirect(destino + ("#datos-extraidos-card" if ver_datos else ""))
+
         tienda_id = periodo.tienda_id
         fecha_ini = periodo.fecha_desde
         fecha_fin = periodo.fecha_hasta
         if not archivo or not archivo.filename:
             flash("Selecciona un archivo Excel antes de continuar.", "error")
-            return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
+            return redirigir_importacion()
 
         fname = archivo.filename
         if not (fname.lower().endswith(".xls") or fname.lower().endswith(".xlsx")):
             flash("Solo se permiten archivos .xlsx o .xls", "error")
-            return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
+            return redirigir_importacion()
 
         try:
             contenido = archivo.read()
@@ -479,12 +491,18 @@ def admin_desc():
 
             if len(filas_raw) < 2:
                 flash("El archivo no contiene datos.", "error")
-                return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
+                return redirigir_importacion()
 
             # Excel oficial y Auditoría deben usar exactamente el mismo
             # Excel oficial. Antes solo se generaba la descarga/snapshot y la
             # auditoría quedaba sin ExcelDetalle, por lo que Compras aparecía 0.
             from core.excel_importer import importar_excel
+            excel_anteriores = (
+                ExcelImportado.query
+                .filter_by(periodo_id=periodo.id, cliente_id=cliente_id)
+                .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
+                .all()
+            )
             excel_imp, advertencias_excel = importar_excel(
                 periodo_id=periodo.id,
                 cliente_id=cliente_id,
@@ -492,6 +510,8 @@ def admin_desc():
                 filename=fname,
                 contenido=contenido,
             )
+            for excel_anterior in excel_anteriores:
+                excel_anterior.estado_validacion = "reemplazado"
 
             # Determinar mes para regla de continuidad
             mes = fecha_fin[:7]   # YYYY-MM
@@ -509,13 +529,12 @@ def admin_desc():
             if not filas_proc:
                 db.session.rollback()
                 flash("No se encontraron filas válidas para procesar.", "warning")
-                return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
+                return redirigir_importacion()
 
             # Guardar snapshot
             if tienda_id and sf_dict:
                 _guardar_snapshot(tienda_id, mes, fecha_fin, sf_dict)
 
-            periodo.estado = "Excel Importado"
             db.session.commit()
 
             # Resumen flash
@@ -536,19 +555,14 @@ def admin_desc():
                     "warning",
                 )
 
-            return redirect(
-                url_for(
-                    "desc.admin_desc",
-                    periodo_id=periodo.id,
-                    ver_datos=1,
-                ) + "#datos-extraidos-card"
-            )
+            return redirigir_importacion(ver_datos=True)
 
         except Exception as exc:
             db.session.rollback()
             flash(f"Error al procesar: {exc}", "error")
-            return redirect(url_for("desc.admin_desc", periodo_id=periodo.id))
+            return redirigir_importacion()
 
+    estado_sync = estado_sincronizacion_catalogo(cliente_id, detallado=True)
     return render_template(
         "admin_desc.html",
         tiendas=tiendas,
@@ -557,6 +571,7 @@ def admin_desc():
         periodo_seleccionado=periodo_seleccionado,
         excel_seleccionado=excel_seleccionado,
         excel_detalles=excel_detalles,
+        estado_sync=estado_sync,
         mostrar_datos=request.args.get("ver_datos") == "1",
         snapshots=snapshots,
         inventarios_procesados=InventarioDescSnapshot.query.count(),
@@ -578,7 +593,7 @@ _CAMPOS_EXCEL_TEXTO = {
     "motivo_exclusion": 120,
 }
 _CAMPOS_EXCEL_NUMERO = {
-    "artcosto", "stockinicial", "compras", "otrosingresos",
+    "stockinicial", "compras", "otrosingresos",
     "otrassalidas", "stockfinal", "ventateorica", "ventareal",
     "diferencia", "importedesvio", "kilos", "unidades",
 }
@@ -595,8 +610,6 @@ def _normalizar_celda_excel(campo, valor_raw):
             raise ValueError("El código del artículo no puede quedar vacío.")
         return None if campo == "motivo_exclusion" and not valor else valor
     if campo in _CAMPOS_EXCEL_NUMERO:
-        if campo == "artcosto" and valor_raw in (None, ""):
-            return None
         try:
             valor = float(valor_raw)
         except (TypeError, ValueError) as exc:
@@ -621,6 +634,7 @@ def desc_excel_datos_guardar(excel_id):
     _requiere_admin()
     from core.models import (
         db, ExcelImportado, ExcelDetalle, ExcelDetalleEdicion, InventarioPeriodo,
+        Producto,
     )
 
     cliente_id = session.get("cliente_id", "C001")
@@ -654,6 +668,7 @@ def desc_excel_datos_guardar(excel_id):
         abort(404)
 
     total_celdas = 0
+    identidad_modificada = False
     try:
         for item in filas:
             detalle = detalles[int(item["id"])]
@@ -677,6 +692,21 @@ def desc_excel_datos_guardar(excel_id):
                     setattr(detalle, campo, valor)
 
             if cambios:
+                if {"articulo", "artdescrip"} & cambios.keys():
+                    identidad_modificada = True
+                    producto_anterior = (
+                        db.session.get(Producto, detalle.producto_id)
+                        if detalle.producto_id else None
+                    )
+                    if producto_anterior is not None and "articulo" in cambios:
+                        codigo_anterior = str(
+                            cambios["articulo"]["anterior"] or ""
+                        ).strip()
+                        if str(producto_anterior.codigo_articulo or "").strip() == codigo_anterior:
+                            producto_anterior.codigo_articulo = None
+                    detalle.producto_id = None
+                    detalle.producto_nombre_interno = None
+                    detalle.estado_vinculacion = "pendiente"
                 total_celdas += len(cambios)
                 db.session.add(ExcelDetalleEdicion(
                     cliente_id=cliente_id,
@@ -689,15 +719,33 @@ def desc_excel_datos_guardar(excel_id):
 
         if total_celdas == 0:
             return jsonify(ok=True, filas=0, celdas=0, message="No había cambios nuevos.")
-        periodo.estado = "Excel Importado"
+        pendientes = ExcelDetalle.query.filter(
+            ExcelDetalle.excel_id == excel.id,
+            ExcelDetalle.excluido_auditoria.is_(False),
+            ExcelDetalle.estado_vinculacion != "vinculado",
+        ).count()
+        excel.productos_nuevos = pendientes
+        excel.estado_validacion = "pendiente_vinculacion" if pendientes else "ok"
         db.session.commit()
+        estado_sync = estado_sincronizacion_catalogo(cliente_id, detallado=True)
+        requiere_sync = estado_sync["total"] > 0
         return jsonify(
             ok=True,
             filas=len(filas),
             celdas=total_celdas,
+            requiere_sincronizacion=requiere_sync,
+            sincronizacion=estado_sync,
             message=(
                 f"Se guardaron {total_celdas} celda(s). "
-                "Auditoría usará estos valores en su próxima ejecución."
+                + (
+                    "Revisa la sincronización del catálogo antes de ejecutar Auditoría."
+                    if requiere_sync else
+                    (
+                        "La fila sin producto coincidente se descartará automáticamente."
+                        if identidad_modificada else
+                        "Auditoría usará estos valores en su próxima ejecución."
+                    )
+                )
             ),
         )
     except ConflictoEdicionExcel as exc:
@@ -782,20 +830,28 @@ RENOMBRAR_CATALOGO = {
 
 def _calcular_plan_renombrado():
     """
-    Devuelve lista de dicts con el plan de renombrado.
-    accion: 'renombrar' | 'eliminar_duplicado' | 'conflicto'
+    Devuelve el plan de cambios del catálogo.
+    Incluye renombres y productos nuevos todavía no publicados al empleado.
     """
     from core.models import Producto
     existentes = {_norm(p.nombre): p for p in Producto.query.all()}
     plan = []
     for nombre_sys, nombre_excel in RENOMBRAR_CATALOGO.items():
         prod = existentes.get(_norm(nombre_sys))
+        destino_existe = existentes.get(_norm(nombre_excel))
         if prod is None:
-            plan.append({"de": nombre_sys, "a": nombre_excel,
-                         "accion": "no_existe", "id": None})
+            plan.append({
+                "de": nombre_sys,
+                "a": nombre_excel,
+                "accion": "sin_cambios" if destino_existe else "no_existe",
+                "id": destino_existe.id if destino_existe else None,
+            })
             continue
         # ¿El nombre destino ya existe?
-        destino_existe = existentes.get(_norm(nombre_excel))
+        if destino_existe and destino_existe.id == prod.id and prod.nombre == nombre_excel:
+            plan.append({"de": nombre_sys, "a": nombre_excel,
+                         "accion": "sin_cambios", "id": prod.id})
+            continue
         if destino_existe and destino_existe.id != prod.id:
             plan.append({"de": nombre_sys, "a": nombre_excel,
                          "accion": "eliminar_duplicado", "id": prod.id,
@@ -803,7 +859,53 @@ def _calcular_plan_renombrado():
         else:
             plan.append({"de": nombre_sys, "a": nombre_excel,
                          "accion": "renombrar", "id": prod.id})
-    return plan
+    ids_a_eliminar = {
+        item["id"] for item in plan if item["accion"] == "eliminar_duplicado"
+    }
+    nuevos = []
+    for producto in Producto.query.filter_by(visible_empleado=False).order_by(
+        Producto.nombre
+    ).all():
+        if producto.id in ids_a_eliminar:
+            continue
+        nuevos.append({
+            "de": producto.nombre,
+            "a": "Publicar en el catálogo de empleados",
+            "accion": "nuevo_producto",
+            "id": producto.id,
+        })
+    return nuevos + plan
+
+
+def estado_sincronizacion_catalogo(cliente_id, *, detallado=True):
+    """Resume cambios del catálogo y filas vigentes del Excel pendientes de vincular."""
+    from core.excel_importer import (
+        contar_detalles_pendientes,
+        contar_detalles_revinculables,
+    )
+
+    plan = _calcular_plan_renombrado()
+    renombres = sum(
+        item["accion"] in {"renombrar", "eliminar_duplicado"}
+        for item in plan
+    )
+    nuevos_productos = sum(
+        item["accion"] == "nuevo_producto"
+        for item in plan
+    )
+    pendientes = contar_detalles_pendientes(cliente_id)
+    revinculables = contar_detalles_revinculables(cliente_id) if detallado else 0
+    return {
+        "renombres": renombres,
+        "nuevos_productos": nuevos_productos,
+        "pendientes": pendientes,
+        "revinculables": revinculables,
+        "sin_producto": max(0, pendientes - revinculables),
+        # Las filas sin producto coincidente se descartan. Solo un cambio que
+        # realmente puede aplicarse debe encender la notificación y el botón.
+        "total": renombres + nuevos_productos + revinculables,
+        "aplicables": renombres + nuevos_productos + revinculables,
+    }
 
 
 @desc_bp.route("/admin/desc/sincronizar", methods=["GET", "POST"])
@@ -813,8 +915,16 @@ def desc_sincronizar():
 
     if request.method == "POST":
         plan = _calcular_plan_renombrado()
+        requiere_version_nueva = any(
+            item["accion"] in {"renombrar", "nuevo_producto"}
+            for item in plan
+        )
+        version_nueva = int(
+            db.session.query(db.func.max(Producto.catalogo_version)).scalar() or 0
+        ) + (1 if requiere_version_nueva else 0)
         renombrados = 0
         eliminados  = 0
+        publicados  = 0
         errores     = []
 
         for item in plan:
@@ -841,6 +951,7 @@ def desc_sincronizar():
                             snap.stock_final_json = json.dumps(sf)
                     # Renombrar producto
                     prod.nombre = nuevo
+                    prod.catalogo_version = version_nueva
                     renombrados += 1
 
                 elif item["accion"] == "eliminar_duplicado":
@@ -850,25 +961,51 @@ def desc_sincronizar():
                         db.session.delete(prod_viejo)
                         eliminados += 1
 
+                elif item["accion"] == "nuevo_producto":
+                    producto_nuevo = db.session.get(Producto, item["id"])
+                    if producto_nuevo is not None and not producto_nuevo.visible_empleado:
+                        producto_nuevo.visible_empleado = True
+                        producto_nuevo.catalogo_version = version_nueva
+                        publicados += 1
+
             except Exception as e:
                 errores.append(f"{item['de']}: {e}")
 
-        from core.excel_importer import revincular_detalles_pendientes
+        from core.excel_importer import (
+            _ultimos_excel_validos,
+            descartar_detalles_sin_producto,
+            revincular_detalles_pendientes,
+        )
         revinculados = revincular_detalles_pendientes(
             session.get("cliente_id", "C001")
         )
+        descartados = 0
+        for excel_vigente in _ultimos_excel_validos(session.get("cliente_id", "C001")):
+            descartados += descartar_detalles_sin_producto(excel_vigente.id)
         db.session.commit()
         msg = (
             f"Sincronizado: {renombrados} renombrados, "
-            f"{eliminados} duplicados eliminados y {revinculados} fila(s) del Excel vinculada(s)."
+            f"{eliminados} duplicados eliminados, {publicados} producto(s) nuevo(s) "
+            f"publicado(s), {revinculados} fila(s) del Excel vinculada(s) y "
+            f"{descartados} fila(s) sin producto descartada(s)."
         )
         if errores:
             msg += f" Errores: {'; '.join(errores)}"
         flash(msg, "success" if not errores else "warning")
-        return redirect(url_for("desc.desc_sincronizar"))
+        return redirect(url_for("desc.desc_sincronizar", completado=1))
 
     plan = _calcular_plan_renombrado()
-    return render_template("admin_sincronizar.html", plan=plan)
+    estado_sync = estado_sincronizacion_catalogo(
+        session.get("cliente_id", "C001"),
+        detallado=True,
+    )
+    return render_template(
+        "admin_sincronizar.html",
+        plan=plan,
+        pendientes_revinculables=estado_sync["revinculables"],
+        pendientes_sin_producto=estado_sync["sin_producto"],
+        completado=request.args.get("completado") == "1",
+    )
 
 
 

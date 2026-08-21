@@ -21,6 +21,7 @@ from core.models import (
     InventarioPeriodo,
     Justificacion,
     Producto,
+    ProductoPrecio,
     db,
 )
 from core.periodos import cerrar_periodo
@@ -85,6 +86,14 @@ class PruebaEndToEnd(unittest.TestCase):
             visible_empleado=True,
         )
         db.session.add(self.producto)
+        db.session.flush()
+        db.session.add(ProductoPrecio(
+            cliente_id=CLIENTE,
+            producto_id=self.producto.id,
+            producto_nombre=self.producto.nombre,
+            categoria=self.producto.categoria,
+            precio=1000,
+        ))
         db.session.commit()
 
     def tearDown(self):

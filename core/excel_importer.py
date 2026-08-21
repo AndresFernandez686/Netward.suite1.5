@@ -16,7 +16,6 @@ from .models import db, ExcelImportado, ExcelDetalle, InventarioPeriodo, Product
 _COL_MAP = {
     "articulo": ["articulo", "art", "codigo", "cod"],
     "artdescrip": ["artdescrip", "descripcion", "nombre", "producto"],
-    "artcosto": ["artcosto", "costo", "precio costo"],
     "stockinicial": ["stockinicial", "stock inicial", "si"],
     "compras": ["compras", "compra"],
     "otrosingresos": ["otrosingresos", "otros ingresos", "ingreso"],
@@ -183,6 +182,34 @@ def _vincular_producto(articulo: str, artdescrip: str,
     return None
 
 
+def _vincular_producto_publicado(articulo: str, artdescrip: str) -> Optional[Producto]:
+    """Busca una coincidencia única entre productos publicados manualmente."""
+    codigo = _norm_codigo(articulo)
+    descripcion = _norm(artdescrip)
+    candidatos = []
+    for producto in Producto.query.filter(
+        Producto.visible_empleado.is_(True),
+        Producto.catalogo_version > 0,
+    ).all():
+        if codigo and _norm_codigo(producto.codigo_articulo) == codigo:
+            candidatos.append(producto)
+            continue
+        nombre = _norm(producto.nombre)
+        if len(nombre) < 4 or not empaques_compatibles(producto.nombre, artdescrip):
+            continue
+        coincide = descripcion == nombre or descripcion.startswith(nombre + " ")
+        if len(nombre.split()) >= 2:
+            coincide = (
+                coincide
+                or descripcion.endswith(" " + nombre)
+                or f" {nombre} " in f" {descripcion} "
+            )
+        if coincide:
+            candidatos.append(producto)
+    unicos = {producto.id: producto for producto in candidatos}
+    return next(iter(unicos.values())) if len(unicos) == 1 else None
+
+
 def corregir_vinculaciones_empaque(excel_id: int) -> int:
     """Desvincula relaciones históricas xN/xM incompatibles del Excel indicado."""
     detalles = ExcelDetalle.query.filter_by(excel_id=excel_id).filter(
@@ -227,6 +254,20 @@ def revincular_detalles_pendientes(cliente_id: str) -> int:
         detalles = ExcelDetalle.query.filter_by(excel_id=excel.id).all()
         for detalle in detalles:
             if detalle.excluido_auditoria:
+                producto_publicado = _vincular_producto_publicado(
+                    detalle.articulo,
+                    detalle.artdescrip,
+                )
+                if producto_publicado is None:
+                    continue
+                detalle.excluido_auditoria = False
+                detalle.motivo_exclusion = None
+                detalle.producto_id = producto_publicado.id
+                detalle.producto_nombre_interno = producto_publicado.nombre
+                detalle.estado_vinculacion = "vinculado"
+                if detalle.articulo and not producto_publicado.codigo_articulo:
+                    producto_publicado.codigo_articulo = _norm_codigo(detalle.articulo)
+                vinculados += 1
                 continue
             producto_actual = (
                 db.session.get(Producto, detalle.producto_id)
@@ -269,6 +310,90 @@ def revincular_detalles_pendientes(cliente_id: str) -> int:
         excel.estado_validacion = "pendiente_vinculacion" if pendientes else "ok"
 
     return vinculados
+
+
+def descartar_detalles_sin_producto(excel_id: int) -> int:
+    """Excluye de Auditoría las filas que ya se confirmó que no tienen producto."""
+    excel = db.session.get(ExcelImportado, excel_id)
+    if excel is None:
+        return 0
+
+    descartados = 0
+    detalles = ExcelDetalle.query.filter_by(excel_id=excel.id).all()
+    for detalle in detalles:
+        if detalle.estado_vinculacion != "sin_producto" or detalle.excluido_auditoria:
+            continue
+        detalle.excluido_auditoria = True
+        detalle.motivo_exclusion = "Sin producto coincidente; descartado automáticamente"
+        descartados += 1
+
+    pendientes = sum(
+        not detalle.excluido_auditoria
+        and detalle.estado_vinculacion != "vinculado"
+        for detalle in detalles
+    )
+    excel.productos_nuevos = pendientes
+    excel.estado_validacion = "pendiente_vinculacion" if pendientes else "ok"
+    return descartados
+
+
+def _ultimos_excel_validos(cliente_id: str) -> list[ExcelImportado]:
+    """Devuelve solo la importación vigente de cada período del cliente."""
+    ultimos = (
+        db.session.query(db.func.max(ExcelImportado.id))
+        .filter(
+            ExcelImportado.cliente_id == cliente_id,
+            ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")),
+        )
+        .group_by(ExcelImportado.periodo_id)
+        .all()
+    )
+    ids = [fila[0] for fila in ultimos if fila[0] is not None]
+    if not ids:
+        return []
+    return ExcelImportado.query.filter(ExcelImportado.id.in_(ids)).all()
+
+
+def contar_detalles_pendientes(cliente_id: str) -> int:
+    """Cuenta filas vigentes del Excel que todavía no están vinculadas."""
+    excels = _ultimos_excel_validos(cliente_id)
+    ids = [excel.id for excel in excels]
+    if not ids:
+        return 0
+    return ExcelDetalle.query.filter(
+        ExcelDetalle.excel_id.in_(ids),
+        ExcelDetalle.excluido_auditoria.is_(False),
+        ExcelDetalle.estado_vinculacion != "vinculado",
+    ).count()
+
+
+def contar_detalles_revinculables(cliente_id: str) -> int:
+    """Cuenta filas pendientes que el catálogo actual ya permite vincular, sin modificar datos."""
+    excels = _ultimos_excel_validos(cliente_id)
+    if not excels:
+        return 0
+    nombre_map = _build_nombre_map(cliente_id)
+    codigo_map = _build_codigo_map()
+    alias_map = _build_alias_map(nombre_map)
+    total = 0
+    for excel in excels:
+        for detalle in ExcelDetalle.query.filter_by(excel_id=excel.id).all():
+            if detalle.excluido_auditoria:
+                if _vincular_producto_publicado(detalle.articulo, detalle.artdescrip):
+                    total += 1
+                continue
+            if detalle.estado_vinculacion == "vinculado":
+                continue
+            nombre = _vincular_producto(
+                detalle.articulo,
+                detalle.artdescrip,
+                codigo_map,
+                nombre_map,
+                alias_map,
+            )
+            if nombre and Producto.query.filter_by(nombre=nombre).first():
+                total += 1
+    return total
 
 
 def importar_excel(
@@ -348,7 +473,6 @@ def importar_excel(
         )
 
         articulo = _norm_codigo(_get("articulo"))
-        artcosto = _safe_float(_get("artcosto"))
         stockinicial = _safe_float(_get("stockinicial")) or 0.0
         compras = _safe_float(_get("compras")) or 0.0
         otrosingresos = _safe_float(_get("otrosingresos")) or 0.0
@@ -365,6 +489,14 @@ def importar_excel(
         nombre_interno = _vincular_producto(
             articulo, str(_get("artdescrip") or ""), codigo_map, nombre_map, alias_map
         )
+        if grupo_excluido:
+            producto_publicado = _vincular_producto_publicado(
+                articulo,
+                str(_get("artdescrip") or ""),
+            )
+            if producto_publicado is not None:
+                nombre_interno = producto_publicado.nombre
+                grupo_excluido = None
         if nombre_interno is None and articulo:
             propietario_codigo = Producto.query.filter_by(codigo_articulo=articulo).first()
             if propietario_codigo and not empaques_compatibles(
@@ -404,7 +536,6 @@ def importar_excel(
             excel_id=ei.id,
             articulo=articulo,
             artdescrip=str(_get("artdescrip") or ""),
-            artcosto=artcosto,
             stockinicial=stockinicial,
             compras=compras,
             otrosingresos=otrosingresos,
@@ -450,9 +581,6 @@ def importar_excel_transaccional(
             filename=filename,
             contenido=contenido,
         )
-        periodo = db.session.get(InventarioPeriodo, periodo_id)
-        if periodo is not None:
-            periodo.estado = "Excel Importado"
         db.session.commit()
         return ei, advertencias
     except Exception:

@@ -9,7 +9,12 @@ from sqlalchemy import or_
 
 from flask import session
 
-from core.catalogo import get_productos_db, activar_catalogo_pendiente_empleado
+from core.catalogo import (
+    catalogo_pendiente_usuario,
+    get_productos_db,
+    identidad_producto,
+    recibir_catalogo_usuario,
+)
 from core.models import (
     db, InventarioItem, HistorialMovimiento, InventarioSnapshot,
     RegistroAveriado, RegistroVencimiento, ProductoPrecio, SincronizacionLog,
@@ -262,17 +267,41 @@ def combinar_cargas_para_vista(*, carrito: list, cargas_periodo: list, usuario: 
     return visibles
 
 
+def obtener_productos_no_cargados(*, productos: dict, productos_cargados: list) -> list:
+    """Devuelve el catálogo que aún no tiene carga en el período seleccionado."""
+    cargados = {
+        identidad_producto(item.get("producto") or "")
+        for item in productos_cargados
+    }
+    pendientes = []
+    for categoria, nombres in productos.items():
+        for nombre in nombres:
+            clave = identidad_producto(nombre)
+            if clave not in cargados:
+                pendientes.append({"categoria": categoria, "producto": nombre})
+    return pendientes
+
+
 def build_empleado_inventario_context(*, active_tab: str, carrito: list, hoy: str,
                                       productos_cargados=None, conflicto_carga=None):
+    productos = get_productos_db(
+        cliente_id=session.get("cliente_id", "C001"),
+        username=session.get("usuario", ""),
+    )
+    productos_cargados = productos_cargados or []
     return {
-        "productos": get_productos_db(),
+        "productos": productos,
         "active_tab": _safe_inv_tab(active_tab),
         "categorias": CATEGORIAS,
         "tipos_inventario": TIPOS_INVENTARIO,
         "opciones_ume": OPCIONES_UME,
         "estados_balde": ESTADOS_BALDE,
         "carrito": carrito,
-        "productos_cargados": productos_cargados or [],
+        "productos_cargados": productos_cargados,
+        "productos_no_cargados": obtener_productos_no_cargados(
+            productos=productos,
+            productos_cargados=productos_cargados,
+        ),
         "hoy": hoy,
         "conflicto_carga": conflicto_carga,
         "hide_global_flash": True,
@@ -629,7 +658,10 @@ def guardar_carrito_transaccional(
 
 def build_averiado_context(*, tienda_id: str):
     return {
-        "productos": get_productos_db(),
+        "productos": get_productos_db(
+            cliente_id=session.get("cliente_id", "C001"),
+            username=session.get("usuario", ""),
+        ),
         "categorias": CATEGORIAS,
         "recientes": RegistroAveriado.query.filter_by(tienda_id=tienda_id).order_by(RegistroAveriado.creado.desc()).limit(30).all(),
         "hoy": today_local_iso(),
@@ -654,7 +686,10 @@ def registrar_averiado(*, tienda_id: str, usuario: str, categoria: str, producto
 
 def build_vencimiento_context(*, tienda_id: str):
     return {
-        "productos": get_productos_db(),
+        "productos": get_productos_db(
+            cliente_id=session.get("cliente_id", "C001"),
+            username=session.get("usuario", ""),
+        ),
         "categorias": CATEGORIAS,
         "recientes": RegistroVencimiento.query.filter_by(tienda_id=tienda_id).order_by(RegistroVencimiento.creado.desc()).limit(30).all(),
         "hoy": today_local_iso(),
@@ -701,11 +736,17 @@ def build_sincronizacion_context(*, cliente_id: str, tienda_id: str, periodo_id=
     ).count()
     pend_aver = RegistroAveriado.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, sinc_estado="pendiente").count()
     pend_venc = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, sinc_estado="pendiente").count()
+    catalogo_pendiente, catalogo_cambios = catalogo_pendiente_usuario(
+        cliente_id,
+        usuario,
+    )
     return {
         "pendientes": pend_inv + pend_aver + pend_venc,
         "pend_inv": pend_inv,
         "pend_aver": pend_aver,
         "pend_venc": pend_venc,
+        "catalogo_pendiente": catalogo_pendiente,
+        "catalogo_cambios": catalogo_cambios,
         "sync_ultimo_envio": sync_ultimo_envio_empleado(),
         "sync_ultima_recepcion": sync_ultima_recepcion_empleado(),
     }
@@ -757,7 +798,7 @@ def procesar_sincronizacion(*, cliente_id: str, tienda_id: str, usuario: str,
     n_total = n_inv + n_aver + n_venc
     catalogo_actualizado = 0
     if accion == "enviar_recibir":
-        catalogo_actualizado = activar_catalogo_pendiente_empleado()
+        catalogo_actualizado = recibir_catalogo_usuario(cliente_id, usuario)
         db.session.add(SincronizacionLog(
             cliente_id=cliente_id,
             tienda_id=tienda_id,

@@ -84,6 +84,5 @@ Admin actua:
 ```
 
 **`fuente_costo`** indica por qué el impacto económico puede variar entre períodos:
-- `Excel oficial` → usa `artcosto` del Excel externo (fuente prioritaria)
-- `Precio interno` → usa `producto_precios.precio`
+- `Precio interno` → usa exclusivamente `producto_precios.precio`
 - `Sin costo` → el impacto aparece como 0 / no calculable

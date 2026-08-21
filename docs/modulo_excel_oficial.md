@@ -19,7 +19,6 @@ excel_detalles.producto_nombre_interno → referencia lógica a productos.nombre
 | Columna | Uso en auditoría |
 |---|---|
 | `articulo` | Clave de vinculación (código estable del sistema externo) |
-| `artcosto` | Costo unitario oficial (prioridad sobre precio interno) |
 | `stockinicial` | Stock inicial según sistema externo |
 | `compras` | Compras del período |
 | `ventareal` | Ventas reales del período |

@@ -46,9 +46,7 @@ def registrar_conteo_admin(
         periodo_id=periodo.id,
         producto_nombre=producto_nombre,
     ).first()
-    es_historico = periodo.estado in (
-        "Cerrado", "Excel Importado", "Conciliado", "Auditado"
-    )
+    es_historico = periodo.estado in ("Cerrado", "Conciliado", "Auditado")
     if es_historico:
         if conteo is None:
             raise ValueError("No existe un conteo histórico que pueda ajustarse.")

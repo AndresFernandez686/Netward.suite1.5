@@ -1,6 +1,8 @@
 import json
 import os
 import unittest
+from io import BytesIO
+from urllib import error as urlerror
 from unittest.mock import patch
 
 from flask import Flask
@@ -9,6 +11,7 @@ from core.ai_assistant import (
     AIConfig,
     PROVEEDORES,
     _call_provider,
+    _http_json,
     build_period_context,
     build_product_context,
     explain,
@@ -68,14 +71,61 @@ class PruebasAsistenteIA(unittest.TestCase):
         values.update(kwargs)
         return AIConfig(**values)
 
-    def test_modo_local_explica_sin_api_y_sin_modificar_resultado(self):
+    def test_sin_api_no_activa_el_bot_local_ni_modifica_resultado(self):
         contexto = build_product_context(self.periodo, self.resultado)
         antes = (self.resultado.diferencia, self.resultado.estado_auditoria)
         respuesta = explain("¿Por qué falta?", contexto, self.config(enabled=False, api_key=""))
+        self.assertFalse(respuesta["ok"])
+        self.assertFalse(respuesta["fallback"])
+        self.assertEqual(respuesta["answer"], "")
+        self.assertIn("Nexa no está configurada", respuesta["error"])
+        self.assertEqual(antes, (self.resultado.diferencia, self.resultado.estado_auditoria))
+
+    @patch("core.ai_assistant._http_json")
+    def test_error_de_openai_no_activa_el_bot_local(self, http_json):
+        from core.ai_assistant import AIProviderError
+        http_json.side_effect = AIProviderError("OpenAI no disponible")
+        respuesta = explain("Explica", {"alcance": "periodo"}, self.config())
+        self.assertFalse(respuesta["ok"])
+        self.assertFalse(respuesta["fallback"])
+        self.assertEqual(respuesta["provider"], "openai")
+        self.assertEqual(respuesta["answer"], "")
+        self.assertEqual(respuesta["error"], "OpenAI no disponible")
+
+    @patch("core.ai_assistant.request.urlopen")
+    def test_error_http_informa_codigo_remoto_sin_exponer_respuesta(self, urlopen):
+        urlopen.side_effect = urlerror.HTTPError(
+            "https://api.openai.com/v1/responses",
+            429,
+            "Too Many Requests",
+            {},
+            BytesIO(json.dumps({
+                "error": {
+                    "message": "mensaje remoto que no debe mostrarse",
+                    "type": "insufficient_quota",
+                    "code": "insufficient_quota",
+                }
+            }).encode("utf-8")),
+        )
+        with self.assertRaisesRegex(Exception, r"HTTP 429 \(insufficient_quota\)"):
+            _http_json("https://api.openai.com/v1/responses", {}, {}, 5)
+
+    def test_bot_local_se_conserva_pero_requiere_activacion_explicita(self):
+        contexto = build_product_context(self.periodo, self.resultado)
+        config = self.config(enabled=False, api_key="", local_fallback_enabled=True)
+        estado = config.public_status()
+        self.assertTrue(estado["local_active"])
+        self.assertEqual(estado["provider"], "local")
+        self.assertEqual(estado["model"], "reglas-locales")
+        self.assertEqual(estado["label"], "Nexa · bot local activo")
+        respuesta = explain(
+            "¿Por qué falta?",
+            contexto,
+            config,
+        )
+        self.assertTrue(respuesta["ok"])
         self.assertTrue(respuesta["fallback"])
         self.assertIn("Alfajor", respuesta["answer"])
-        self.assertIn("-20", respuesta["answer"])
-        self.assertEqual(antes, (self.resultado.diferencia, self.resultado.estado_auditoria))
 
     def test_contexto_de_producto_solo_busca_anterior_de_misma_empresa_y_tienda(self):
         otro_periodo = InventarioPeriodo(
@@ -124,12 +174,13 @@ class PruebasAsistenteIA(unittest.TestCase):
                 http_json.return_value = body
                 self.assertEqual(_call_provider(self.config(provider), "Explica", {}), expected)
 
-    def test_configuracion_invalida_cae_a_modo_local(self):
+    def test_configuracion_invalida_no_activa_modo_local(self):
         env = {"AI_ENABLED": "true", "AI_PROVIDER": "openai_compatible", "AI_MODEL": "x",
                "AI_API_KEY": "k", "AI_BASE_URL": "", "AI_TIMEOUT_SECONDS": "inválido"}
         with patch.dict(os.environ, env, clear=True):
             config = AIConfig.from_env()
         self.assertFalse(config.public_status()["configured"])
+        self.assertFalse(config.local_fallback_enabled)
         self.assertEqual(config.timeout, 30)
 
     def test_consulta_es_trazable_sin_guardar_claves(self):

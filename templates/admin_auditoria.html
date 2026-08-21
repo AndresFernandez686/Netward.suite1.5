@@ -109,8 +109,8 @@
   <div class="audit-ai-overlay" id="auditAiOverlay" hidden></div>
   <aside class="audit-ai-drawer" id="auditAiDrawer" aria-hidden="true" aria-labelledby="auditAiTitle">
     <header class="audit-ai-header">
-      <div><span class="audit-ai-kicker">Asistente explicativo</span><h2 id="auditAiTitle">Auditoría en contexto</h2></div>
-      <button type="button" class="audit-ai-close" id="auditAiClose" aria-label="Cerrar asistente">×</button>
+      <div><span class="audit-ai-kicker">NEXA · ANALISTA IA</span><h2 id="auditAiTitle">Auditoría en contexto</h2></div>
+      <button type="button" class="audit-ai-close" id="auditAiClose" aria-label="Cerrar Nexa">×</button>
     </header>
     <div class="audit-ai-status"><span class="{{ 'is-connected' if asistente_estado.configured else 'is-local' }}"></span>{{ asistente_estado.label }} · {{ asistente_estado.provider }} / {{ asistente_estado.model }}</div>
     <div class="audit-ai-context" id="auditAiContext">Período #{{ periodo.numero }}</div>
@@ -122,7 +122,7 @@
       <button type="button" data-ai-question="Explícalo de forma breve y sencilla.">Resumen sencillo</button>
     </div>
     <form class="audit-ai-form" id="auditAiForm">
-      <label class="sr-only" for="auditAiQuestion">Consulta para el asistente</label>
+      <label class="sr-only" for="auditAiQuestion">Consulta para Nexa</label>
       <textarea id="auditAiQuestion" maxlength="1000" rows="3" placeholder="Pregunta por la diferencia, evidencia o siguiente verificación…" required></textarea>
       <button type="submit" class="btn btn--primary btn--sm" id="auditAiSend">Consultar</button>
     </form>
@@ -197,7 +197,7 @@
     fetch(page.dataset.assistantUrl, { method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ pregunta: value, resultado_id: currentResultId || null }) })
       .then(function (response) { return response.json().then(function (data) { if (!response.ok) throw new Error(data.error || 'No se pudo consultar.'); return data; }); })
-      .then(function (data) { pending.remove(); if (sequence === requestSequence && requestedResultId === currentResultId) appendMessage('assistant', data.answer + (data.fallback ? '\n\nModo local: el proveedor externo no estaba disponible.' : '')); })
+      .then(function (data) { pending.remove(); if (sequence === requestSequence && requestedResultId === currentResultId) appendMessage('assistant', data.answer); })
       .catch(function (error) { pending.remove(); if (sequence === requestSequence) appendMessage('assistant', error.message || 'No fue posible obtener la explicación.'); })
       .finally(function () { send.disabled = false; send.textContent = 'Consultar'; question.value = ''; question.focus(); });
   }

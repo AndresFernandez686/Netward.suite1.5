@@ -14,7 +14,7 @@ from .time_utils import get_app_timezone, now_local
 
 # ── Constantes ──────────────────────────────────────────────────────────────
 CLAVE_AUTOCLOSE = "autoclose_horas"
-DEFAULT_AUTOCLOSE_HORAS = 0          # por defecto, cierra al llegar fecha_hasta
+DEFAULT_AUTOCLOSE_HORAS = 0          # cierra al terminar por completo fecha_hasta
 ESTADOS_ACTIVOS = ("Abierto", "Pendiente", "Cargado", "Sincronizado")
 
 
@@ -53,9 +53,11 @@ def actualizar_estados_periodos(
     for p in periodos:
         horas = _horas_autoclose(p.cliente_id)
         try:
+            # ``fecha_hasta`` es inclusiva: un período 20 -> 21 debe seguir
+            # disponible durante todo el día 21 y cerrar al comenzar el 22.
             limite = datetime.fromisoformat(p.fecha_hasta).replace(
                 tzinfo=get_app_timezone()
-            ) + timedelta(hours=horas)
+            ) + timedelta(days=1, hours=horas)
         except ValueError:
             continue
 

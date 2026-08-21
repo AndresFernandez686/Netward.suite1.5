@@ -113,6 +113,7 @@ class PruebasFallosParciales(unittest.TestCase):
         )
         self.assertEqual(guardados, 1)
         self.assertEqual(InventarioItem.query.filter_by(sinc_estado="pendiente").count(), 1)
+        conteos_antes_del_envio = ConteoDetalle.query.count()
 
         with self.assertRaises(ConnectionError):
             sincronizar_transaccional(
@@ -123,7 +124,9 @@ class PruebasFallosParciales(unittest.TestCase):
                 periodo=periodo,
                 antes_commit=cortar_red,
             )
-        self.assertEqual(ConteoDetalle.query.count(), 0)
+        # Guardar inventario ya deja el conteo local válido. El rollback de la
+        # sincronización debe conservar ese estado previo, sin duplicarlo.
+        self.assertEqual(ConteoDetalle.query.count(), conteos_antes_del_envio)
         self.assertEqual(InventarioItem.query.filter_by(sinc_estado="pendiente").count(), 1)
 
         resumen = sincronizar_transaccional(

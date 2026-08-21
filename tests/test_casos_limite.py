@@ -11,6 +11,7 @@ from core.models import (
     InventarioItem,
     InventarioPeriodo,
     Producto,
+    ProductoPrecio,
     db,
 )
 
@@ -95,7 +96,6 @@ class PruebasCasosLimite(unittest.TestCase):
             excel_id=excel.id,
             articulo="LIMIT-1",
             artdescrip=producto.nombre,
-            artcosto=costo,
             stockinicial=stock,
             stockfinal=stock,
             producto_nombre_interno=producto.nombre if vinculado else None,
@@ -104,6 +104,14 @@ class PruebasCasosLimite(unittest.TestCase):
             excluido_auditoria=False,
         )
         db.session.add(detalle)
+        if costo is not None:
+            db.session.add(ProductoPrecio(
+                cliente_id=CLIENTE,
+                producto_id=producto.id,
+                producto_nombre=producto.nombre,
+                categoria=producto.categoria,
+                precio=costo,
+            ))
         db.session.flush()
         return excel
 

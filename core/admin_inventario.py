@@ -9,6 +9,7 @@ from typing import Dict, Iterable, List
 
 from flask import url_for
 
+from core.catalogo import identidad_producto
 from core.models import (ConteoDetalle, InventarioItem, InventarioPeriodo, Producto,
                          ProductoPrecio, RegistroVencimiento, StockThreshold)
 from core.seed_data import CATEGORIAS, stock_status
@@ -37,7 +38,7 @@ def _productos_por_categoria() -> Dict[str, List[str]]:
     return result
 
 
-PERIODOS_CON_CARGA = ("Cargado", "Cerrado", "Excel Importado", "Conciliado", "Auditado")
+PERIODOS_CON_CARGA = ("Cargado", "Cerrado", "Conciliado", "Auditado")
 
 
 def _ultimos_periodos_cargados(cliente_id: str, tienda_id: str) -> dict[str, InventarioPeriodo]:
@@ -127,6 +128,10 @@ def build_admin_inventory_context(
     }
     precios = _precios_lookup()
     inventario_map = _inventario_agregado(tienda_id, cliente_id)
+    inventario_por_identidad = {
+        identidad_producto(nombre): item
+        for (_categoria, nombre), item in inventario_map.items()
+    }
     productos_db = _productos_por_categoria()
 
     productos_totales = 0
@@ -146,6 +151,10 @@ def build_admin_inventory_context(
 
         for producto in productos_categoria:
             item = inventario_map.get((categoria, producto))
+            if item is None:
+                # Una carga histórica conserva el nombre que tenía el producto
+                # en ese momento. La vista debe poder asociarla al nombre actual.
+                item = inventario_por_identidad.get(identidad_producto(producto))
             cantidad = item["cantidad"] if item else 0
             modo = item["ume"] if item else "N/A"
             nivel, etiqueta = stock_status(producto, cantidad, thresholds)

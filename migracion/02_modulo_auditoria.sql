@@ -76,7 +76,6 @@ CREATE TABLE IF NOT EXISTS excel_detalles (
     excel_id                INTEGER      NOT NULL REFERENCES excel_importados(id) ON DELETE CASCADE,
     articulo                VARCHAR(40)  NOT NULL,
     artdescrip              VARCHAR(255) NOT NULL DEFAULT '',
-    artcosto                DOUBLE PRECISION,
     stockinicial            DOUBLE PRECISION NOT NULL DEFAULT 0,
     compras                 DOUBLE PRECISION NOT NULL DEFAULT 0,
     otrosingresos           DOUBLE PRECISION NOT NULL DEFAULT 0,

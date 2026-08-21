@@ -33,7 +33,7 @@ las columnas, y que un nombre parecido no vincule productos incorrectos.
 - `stockfinal`
 - `ventareal`
 
-`artcosto`, `ventateorica` y `diferencia` se extraen cuando existen, pero no se
+`ventateorica` y `diferencia` se extraen cuando existen, pero no se
 exigen porque el costo puede estar ausente y los dos últimos valores son
 recalculables.
 

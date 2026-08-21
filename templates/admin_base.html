@@ -49,6 +49,7 @@
         </a>
         <a href="{{ url_for('desc.admin_desc') }}" class="nav__link {{ 'is-active' if request.endpoint and request.endpoint.startswith('desc.') }}">
           <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Excel oficial
+          <span id="catalog-sync-nav-badge" class="nav__badge" {{ 'hidden' if notif_sincronizacion == 0 else '' }}>{{ notif_sincronizacion }}</span>
         </a>
         <a href="{{ url_for('admin_periodos') }}" class="nav__link {{ 'is-active' if request.endpoint and 'periodo' in (request.endpoint or '') or 'auditoria' in (request.endpoint or '') }}">
           <span class="nav__icon">{% include 'icons/chart.svg' %}</span> Auditoría

@@ -160,6 +160,10 @@ class PruebasReporteGerencial(unittest.TestCase):
             self.reporte["causa_dominante"],
             {"nombre": "Error de conteo", "importe": 400, "cantidad": 2},
         )
+        self.assertEqual(
+            [causa for causa, _datos in self.reporte["por_causa_ordenado"]],
+            ["Error de conteo", "Merma o averiado"],
+        )
 
     def test_productos_criticos(self):
         self.assertEqual(

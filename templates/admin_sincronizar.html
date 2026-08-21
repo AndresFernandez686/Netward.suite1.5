@@ -1,7 +1,7 @@
 {% extends 'admin_base.html' %}
 {% block title %}Sincronizar Catalogo - {{ app_nombre }}{% endblock %}
-{% block heading %}Sincronizar nombres con Excel{% endblock %}
-{% block subheading %}Renombra los productos del sistema para que coincidan con el Excel{% endblock %}
+{% block heading %}Sincronizar catálogo con Excel{% endblock %}
+{% block subheading %}Aplica renombres, publica productos nuevos y vincula los datos extraídos{% endblock %}
 
 {% block content %}
 <section class="card card--skip-collapse">
@@ -16,8 +16,8 @@
     <table class="table">
       <thead>
         <tr>
-          <th>Nombre actual (sistema)</th>
-          <th>Nombre nuevo (Excel)</th>
+          <th>Producto del sistema</th>
+          <th>Cambio solicitado</th>
           <th>Accion</th>
         </tr>
       </thead>
@@ -33,6 +33,10 @@
               <span class="badge" style="background:#fef9c3;color:#92400e;">Duplicado → Eliminar viejo</span>
             {% elif item.accion == 'no_existe' %}
               <span class="badge badge--neutral">Sin existir en sistema</span>
+            {% elif item.accion == 'sin_cambios' %}
+              <span class="badge badge--green">Sincronizado</span>
+            {% elif item.accion == 'nuevo_producto' %}
+              <span class="badge badge--blue">Nuevo producto</span>
             {% endif %}
           </td>
         </tr>
@@ -41,15 +45,27 @@
     </table>
   </div>
 
-  {% set total_cambios = plan | selectattr('accion', 'in', ['renombrar', 'eliminar_duplicado']) | list | length %}
+  {% set total_cambios = plan | selectattr('accion', 'in', ['renombrar', 'eliminar_duplicado', 'nuevo_producto']) | list | length %}
+  {% set cambios_detectados = total_cambios + pendientes_revinculables %}
+  {% if cambios_detectados > 0 %}
+  <div class="banner banner--info" style="margin-bottom:12px;"><div>
+    Se detectaron {{ total_cambios }} cambio(s) de catálogo y {{ pendientes_revinculables }} fila(s) del Excel listas para vincular.
+  </div></div>
+  {% elif pendientes_sin_producto > 0 %}
+  <div class="banner banner--success" style="margin-bottom:12px;"><div>
+    El catálogo ya está sincronizado. {{ pendientes_sin_producto }} fila(s) sin producto coincidente se descartarán automáticamente.
+  </div></div>
+  {% else %}
+  <div class="banner banner--success" style="margin-bottom:12px;"><div>El catálogo ya está sincronizado.</div></div>
+  {% endif %}
+  <div style="display:flex;gap:10px;align-items:center;">
     <form method="post" action="{{ url_for('desc.desc_sincronizar') }}"
-      {% if total_cambios > 0 %}data-confirm-message="Se aplicaran {{ total_cambios }} cambios en el catalogo y se reintentaran las filas pendientes del Excel. Continuar?"{% endif %}>
-    <button type="submit" class="btn btn--primary">
-      {{ 'Aplicar ' ~ total_cambios ~ ' cambio(s) y revincular Excel' if total_cambios > 0 else 'Reintentar vinculaciones pendientes' }}
-    </button>
-    <a href="{{ url_for('desc.admin_desc') }}" class="btn btn--ghost" style="margin-left:8px;">
-      Cancelar
-    </a>
-  </form>
+      {% if cambios_detectados > 0 %}data-confirm-message="Se aplicaran {{ cambios_detectados }} cambio(s) y se actualizaran las filas pendientes del Excel. Continuar?"{% endif %}>
+      <button type="submit" class="btn btn--primary" {{ 'disabled' if cambios_detectados == 0 else '' }}>
+        Aplicar cambios{% if cambios_detectados > 0 %} ({{ cambios_detectados }}){% endif %}
+      </button>
+    </form>
+    <a href="{{ url_for('desc.admin_desc') }}" class="btn btn--ghost">Volver atrás</a>
+  </div>
 </section>
 {% endblock %}

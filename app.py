@@ -33,15 +33,13 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     NotificacionUsuario, AsistenteIAConsulta)
 from core.auditoria import (ejecutar_auditoria, build_reporte_gerencial,
                             marcar_resultado_revisado)
-from core.excel_importer import (
-    importar_excel_transaccional, revincular_detalles_pendientes,
-)
+from core.excel_importer import importar_excel_transaccional
 from core.sync_bridge import (propagar_conteo_a_periodo, retroalimentar_periodo_desde_items,
                               sincronizar_transaccional)
 from core.scheduler import (job_autoclose_periodos, actualizar_estados_periodos,
                             get_autoclose_horas, set_autoclose_horas)
 from core.catalogo import (get_productos_db as catalogo_get_productos_db,
-                           activar_catalogo_pendiente_empleado,
+                           catalogo_pendiente_usuario,
                            resolver_producto_id, backfill_producto_ids)
 from core.seed_data import (PRODUCTOS_BASE, CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME,
                        ESTADOS_BALDE, CLIENTES_DEFAULT, TIENDAS_DEFAULT, USUARIOS_DEFAULT,
@@ -348,8 +346,12 @@ def ensure_multitenant_schema():
                                    "password_hash VARCHAR(256)", "password_hash")
             _add_column_if_missing(conn, "usuarios",
                            "ultimo_periodo_notificado_id INTEGER NOT NULL DEFAULT 0", "ultimo_periodo_notificado_id")
+            _add_column_if_missing(conn, "usuarios",
+                           "catalogo_version_recibida INTEGER NOT NULL DEFAULT 0", "catalogo_version_recibida")
             _add_column_if_missing(conn, "productos",
                            "visible_empleado BOOLEAN NOT NULL DEFAULT 1", "visible_empleado")
+            _add_column_if_missing(conn, "productos",
+                           "catalogo_version INTEGER NOT NULL DEFAULT 0", "catalogo_version")
             _add_column_if_missing(conn, "delivery_ventas",
                                    "periodo_id INTEGER", "periodo_id")
             _add_column_if_missing(conn, "delivery_ventas",
@@ -357,6 +359,7 @@ def ensure_multitenant_schema():
 
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tiendas_cliente_id ON tiendas(cliente_id)")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_productos_catalogo_version ON productos(catalogo_version)")
 
             # Nuevas tablas del módulo de auditoría (creadas por SQLAlchemy en init_db,
             # aquí solo migramos columnas faltantes si la tabla ya existía)
@@ -483,6 +486,19 @@ def init_db():
             db.session.add(DeliveryProducto(nombre=d["nombre"], precio=d["precio"],
                                             es_promocion=d["es_promocion"], activo=d["activo"]))
 
+    # Versiones anteriores usaban "Excel Importado" como estado operativo.
+    # Importar el archivo es un dato asociado, no una transición del período.
+    # Reparamos esos registros para que vuelvan a ser visibles al empleado.
+    for periodo in InventarioPeriodo.query.filter_by(estado="Excel Importado").all():
+        tiene_auditoria = AuditoriaResultado.query.filter_by(
+            periodo_id=periodo.id
+        ).first() is not None
+        tiene_carga = ConteoDetalle.query.filter_by(
+            periodo_id=periodo.id,
+            fue_cargado=True,
+        ).first() is not None
+        periodo.estado = "Auditado" if tiene_auditoria else ("Cargado" if tiene_carga else "Abierto")
+
     db.session.commit()
     # Rellena producto_id FK donde falte (silencioso si no hay registros)
     backfill_producto_ids()
@@ -527,7 +543,10 @@ def inject_globals():
         "notif_averiados": 0,
         "notif_vencimientos": 0,
         "notif_admin_unread": 0,
+        "notif_sincronizacion": 0,
         "sync_pendientes": 0,
+        "notif_catalogo_pendiente": False,
+        "notif_catalogo_cambios": 0,
         "notif_periodo_abierto": 0,
         "notif_empleado_unread": 0,
     }
@@ -548,6 +567,9 @@ def inject_globals():
             ctx["sync_ultima_recepcion"]  = _last("recepcion")
             ctx["sync_pendientes"] = InventarioItem.query.filter_by(
                 cliente_id=cliente_id, tienda_id=t, sinc_estado="pendiente").count()
+            catalogo_pendiente, catalogo_cambios = catalogo_pendiente_usuario(cliente_id, u)
+            ctx["notif_catalogo_pendiente"] = catalogo_pendiente
+            ctx["notif_catalogo_cambios"] = catalogo_cambios
             usuario = Usuario.query.filter_by(cliente_id=cliente_id, username=u).first()
             periodo_reciente = _periodo_abierto_mas_reciente(cliente_id, t)
             if usuario and periodo_reciente and periodo_reciente.id > int(usuario.ultimo_periodo_notificado_id or 0):
@@ -578,9 +600,15 @@ def inject_globals():
                 username=session.get("usuario"),
                 leida=False,
             ).count()
+            from core.inventario import estado_sincronizacion_catalogo
+            ctx["notif_sincronizacion"] = estado_sincronizacion_catalogo(
+                cliente_id,
+                detallado=True,
+            )["total"]
         except Exception:
             ctx["notif_averiados"]    = 0
             ctx["notif_vencimientos"] = 0
+            ctx["notif_sincronizacion"] = 0
         try:
             ctx["tiendas_topbar"] = Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()
         except Exception:
@@ -713,10 +741,16 @@ def _safe_inv_tab(tab_value):
     return tab_value if tab_value in CATEGORIAS else CATEGORIAS[0]
 
 
-def _redirect_inventario_context(default_anchor="sec-carga"):
+def _redirect_inventario_context(default_anchor="sec-carga", *, allow_pending=True):
     active_tab = _safe_inv_tab(request.form.get("active_tab"))
     anchor = (request.form.get("anchor") or default_anchor).strip() or default_anchor
     periodo_id = request.form.get("periodo_id", type=int) or session.get("empleado_periodo_id")
+    if allow_pending and request.form.get("return_to") == "productos_no_cargados":
+        return redirect(url_for(
+            "empleado_productos_no_cargados",
+            periodo_id=periodo_id,
+            tab=active_tab,
+        ))
     return redirect(
         url_for("empleado_periodo_abierto", tab=active_tab, periodo_id=periodo_id)
         + f"#{anchor}"
@@ -822,6 +856,53 @@ def empleado_periodo_abierto():
         periodo_activo=periodo_activo,
         periodos_abiertos=periodos_abiertos,
         borrador_recuperado=borrador_recuperado,
+    )
+
+
+@app.route("/empleado/periodo-abierto/productos-no-cargados")
+@login_required(rol="empleado")
+def empleado_productos_no_cargados():
+    cliente_id = get_cliente_filtro()
+    tienda_id = session["tienda_id"]
+    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
+    if periodo_activo is None:
+        flash("No hay un período abierto disponible para cargar productos.", "warning")
+        return redirect(url_for("empleado_periodo_abierto"))
+
+    carrito = get_carrito(periodo_activo.id)
+    cargas_periodo = empleado_service.listar_cargas_periodo(
+        cliente_id=cliente_id,
+        tienda_id=tienda_id,
+        periodo_id=periodo_activo.id,
+    )
+    productos_cargados = empleado_service.combinar_cargas_para_vista(
+        carrito=carrito,
+        cargas_periodo=cargas_periodo,
+        usuario=session.get("usuario") or "",
+    )
+    contexto = empleado_service.build_empleado_inventario_context(
+        active_tab=request.args.get("tab") or CATEGORIAS[0],
+        carrito=carrito,
+        hoy=today_local_iso(),
+        productos_cargados=productos_cargados,
+        conflicto_carga=None,
+    )
+    pendientes_todos = contexto["productos_no_cargados"]
+    contexto["pendientes_por_categoria"] = {
+        categoria: sum(
+            1 for item in pendientes_todos if item["categoria"] == categoria
+        )
+        for categoria in CATEGORIAS
+    }
+    contexto["productos_no_cargados"] = [
+        item for item in pendientes_todos
+        if item["categoria"] == contexto["active_tab"]
+    ]
+    contexto["hide_global_flash"] = False
+    return render_template(
+        "empleado_productos_no_cargados.html",
+        **contexto,
+        periodo_activo=periodo_activo,
     )
 
 
@@ -943,7 +1024,7 @@ def carrito_agregar():
 
     categoria = request.form.get("categoria")
     producto = (request.form.get("producto") or "").strip()
-    cantidad = request.form.get("cantidad", type=float) or 0
+    cantidad_texto = (request.form.get("cantidad") or "").strip()
     ume = request.form.get("ume", "Unidad")
     tipo_inventario = request.form.get("tipo_inventario", "Diario")
     if tipo_inventario not in TIPOS_INVENTARIO:
@@ -956,8 +1037,16 @@ def carrito_agregar():
         flash("Selecciona un producto antes de agregar.", "warning")
         return _redirect_inventario_context("sec-carga")
 
-    if cantidad <= 0:
-        flash("Ingresa una cantidad valida.", "warning")
+    if cantidad_texto == "":
+        flash("Ingresa una cantidad antes de agregar.", "warning")
+        return _redirect_inventario_context("sec-carga")
+    try:
+        cantidad = float(cantidad_texto)
+    except ValueError:
+        flash("Ingresa una cantidad válida.", "warning")
+        return _redirect_inventario_context("sec-carga")
+    if cantidad < 0:
+        flash("La cantidad no puede ser negativa.", "warning")
         return _redirect_inventario_context("sec-carga")
 
     confirmar = request.form.get("confirmar_sobreescritura") == "1"
@@ -990,7 +1079,7 @@ def carrito_agregar():
                 "detalle": detalle,
             }
             session.modified = True
-            return _redirect_inventario_context("sec-carga")
+            return _redirect_inventario_context("sec-carga", allow_pending=False)
         if carga_actual.get("origen") == "borrador":
             retirado = empleado_service.retirar_producto_de_otros_borradores(
                 cliente_id=cliente_id,
@@ -1422,7 +1511,9 @@ def empleado_sincronizar():
         cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, sinc_estado="pendiente"
     ).count()
     pendientes = pend_inv + pend_aver + pend_venc
-    if pendientes == 0:
+    catalogo_pendiente, _ = catalogo_pendiente_usuario(cliente_id, usuario)
+    recibe_catalogo = accion == "enviar_recibir" and catalogo_pendiente
+    if pendientes == 0 and not recibe_catalogo:
         flash("No hay datos pendientes de sincronización.", "warning")
         return redirect(url_for("empleado_sincronizar_page"))
 
@@ -1460,7 +1551,7 @@ def empleado_sincronizar():
         flash((
             f"Sincronización completada: {resumen['n_total']} registro(s) enviado(s) "
             f"(Inventario: {resumen['n_inv']}, Averiados: {resumen['n_aver']}, Vencimientos: {resumen['n_venc']}) "
-            f"y catálogo actualizado ({resumen['catalogo_actualizado']} producto(s))."
+            "y catálogo consultado. Los productos nuevos se publican desde Excel oficial."
         ), "success")
     else:
         flash(
@@ -2189,13 +2280,13 @@ def producto_crear():
         return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
     db.session.add(Producto(nombre=nombre, categoria=categoria, visible_empleado=False,
                             codigo_articulo=(request.form.get("codigo_articulo") or "").strip() or None))
-    db.session.flush()
-    revinculados = revincular_detalles_pendientes(get_cliente_filtro())
     db.session.commit()
-    mensaje = f"Producto '{nombre}' agregado a {categoria}."
-    if revinculados:
-        mensaje += f" {revinculados} fila(s) pendiente(s) del Excel fueron vinculadas."
-    _set_admin_config_notice("productos", mensaje, "success", active_tab)
+    _set_admin_config_notice(
+        "productos",
+        f"Producto '{nombre}' agregado a {categoria}. Aplica la sincronización para vincularlo con el Excel.",
+        "success",
+        active_tab,
+    )
     return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
 
 
@@ -2762,11 +2853,29 @@ def admin_auditoria_ejecutar(periodo_id):
     if not periodo or periodo.cliente_id != cliente_id:
         abort(404)
 
+    if periodo.estado not in ("Cerrado", "Conciliado", "Auditado"):
+        flash(
+            "Primero debes cerrar el período. Importar el Excel no cierra la carga de los empleados.",
+            "warning",
+        )
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
     # Bloquear si hay productos sin vincular (a menos que se fuerce)
     forzar = request.form.get("forzar")
     excel_imp = (ExcelImportado.query.filter_by(periodo_id=periodo_id)
                  .order_by(ExcelImportado.id.desc()).first())
+    if excel_imp:
+        # Las filas confirmadas como "sin producto" no son cambios aplicables
+        # del catálogo y deben quedar fuera de Auditoría, tal como informa la
+        # pantalla de sincronización. Esto también corrige importaciones hechas
+        # antes de que existiera el descarte automático.
+        from core.excel_importer import descartar_detalles_sin_producto
+        descartados = descartar_detalles_sin_producto(excel_imp.id)
+        if descartados:
+            db.session.flush()
     if excel_imp and excel_imp.estado_validacion == "pendiente_vinculacion" and not forzar:
+        if descartados:
+            db.session.commit()
         flash(
             f"{excel_imp.productos_nuevos} producto(s) del Excel sin vincular. "
             f"Vinculálos primero o usá \"Forzar\" para ejecutar auditoría incompleta.",
@@ -2842,7 +2951,7 @@ def admin_auditoria(periodo_id):
 @app.route("/admin/periodos/<int:periodo_id>/asistente/consultar", methods=["POST"])
 @login_required(rol="administrador")
 def admin_asistente_consultar(periodo_id):
-    """Explica resultados existentes sin permitir que la IA los modifique."""
+    """Nexa explica resultados existentes sin permitir que la IA los modifique."""
     cliente_id = get_cliente_filtro()
     periodo = db.session.get(InventarioPeriodo, periodo_id)
     if not periodo or periodo.cliente_id != cliente_id:
@@ -2851,7 +2960,7 @@ def admin_asistente_consultar(periodo_id):
     payload = request.get_json(silent=True) or {}
     pregunta = str(payload.get("pregunta") or "").strip()
     if not pregunta:
-        return jsonify(ok=False, error="Escribe una consulta para el asistente."), 400
+        return jsonify(ok=False, error="Escribe una consulta para Nexa."), 400
     if len(pregunta) > 1000:
         return jsonify(ok=False, error="La consulta no puede superar 1000 caracteres."), 400
 
@@ -2884,15 +2993,24 @@ def admin_asistente_consultar(periodo_id):
         usuario=session["usuario"],
         tipo="producto" if resultado is not None else "periodo",
         pregunta=pregunta,
-        respuesta=respuesta["answer"],
+        respuesta=respuesta["answer"] or respuesta["error"],
         proveedor=respuesta["provider"],
         modelo=respuesta["model"],
         contexto_json=_json.dumps(contexto, ensure_ascii=False),
-        estado="fallback" if respuesta["fallback"] else "ok",
+        estado=("fallback" if respuesta["fallback"] else
+                ("ok" if respuesta["ok"] else "error")),
         error=respuesta["error"],
     )
     db.session.add(consulta)
     db.session.commit()
+    if not respuesta["ok"]:
+        return jsonify(
+            ok=False,
+            error=respuesta["error"],
+            provider=respuesta["provider"],
+            model=respuesta["model"],
+            consultation_id=consulta.id,
+        ), 503
     return jsonify(
         ok=True,
         answer=respuesta["answer"],
@@ -3234,22 +3352,30 @@ with app.app_context():
     init_db()
 
 # ── APScheduler: cierre automático de períodos ────────────────────────────────
-try:
-    from apscheduler.schedulers.background import BackgroundScheduler
-    _scheduler = BackgroundScheduler(daemon=True)
-    _scheduler.add_job(
-        func=job_autoclose_periodos,
-        args=[app],
-        trigger="interval",
-        minutes=30,
-        id="autoclose_periodos",
-        replace_existing=True,
-        misfire_grace_time=120,
-    )
-    _scheduler.start()
-except Exception as _e:
-    import logging
-    logging.getLogger(__name__).warning("APScheduler no pudo iniciarse: %s", _e)
+# Werkzeug importa la aplicación una vez en el supervisor y otra en el proceso
+# que atiende peticiones. Iniciar el scheduler en ambos deja una copia antigua
+# viva después de cada recarga y puede ejecutar reglas de cierre desactualizadas.
+_modo_desarrollo = os.getenv("FLASK_ENV", "development").lower() == "development"
+_es_proceso_reloader = os.environ.get("WERKZEUG_RUN_MAIN", "").lower() == "true"
+_debe_iniciar_scheduler = not _modo_desarrollo or _es_proceso_reloader
+_scheduler = None
+if _debe_iniciar_scheduler:
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        _scheduler = BackgroundScheduler(daemon=True)
+        _scheduler.add_job(
+            func=job_autoclose_periodos,
+            args=[app],
+            trigger="interval",
+            minutes=30,
+            id="autoclose_periodos",
+            replace_existing=True,
+            misfire_grace_time=120,
+        )
+        _scheduler.start()
+    except Exception as _e:
+        import logging
+        logging.getLogger(__name__).warning("APScheduler no pudo iniciarse: %s", _e)
 
 
 if __name__ == "__main__":

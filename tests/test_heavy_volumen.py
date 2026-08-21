@@ -246,7 +246,6 @@ class PruebasHeavyVolumen(unittest.TestCase):
                     "excel_id": excel.id,
                     "articulo": f"H-{i:04d}",
                     "artdescrip": nombre,
-                    "artcosto": 1000,
                     "stockinicial": 100,
                     "compras": compras_por_periodo[indice - 1],
                     "otrosingresos": 0,

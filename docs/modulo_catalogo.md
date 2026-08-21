@@ -24,6 +24,14 @@
 ```
 Admin crea producto (productos)
    ↓
+Producto queda pendiente (`visible_empleado=False`) y aparece en Excel oficial
+   ↓
+Admin pulsa **Aplicar cambios** para publicarlo
+   ↓
+Cada empleado ve **Sincronización pendiente**
+   ↓
+El producto permanece oculto hasta usar **Enviar y Recibir**
+   ↓
 Admin carga precio + conversiones (producto_precios)
    ↓
 Empleado ve solo productos con visible_empleado=True
@@ -32,11 +40,16 @@ Sistema convierte Caja/Bulto usando unidades_por_caja / unidades_por_bulto
 ```
 
 ## Módulo backend
-- `core/catalogo.py` — `get_productos_db(include_hidden)`, `activar_catalogo_pendiente_empleado()`
+- `core/catalogo.py` — consulta, versionado y recepción individual del catálogo
 - `core/admin_inventario.py` — `_productos_por_categoria()`, `_precios_lookup()`
 - `core/empleado.py` — `convertir_ume()` usa `ProductoPrecio`
 
 ## Notas
 - Ocultar un producto (`visible_empleado=False`) no borra su historial
+- Todos los productos nuevos se publican manualmente desde el plan de sincronización;
+  la sincronización del empleado no los activa silenciosamente.
+- La recepción se controla por `productos.catalogo_version` y
+  `usuarios.catalogo_version_recibida`, por lo que cada empleado confirma los cambios
+  de manera independiente.
 - La conversión de Caja/Bulto requiere que exista un registro en `producto_precios`
 - Si no hay precio cargado, el sistema funciona pero no calcula valor monetario

@@ -50,7 +50,7 @@ def _periodos_anteriores(periodo: InventarioPeriodo, n: int = 4) -> list[Inventa
     return (
         InventarioPeriodo.query
         .filter_by(cliente_id=periodo.cliente_id, tienda_id=periodo.tienda_id)
-        .filter(InventarioPeriodo.estado.in_(["Cerrado", "Excel Importado", "Conciliado", "Auditado"]))
+        .filter(InventarioPeriodo.estado.in_(["Cerrado", "Conciliado", "Auditado"]))
         .filter(InventarioPeriodo.id < periodo.id)
         .order_by(InventarioPeriodo.id.desc())
         .limit(n)
@@ -204,15 +204,18 @@ def _compensacion_conteo(periodo: InventarioPeriodo, producto_nombre: str,
     return False, "", 0.0
 
 
-def _precio_unitario(producto_nombre: str, excel_row: Optional[ExcelDetalle]) -> tuple[Optional[float], str]:
-    """Devuelve (costo_unitario, fuente_costo). Fuente: 'Excel oficial' | 'Precio interno' | 'Sin costo'."""
-    if excel_row and excel_row.artcosto:
-        return float(excel_row.artcosto), "Excel oficial"
+def _precio_unitario(
+    producto_nombre: str,
+    producto_id: Optional[int] = None,
+) -> tuple[Optional[float], str]:
+    """Devuelve el precio unitario interno; el Excel no es fuente económica."""
     # Buscar por producto_id primero (estable), luego por nombre como fallback
     from .models import Producto
-    p = (Producto.query
-         .filter(db.func.lower(Producto.nombre) == _norm(producto_nombre))
-         .first())
+    p = db.session.get(Producto, producto_id) if producto_id else None
+    if p is None:
+        p = (Producto.query
+             .filter(db.func.lower(Producto.nombre) == _norm(producto_nombre))
+             .first())
     if p:
         pp = ProductoPrecio.query.filter_by(producto_id=p.id).first()
     else:
@@ -395,7 +398,10 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             tipo_diferencia = "sobrante"
 
         # 6. Costo y fuente
-        costo_unit, fuente_costo = _precio_unitario(nombre, excel_data)
+        costo_unit, fuente_costo = _precio_unitario(
+            nombre,
+            excel_data.producto_id if excel_data else None,
+        )
         impacto = abs(diferencia) * costo_unit if costo_unit and diferencia != 0 else 0.0
 
         # 7. Promedio compras histórico
@@ -706,6 +712,11 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
             por_causa[c] = {"cantidad": 0, "importe": 0.0}
         por_causa[c]["cantidad"] += 1
         por_causa[c]["importe"] += r.impacto
+    por_causa_ordenado = sorted(
+        por_causa.items(),
+        key=lambda item: item[1]["importe"],
+        reverse=True,
+    )
 
     alertas_criticas = [r for r in resultados if r.severidad == "Crítico"]
     cargas = (
@@ -774,6 +785,7 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
         "faltantes": resultados,
         "total_perdida": total_perdida,
         "por_causa": por_causa,
+        "por_causa_ordenado": por_causa_ordenado,
         "causa_dominante": causa_dominante,
         "alertas_criticas": alertas_criticas,
         "cargas": cargas,

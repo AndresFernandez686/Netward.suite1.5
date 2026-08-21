@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
     password_hash VARCHAR(256),
     cliente_id    VARCHAR(10)  NOT NULL DEFAULT 'C001' REFERENCES clientes(id),
     rol           VARCHAR(20)  NOT NULL,               -- empleado | administrador
-    tienda_id     VARCHAR(10)                          -- ALL para administradores
+    tienda_id     VARCHAR(10),                         -- ALL para administradores
+    catalogo_version_recibida INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id);
 
@@ -51,8 +52,10 @@ CREATE TABLE IF NOT EXISTS productos (
     nombre           VARCHAR(160) NOT NULL,
     categoria        VARCHAR(40)  NOT NULL,            -- Impulsivo | Por Kilos | Extras
     visible_empleado BOOLEAN      NOT NULL DEFAULT TRUE,
+    catalogo_version INTEGER      NOT NULL DEFAULT 0,
     CONSTRAINT uq_producto_categoria UNIQUE (nombre, categoria)
 );
+CREATE INDEX IF NOT EXISTS ix_productos_catalogo_version ON productos(catalogo_version);
 
 -- =============================================================================
 -- INVENTARIO OPERATIVO
@@ -312,7 +315,6 @@ CREATE TABLE IF NOT EXISTS excel_detalles (
     excel_id                INTEGER      NOT NULL REFERENCES excel_importados(id) ON DELETE CASCADE,
     articulo                VARCHAR(40)  NOT NULL,
     artdescrip              VARCHAR(255) NOT NULL DEFAULT '',
-    artcosto                DOUBLE PRECISION,
     stockinicial            DOUBLE PRECISION NOT NULL DEFAULT 0,
     compras                 DOUBLE PRECISION NOT NULL DEFAULT 0,
     otrosingresos           DOUBLE PRECISION NOT NULL DEFAULT 0,

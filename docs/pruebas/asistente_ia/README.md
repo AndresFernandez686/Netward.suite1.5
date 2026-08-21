@@ -1,6 +1,6 @@
-# Pruebas del asistente explicativo
+# Pruebas de Nexa
 
-1. [Explicación local sin API](01-fallback-local.md)
+1. [Bot local deshabilitado sin API](01-fallback-local.md)
 2. [Aislamiento por empresa y tienda](02-aislamiento-contexto.md)
 3. [Resumen del período](03-resumen-periodo.md)
 4. [Contrato OpenAI Responses](04-openai-responses.md)

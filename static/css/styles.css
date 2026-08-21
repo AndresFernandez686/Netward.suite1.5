@@ -452,6 +452,160 @@ small { font-size: .78rem; }
 
 .inv-form__grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1.4fr; gap: 14px; align-items: end; overflow: visible; }
 .inv-form__action { align-self: end; }
+
+.inv-form input[name="cantidad"]::placeholder,
+.inv-form input[name="cantidad_baldes"]::placeholder {
+  color: #cbd5e1;
+  opacity: 1;
+}
+
+.pending-products {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pending-products__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pending-products__head .panel__title,
+.pending-products__head p {
+  margin-bottom: 0;
+}
+
+.badge--warning {
+  background: #fef3c7;
+  color: #a16207;
+}
+
+.pending-products__search {
+  max-width: 520px;
+}
+
+.pending-products__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(390px, 1fr));
+  gap: 12px;
+}
+
+.pending-product-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 90px 120px auto;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.pending-product-form__identity {
+  min-width: 0;
+  align-self: center;
+}
+
+.pending-product-form__identity strong {
+  display: block;
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+
+.pending-product-form .btn {
+  min-height: 42px;
+}
+
+.pending-product-form input[name="cantidad"]::placeholder {
+  color: #cbd5e1;
+  opacity: 1;
+}
+
+.pending-product-form[hidden],
+.pending-products__empty[hidden] {
+  display: none;
+}
+
+.pending-products-link,
+.pending-page-summary,
+.pending-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.pending-products-link > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pending-page-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.pending-category-tabs .tab {
+  text-decoration: none;
+}
+
+.pending-tab-count {
+  display: inline-flex;
+  min-width: 20px;
+  justify-content: center;
+  margin-left: 5px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: .7rem;
+}
+
+.pending-page-summary .panel__title,
+.pending-page-summary p {
+  margin-bottom: 0;
+}
+
+.pending-direct-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pending-direct-form {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1.4fr;
+  gap: 14px;
+  align-items: end;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.pending-direct-form:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.pending-product-static {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fafc;
+  color: var(--ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pending-direct-form input[name="cantidad"]::placeholder {
+  color: #cbd5e1;
+  opacity: 1;
+}
 /* El campo combo dentro del grid debe sobresalir por encima del resto */
 .inv-form__grid .field.combo { position: relative; z-index: 50; overflow: visible; }
 
@@ -710,6 +864,19 @@ small { font-size: .78rem; }
 
   /* Formularios — 1 columna */
   .inv-form__grid  { grid-template-columns: 1fr !important; gap: 10px; }
+  .pending-products__head { align-items: stretch; flex-direction: column; }
+  .pending-products__head .badge { align-self: flex-start; }
+  .pending-products__search { max-width: none; }
+  .pending-products__grid { grid-template-columns: 1fr; }
+  .pending-product-form { grid-template-columns: 1fr 1fr; }
+  .pending-product-form__identity { grid-column: 1 / -1; }
+  .pending-product-form .btn { width: 100%; grid-column: 1 / -1; }
+  .pending-products-link,
+  .pending-page-summary { align-items: stretch; flex-direction: column; }
+  .pending-products-link .btn { width: 100%; }
+  .pending-page-summary .badge { align-self: flex-start; }
+  .pending-direct-form { grid-template-columns: 1fr; }
+  .pending-direct-form .btn { width: 100%; }
   .form-row        { flex-direction: column; }
   .form-row .field { width: 100%; }
 

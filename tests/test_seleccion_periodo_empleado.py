@@ -24,6 +24,27 @@ class PruebasSeleccionPeriodoEmpleado(unittest.TestCase):
         self.assertIn("Sincronizando únicamente el período seleccionado", sincronizacion)
         self.assertIn('name="periodo_id" value="{{ periodo_activo.id }}"', sincronizacion)
 
+    def test_cantidad_usa_cero_como_placeholder_y_exige_valor_explicito(self):
+        plantilla = (ROOT / "templates" / "empleado_inventario.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('name="cantidad" min="0" step="1" placeholder="0" required', plantilla)
+        self.assertIn('name="cantidad_baldes" min="0" step="1" placeholder="0" required', plantilla)
+        self.assertNotIn('name="cantidad" min="0" step="1" value="0"', plantilla)
+        self.assertIn('class="inv-form" novalidate', plantilla)
+        pendientes = (ROOT / "templates" / "empleado_productos_no_cargados.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('class="pending-direct-form" novalidate', pendientes)
+
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        inicio = app.index("def carrito_agregar():")
+        fin = app.index("def carrito_eliminar", inicio)
+        ruta = app[inicio:fin]
+        self.assertIn('if cantidad_texto == "":', ruta)
+        self.assertIn("if cantidad < 0:", ruta)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -102,7 +102,6 @@ class PruebaAuditoriaCorrelativa(unittest.TestCase):
             excel_id=excel.id,
             articulo="ALF-001",
             artdescrip=PRODUCTO,
-            artcosto=500,
             stockinicial=stock_inicial,
             compras=compras,
             otrassalidas=otras_salidas,

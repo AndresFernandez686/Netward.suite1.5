@@ -82,6 +82,29 @@ class PruebasInventarioAdminPorPeriodo(unittest.TestCase):
         inventario = _inventario_agregado("ALL", "C1")
         self.assertEqual(inventario[("Impulsivo", "Alfajor")]["cantidad"], 8)
 
+    def test_asocia_una_carga_legacy_con_el_nombre_actual_del_catalogo(self):
+        producto = Producto.query.filter_by(nombre="Alfajor").one()
+        producto.nombre = "Familiar nº 1 (chocolate/d. leche/americana)"
+        periodo = self.periodo("T1", 1, "Cargado")
+        db.session.add(ConteoDetalle(
+            periodo_id=periodo.id, cliente_id="C1", tienda_id="T1",
+            usuario="empleado", producto_nombre="Familiar 1", categoria="Impulsivo",
+            total_unidad_base=5, cantidad_unidad=5, fue_cargado=True,
+        ))
+        db.session.commit()
+
+        with self.app.test_request_context():
+            context = build_admin_inventory_context(
+                cliente_id="C1", tiendas=Tienda.query.filter_by(cliente_id="C1").all(),
+                tienda_id="T1", categoria_filtro="Todas", busqueda="",
+                estado_filtro="Todos", alerta_filtro="Todos",
+            )
+
+        fila = context["data"]["Impulsivo"][0]
+        self.assertEqual(fila["producto"], "Familiar nº 1 (chocolate/d. leche/americana)")
+        self.assertEqual(fila["cantidad"], 5)
+        self.assertTrue(fila["cargado"])
+
 
 if __name__ == "__main__":
     unittest.main()

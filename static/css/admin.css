@@ -120,8 +120,22 @@
 
 /* ---------- Grillas del dashboard ---------- */
 .dash-grid { display: grid; gap: 16px; margin-bottom: 20px; }
-.dash-grid--main { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr) minmax(0, 4fr); }
+.dash-grid--main {
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr) minmax(0, 4fr);
+  align-items: start;
+}
 .dash-grid--bottom { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dashboard-side-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.dashboard-side-column .activity {
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
 @media (max-width: 1280px) {
   .dash-grid--main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .dash-grid--bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -653,6 +667,18 @@
   justify-content: flex-end;
 }
 
+.desc-view-data-btn {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.desc-view-data-btn:hover {
+  background: #bbf7d0;
+  border-color: #4ade80;
+  color: #14532d;
+}
+
 .desc-rules-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -683,6 +709,42 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.desc-sync-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.desc-sync-badge {
+  display: inline-flex;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.desc-sync-alert {
+  margin-top: 12px;
+}
+
+.desc-sync-alert a {
+  color: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.nav__badge[hidden],
+.desc-sync-badge[hidden],
+.desc-sync-alert[hidden] {
+  display: none !important;
 }
 
 .desc-excel-head p { margin: 5px 0 0; }
@@ -1447,7 +1509,7 @@ body.periodos-help-open {
 .audit-timeline p { margin: 0; color: #526078; font-size: .68rem; line-height: 1.45; }
 .sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
-/* ---------- Asistente explicativo de auditoría ---------- */
+/* ---------- Nexa: analista IA de auditoría ---------- */
 .audit-ai-overlay { position: fixed; inset: 0; z-index: 1090; background: rgba(15, 23, 42, .34); backdrop-filter: blur(1px); }
 .audit-ai-drawer { position: fixed; z-index: 1100; top: 0; right: 0; display: flex; flex-direction: column; width: min(440px, 100vw); height: 100vh; padding: 20px; background: #fff; box-shadow: -18px 0 50px rgba(15, 23, 42, .18); transform: translateX(105%); transition: transform .22s ease; visibility: hidden; }
 .audit-ai-drawer.is-open { transform: translateX(0); visibility: visible; }

@@ -56,7 +56,7 @@
             </select>
           </label>
           <div class="field field--grow" style="display:flex;align-items:flex-end;">
-            <button type="button" id="btn-ver-datos" class="btn btn--ghost" style="width:100%;">
+            <button type="button" id="btn-ver-datos" class="btn btn--ghost desc-view-data-btn" style="width:100%;">
               Ver datos extraídos
             </button>
           </div>
@@ -70,14 +70,27 @@
         </div>
 
         <div class="desc-actions">
-          <a href="{{ url_for('desc.desc_sincronizar') }}" class="btn btn--ghost">Revisar y sincronizar catálogo</a>
+          <a href="{{ url_for('desc.desc_sincronizar') }}" class="btn btn--ghost desc-sync-button">
+            Revisar y sincronizar catálogo
+            <span id="desc-sync-count" class="desc-sync-badge" {{ 'hidden' if estado_sync.total == 0 else '' }}>{{ estado_sync.total }}</span>
+          </a>
           <button type="submit" class="btn btn--primary" id="btn-proc">
             <span class="nav__icon">{% include 'icons/upload.svg' %}</span>
-            Importar y validar
+            <span id="btn-proc-label">Importar y validar</span>
           </button>
         </div>
       </div>
     </form>
+    <div id="desc-sync-alert" class="banner banner--warning desc-sync-alert" {{ 'hidden' if estado_sync.total == 0 else '' }}>
+      <div>
+        <strong>Hay cambios pendientes de sincronización.</strong>
+        <span id="desc-sync-renombres">{{ estado_sync.renombres }}</span> renombre(s),
+        <span id="desc-sync-nuevos">{{ estado_sync.nuevos_productos }}</span> producto(s) nuevo(s),
+        <span id="desc-sync-revinculables">{{ estado_sync.revinculables }}</span> fila(s) listas para vincular y
+        <span id="desc-sync-sin-producto">{{ estado_sync.sin_producto }}</span> fila(s) sin producto que se descartarán.
+        <a href="{{ url_for('desc.desc_sincronizar') }}">Revisar cambios</a>
+      </div>
+    </div>
     {% if not periodos_disponibles %}
     <div class="banner banner--warning" style="margin-top:12px;">
       <div>No hay períodos contables registrados. Crea uno en Auditoría para procesar el Excel oficial.</div>
@@ -122,7 +135,7 @@
     <div class="desc-excel-grid-wrap">
       <table class="desc-excel-grid" id="excel-data-grid">
         <thead><tr>
-          <th>Vínculo</th><th>Código</th><th>Producto Excel</th><th>Costo</th>
+          <th>Vínculo</th><th>Código</th><th>Producto Excel</th>
           <th>Stock inicial</th><th>Compras</th><th>Otros ingresos</th><th>Otras salidas</th>
           <th>Stock final</th><th>Venta teórica</th><th>Venta real</th><th>Diferencia</th>
           <th>Importe desvío</th><th>Kilos</th><th>Unidades</th><th>Grupo</th>
@@ -134,7 +147,6 @@
             <td class="desc-excel-link"><span class="badge {{ 'badge--green' if d.estado_vinculacion == 'vinculado' else 'badge--amber' }}">{{ d.producto_nombre_interno or d.estado_vinculacion }}</span></td>
             <td><input data-field="articulo" value="{{ d.articulo|e }}" maxlength="40"></td>
             <td><input data-field="artdescrip" value="{{ d.artdescrip|e }}" maxlength="255"></td>
-            <td><input data-field="artcosto" type="number" step="any" value="{{ '' if d.artcosto is none else d.artcosto }}"></td>
             <td><input data-field="stockinicial" type="number" step="any" value="{{ d.stockinicial or 0 }}"></td>
             <td><input data-field="compras" type="number" step="any" value="{{ d.compras or 0 }}"></td>
             <td><input data-field="otrosingresos" type="number" step="any" value="{{ d.otrosingresos or 0 }}"></td>
@@ -207,6 +219,7 @@
     var form = document.getElementById('proc-form');
     var fileInput = document.getElementById('file-input');
     var btn = document.getElementById('btn-proc');
+    var btnLabel = document.getElementById('btn-proc-label');
     var periodoSelect = document.getElementById('periodo-select');
     var btnVerDatos = document.getElementById('btn-ver-datos');
     var datosCard = document.getElementById('datos-extraidos-card');
@@ -214,14 +227,28 @@
 
     fileInput.addEventListener('change', function() {
       if (this.files.length > 0) {
-        btn.textContent = 'Procesar: ' + this.files[0].name;
+        btnLabel.textContent = 'Importar: ' + this.files[0].name;
       } else {
-        btn.textContent = defaultLabel;
+        btnLabel.textContent = defaultLabel;
       }
     });
 
-    form.addEventListener('submit', function() {
-        btn.textContent = 'Importando y validando...';
+    btn.addEventListener('click', function(event) {
+      if (!fileInput.files.length) {
+        event.preventDefault();
+        fileInput.click();
+      }
+    });
+
+    form.addEventListener('submit', function(event) {
+      if (!fileInput.files.length) {
+        event.preventDefault();
+        fileInput.click();
+        return;
+      }
+      btn.disabled = true;
+      btn.setAttribute('aria-busy', 'true');
+      btnLabel.textContent = 'Importando y validando...';
     });
 
     if (periodoSelect) {
@@ -250,6 +277,29 @@
     var editedCount = document.getElementById('excel-edited-count');
     var editStatus = document.getElementById('excel-edit-status');
     var search = document.getElementById('excel-data-search');
+    function refreshSyncNotice(syncState) {
+      if (!syncState) return;
+      var total = Number(syncState.total || 0);
+      var syncBadge = document.getElementById('desc-sync-count');
+      var navBadge = document.getElementById('catalog-sync-nav-badge');
+      var syncAlert = document.getElementById('desc-sync-alert');
+      [syncBadge, navBadge].forEach(function(badge) {
+        if (!badge) return;
+        badge.textContent = String(total);
+        badge.hidden = total === 0;
+      });
+      if (syncAlert) syncAlert.hidden = total === 0;
+      var values = {
+        'desc-sync-renombres': syncState.renombres,
+        'desc-sync-nuevos': syncState.nuevos_productos,
+        'desc-sync-revinculables': syncState.revinculables,
+        'desc-sync-sin-producto': syncState.sin_producto
+      };
+      Object.keys(values).forEach(function(id) {
+        var element = document.getElementById(id);
+        if (element) element.textContent = String(values[id] || 0);
+      });
+    }
     function refreshEditedState() {
       var rows = grid ? grid.querySelectorAll('tr.has-edits').length : 0;
       if (editedCount) editedCount.textContent = rows ? rows + ' fila(s) modificada(s)' : 'Sin cambios pendientes';
@@ -292,7 +342,8 @@
         .then(function(data) {
           grid.querySelectorAll('input.is-edited').forEach(function(input) { input.dataset.original = input.type === 'checkbox' ? String(input.checked) : input.value; input.classList.remove('is-edited'); });
           grid.querySelectorAll('tr.has-edits').forEach(function(row) { row.classList.remove('has-edits'); });
-          editStatus.textContent = data.message; editStatus.classList.add('is-success'); refreshEditedState();
+          editStatus.textContent = data.message; editStatus.classList.add('is-success');
+          refreshSyncNotice(data.sincronizacion); refreshEditedState();
         })
         .catch(function(error) { editStatus.textContent = error.message; editStatus.classList.remove('is-success'); refreshEditedState(); })
         .finally(function() { save.textContent = 'Guardar modificaciones'; });

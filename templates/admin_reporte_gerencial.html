@@ -162,7 +162,7 @@
           <tr><th>Causa</th><th>Cantidad de productos</th><th>Importe total</th></tr>
         </thead>
         <tbody>
-          {% for causa, datos in por_causa|dictsort(by='value', reverse=True, attribute='importe') %}
+          {% for causa, datos in por_causa_ordenado %}
           <tr>
             <td>{{ causa }}</td>
             <td>{{ datos.cantidad }}</td>

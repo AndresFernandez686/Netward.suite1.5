@@ -29,8 +29,9 @@
           <span class="nav__label">Operacion</span>
           <a href="{{ url_for('empleado_sincronizar_page') }}" class="nav__link {{ 'is-active' if request.endpoint == 'empleado_sincronizar_page' }}">
             <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Sincronizar
-            {% if sync_pendientes > 0 %}
-            <span class="nav__badge">{{ sync_pendientes }}</span>
+            {% set sync_total_notif = sync_pendientes + notif_catalogo_cambios %}
+            {% if sync_total_notif > 0 %}
+            <span class="nav__badge">{{ sync_total_notif }}</span>
             {% endif %}
           </a>
           <a href="{{ url_for('empleado_periodo_abierto', marcar_visto=1) }}" class="nav__link {{ 'is-active' if request.endpoint in ['empleado_periodo_abierto', 'empleado_inventario'] }}">

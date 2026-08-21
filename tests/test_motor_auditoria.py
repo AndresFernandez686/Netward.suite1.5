@@ -11,6 +11,7 @@ from core.models import (
     ExcelImportado,
     InventarioPeriodo,
     Producto,
+    ProductoPrecio,
     RegistroAveriado,
     RegistroVencimiento,
     db,
@@ -125,7 +126,6 @@ class PruebasMotorAuditoria(unittest.TestCase):
             excel_id=excel.id,
             articulo=f"P-{producto.id}",
             artdescrip=producto.nombre,
-            artcosto=costo,
             stockinicial=stock_inicial,
             compras=compras,
             otrosingresos=otros_ingresos,
@@ -138,6 +138,17 @@ class PruebasMotorAuditoria(unittest.TestCase):
             excluido_auditoria=False,
         )
         db.session.add(detalle)
+        if costo is not None:
+            precio = ProductoPrecio.query.filter_by(producto_id=producto.id).first()
+            if precio is None:
+                precio = ProductoPrecio(
+                    cliente_id=CLIENTE,
+                    producto_id=producto.id,
+                    producto_nombre=producto.nombre,
+                    categoria=producto.categoria,
+                )
+                db.session.add(precio)
+            precio.precio = costo
         db.session.flush()
         return detalle
 
@@ -305,7 +316,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         self.assertEqual(resultado.diferencia, -3)
         self.assertEqual(resultado.costo_unitario, 500)
         self.assertEqual(resultado.impacto, 1500)
-        self.assertEqual(resultado.fuente_costo, "Excel oficial")
+        self.assertEqual(resultado.fuente_costo, "Precio interno")
 
     def test_causa_compra_mal_cargada(self):
         producto = self.crear_producto("Compra sospechosa")

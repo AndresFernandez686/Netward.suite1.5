@@ -1,6 +1,8 @@
 import ast
 import unittest
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from flask import Flask
 
@@ -16,6 +18,7 @@ from core.models import (
     db,
 )
 from core.periodos import cerrar_periodo
+from core.scheduler import actualizar_estados_periodos
 from core.sync_bridge import retroalimentar_periodo_desde_items
 
 
@@ -176,6 +179,34 @@ class PruebasPeriodos(unittest.TestCase):
         self.assertEqual(pendientes, [])
         self.assertEqual(periodo.estado, "Cerrado")
         self.assertIsNotNone(periodo.fecha_cierre)
+
+    def test_fecha_hasta_es_inclusiva_para_el_cierre_automatico(self):
+        periodo = self.crear_periodo(1, "2026-08-20", "2026-08-21")
+        db.session.commit()
+        zona = ZoneInfo("America/Asuncion")
+
+        actualizar_estados_periodos(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            ahora=datetime(2026, 8, 21, 23, 59, tzinfo=zona),
+        )
+        self.assertEqual(periodo.estado, "Abierto")
+
+        actualizar_estados_periodos(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            ahora=datetime(2026, 8, 22, 0, 0, tzinfo=zona),
+        )
+        self.assertEqual(periodo.estado, "Cerrado")
+
+    def test_scheduler_no_se_duplica_en_el_supervisor_de_desarrollo(self):
+        codigo = Path(__file__).resolve().parents[1].joinpath("app.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('os.environ.get("WERKZEUG_RUN_MAIN"', codigo)
+        self.assertIn("_debe_iniciar_scheduler = not _modo_desarrollo or _es_proceso_reloader", codigo)
+        self.assertIn("if _debe_iniciar_scheduler:", codigo)
 
     def preparar_continuidad(self, stock_inicial_actual):
         anterior = self.crear_periodo(

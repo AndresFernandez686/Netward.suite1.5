@@ -10,7 +10,7 @@ Comando:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Resultado general: **130 pruebas automatizadas disponibles**; la regresión de contexto de períodos fue validada correctamente.
+Resultado general: **135 pruebas automatizadas disponibles**; la regresión de contexto de períodos fue validada correctamente.
 
 ## Flujo único del Excel oficial
 
@@ -42,9 +42,9 @@ La eliminación segura y recuperación mediante respaldo están documentadas en
 La selección del último período cargado por sucursal está documentada en
 [inventario del último período](inventario_ultimo_periodo.md).
 
-## Asistente explicativo de auditoría
+## Nexa, analista IA de auditoría
 
-Los siete escenarios de proveedores, fallback, aislamiento y trazabilidad están en el
+Los escenarios de OpenAI, bot local deshabilitado, aislamiento y trazabilidad están en el
 [índice del asistente de IA](asistente_ia/README.md).
 
 ## Fallos parciales
@@ -117,6 +117,7 @@ Los nueve escenarios defensivos están documentados en el
 13. [Edición de datos extraídos](excel_oficial/13-editor-datos-extraidos.md)
 14. [Presentaciones con cantidades incompatibles](excel_oficial/14-empaques-incompatibles.md)
 15. [Revinculación después de actualizar el catálogo](excel_oficial/15-revinculacion-catalogo.md)
+16. [Notificación de sincronización pendiente](excel_oficial/16-notificacion-sincronizacion.md)
 
 ## Motor de auditoría
 
