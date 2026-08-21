@@ -100,7 +100,7 @@ class Producto(BaseModel):
     nombre = db.Column(db.String(160), nullable=False)
     categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Por Kilos | Extras
     visible_empleado = db.Column(db.Boolean, default=True, nullable=False)
-    # Código estable del sistema externo — clave principal de vinculación con el Excel oficial
+    # Código estable del sistema externo — clave principal con el inventario oficial
     codigo_articulo = db.Column(db.String(40), nullable=True, index=True)
     catalogo_version = db.Column(db.Integer, nullable=False, default=0, index=True)
 
@@ -242,7 +242,7 @@ class ProductoPrecio(BaseModel):
 
 
 class InventarioDescSnapshot(BaseModel):
-    """Guarda el stock_final de cada Excel oficial procesado para continuidad."""
+    """Guarda el stock_final de cada inventario oficial para continuidad."""
     __tablename__ = "inventario_desc_snapshots"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -422,7 +422,7 @@ class AjusteInventario(BaseModel):
 
 
 class ExcelImportado(BaseModel):
-    """Cabecera de un Excel oficial importado del sistema externo."""
+    """Cabecera de un inventario oficial XLS/XLSX importado."""
     __tablename__ = "excel_importados"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -440,7 +440,7 @@ class ExcelImportado(BaseModel):
 
 
 class ExcelDetalle(BaseModel):
-    """Fila del Excel oficial (una por producto)."""
+    """Fila del inventario oficial (una por producto)."""
     __tablename__ = "excel_detalles"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -471,7 +471,7 @@ class ExcelDetalle(BaseModel):
 
 
 class ExcelDetalleEdicion(BaseModel):
-    """Trazabilidad de cada fila del Excel oficial modificada por un administrador."""
+    """Trazabilidad de cada fila del inventario oficial modificada por un administrador."""
     __tablename__ = "excel_detalle_ediciones"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -488,6 +488,67 @@ class ExcelDetalleEdicion(BaseModel):
     usuario = db.Column(db.String(80), nullable=False)
     cambios_json = db.Column(db.Text, nullable=False, default="{}")
     creado = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)
+
+
+class FacturaCompra(BaseModel):
+    """Factura PDF usada como fuente oficial de las compras del período."""
+    __tablename__ = "facturas_compra"
+
+    id = db.Column(db.Integer, primary_key=True)
+    periodo_id = db.Column(
+        db.Integer, db.ForeignKey("inventario_periodos.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    proveedor = db.Column(db.String(40), nullable=False)
+    numero_factura = db.Column(db.String(60), nullable=False, default="sin-numero")
+    fecha_emision = db.Column(db.Date, nullable=True, index=True)
+    nombre_archivo = db.Column(db.String(255), nullable=False)
+    sha256 = db.Column(db.String(64), nullable=False)
+    archivo_pdf = db.Column(db.LargeBinary, nullable=False)
+    metodo_extraccion = db.Column(db.String(30), nullable=False, default="texto_pdf")
+    # procesada | fuera_rango | aplicada | aplicada_parcial | fallida
+    estado = db.Column(db.String(30), nullable=False, default="procesada", index=True)
+    total_factura = db.Column(db.Float, nullable=False, default=0)
+    usuario_importador = db.Column(db.String(80), nullable=False)
+    texto_extraido = db.Column(db.Text, nullable=False, default="")
+    fecha_importacion = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+    periodo = db.relationship("InventarioPeriodo", backref=db.backref(
+        "facturas_compra", lazy=True, cascade="all, delete-orphan"
+    ))
+    detalles = db.relationship(
+        "FacturaCompraDetalle", backref="factura", lazy=True,
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("cliente_id", "sha256", name="uq_factura_cliente_sha256"),
+    )
+
+
+class FacturaCompraDetalle(BaseModel):
+    """Producto y compra detectados en una factura PDF."""
+    __tablename__ = "facturas_compra_detalles"
+
+    id = db.Column(db.Integer, primary_key=True)
+    factura_id = db.Column(
+        db.Integer, db.ForeignKey("facturas_compra.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    codigo_proveedor = db.Column(db.String(40), nullable=False, default="")
+    descripcion = db.Column(db.String(255), nullable=False)
+    cantidad_facturada = db.Column(db.Float, nullable=False, default=0)
+    factor_conversion = db.Column(db.Float, nullable=False, default=1)
+    compras_calculadas = db.Column(db.Float, nullable=False, default=0)
+    precio_unitario = db.Column(db.Float, nullable=False, default=0)
+    importe = db.Column(db.Float, nullable=False, default=0)
+    producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=True, index=True)
+    producto_nombre = db.Column(db.String(160), nullable=True)
+    # vinculado | pendiente | pendiente_conversion | categoria_invalida | fuera_rango | aplicado
+    estado_vinculacion = db.Column(db.String(30), nullable=False, default="pendiente", index=True)
+    confianza = db.Column(db.String(20), nullable=False, default="Baja")
+    observacion = db.Column(db.String(255), nullable=False, default="")
 
 
 class AuditoriaResultado(BaseModel):

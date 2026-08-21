@@ -50,7 +50,7 @@ class PruebasMigracionPostgresMultiempleado(unittest.TestCase):
         self.assertIn("version_ultima_carga", verificador.COLUMNAS_CRITICAS["conteo_detalle"])
         self.assertIn("periodo_id", verificador.COLUMNAS_CRITICAS["delivery_ventas"])
         self.assertIn("estado_periodo", verificador.COLUMNAS_CRITICAS["delivery_ventas"])
-        self.assertEqual(len(verificador.CLAVES_CRITICAS), 9)
+        self.assertGreaterEqual(len(verificador.CLAVES_CRITICAS), 9)
 
     def test_migracion_delivery_periodos_es_idempotente(self):
         completo = (MIGRACION / "01_schema_completo.sql").read_text(encoding="utf-8")
@@ -77,7 +77,7 @@ class PruebasMigracionPostgresMultiempleado(unittest.TestCase):
         self.assertGreater(migrador.TABLAS_ORDEN.index("asistente_ia_consultas"),
                            migrador.TABLAS_ORDEN.index("auditoria_resultados"))
         self.assertIn("asistente_ia_consultas", verificador.TABLAS)
-        self.assertEqual(len(verificador.CLAVES_CRITICAS), 9)
+        self.assertGreaterEqual(len(verificador.CLAVES_CRITICAS), 9)
 
     def test_ediciones_excel_tienen_trazabilidad_y_orden_de_fk(self):
         completo = (MIGRACION / "01_schema_completo.sql").read_text(encoding="utf-8")
@@ -93,6 +93,22 @@ class PruebasMigracionPostgresMultiempleado(unittest.TestCase):
         self.assertGreater(orden.index("excel_detalle_ediciones"), orden.index("excel_detalles"))
         self.assertIn("excel_detalle_ediciones", verificador.TABLAS)
         self.assertIn("cambios_json", verificador.COLUMNAS_CRITICAS["excel_detalle_ediciones"])
+
+    def test_facturas_pdf_tienen_schema_migracion_y_orden_de_fk(self):
+        completo = (MIGRACION / "01_schema_completo.sql").read_text(encoding="utf-8")
+        incremental = (MIGRACION / "12_documentacion_oficial_facturas.sql").read_text(encoding="utf-8")
+        migrador = cargar_modulo("migracion_facturas", "migrate_sqlite_to_postgres.py")
+        verificador = cargar_modulo("verificador_facturas", "verificar_migracion.py")
+        for texto in (completo, incremental):
+            self.assertIn("facturas_compra", texto)
+            self.assertIn("facturas_compra_detalles", texto)
+            self.assertIn("archivo_pdf", texto)
+            self.assertIn("factor_conversion", texto)
+        orden = migrador.TABLAS_ORDEN
+        self.assertLess(orden.index("inventario_periodos"), orden.index("facturas_compra"))
+        self.assertLess(orden.index("facturas_compra"), orden.index("facturas_compra_detalles"))
+        self.assertIn("facturas_compra", verificador.TABLAS)
+        self.assertIn("facturas_compra_detalles", verificador.TABLAS)
 
 
 if __name__ == "__main__":

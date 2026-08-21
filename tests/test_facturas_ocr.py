@@ -1,0 +1,163 @@
+from pathlib import Path
+import ast
+import unittest
+
+from flask import Flask
+
+from core.factura_ocr import aplicar_compras_facturas, extraer_factura, importar_factura
+from core.models import (
+    Cliente, ExcelDetalle, ExcelDetalleEdicion, ExcelImportado, FacturaCompra,
+    FacturaCompraDetalle, InventarioPeriodo, Producto, Tienda, db,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PDF_DIR = ROOT / "templates" / "pdftext"
+
+
+class PruebasFacturasOCR(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = Flask(__name__)
+        cls.app.config.update(
+            TESTING=True,
+            SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+            SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        )
+        db.init_app(cls.app)
+        cls.ctx = cls.app.app_context()
+        cls.ctx.push()
+
+    @classmethod
+    def tearDownClass(cls):
+        db.session.remove()
+        cls.ctx.pop()
+
+    def setUp(self):
+        db.drop_all()
+        db.create_all()
+        db.session.add(Cliente(id="C001", nombre="Prueba"))
+        db.session.add(Tienda(id="T001", cliente_id="C001", nombre="Seminario"))
+        for nombre, categoria in [
+            ("Palito Crema Americana", "Impulsivo"),
+            ("Palito Bombon", "Impulsivo"),
+            ("Alfajor Bombon Cookies and Crema", "Impulsivo"),
+            ("Cucurucho Biscoito Dulce x300", "Extras"),
+            ("Cucurucho Cascao x120", "Extras"),
+            ("Servilleta Grido", "Extras"),
+            ("Isopor 1 kilo", "Extras"),
+        ]:
+            db.session.add(Producto(nombre=nombre, categoria=categoria))
+        db.session.commit()
+
+    def tearDown(self):
+        db.session.rollback()
+
+    def _periodo(self, desde="2026-08-10", hasta="2026-08-18"):
+        periodo = InventarioPeriodo(
+            cliente_id="C001", tienda_id="T001", numero=1,
+            fecha_desde=desde, fecha_hasta=hasta, estado="Abierto",
+            usuario_creador="admin",
+        )
+        db.session.add(periodo)
+        db.session.flush()
+        return periodo
+
+    def _pdf(self, fragmento):
+        archivo = next(path for path in PDF_DIR.glob("*.pdf") if fragmento.lower() in path.name.lower())
+        return archivo.name, archivo.read_bytes()
+
+    def test_extrae_los_dos_formatos_y_sus_lineas(self):
+        _nombre, helacor_pdf = self._pdf("helacor")
+        _nombre, fane_pdf = self._pdf("fane")
+        helacor = extraer_factura(helacor_pdf)
+        fane = extraer_factura(fane_pdf)
+        self.assertEqual((helacor.proveedor, helacor.numero, len(helacor.lineas)),
+                         ("Helacor", "001-001-0051204", 16))
+        self.assertEqual((fane.proveedor, fane.numero, len(fane.lineas)),
+                         ("Fane", "003-002-0044162", 13))
+        self.assertEqual(helacor.fecha_emision.isoformat(), "2026-08-17")
+        self.assertEqual(fane.fecha_emision.isoformat(), "2026-07-20")
+
+    def test_factura_fuera_del_periodo_no_se_puede_aplicar(self):
+        periodo = self._periodo()
+        nombre, contenido = self._pdf("fane")
+        factura, _avisos = importar_factura(
+            periodo=periodo, cliente_id="C001", usuario="admin",
+            nombre_archivo=nombre, contenido=contenido,
+        )
+        db.session.commit()
+        self.assertEqual(factura.estado, "fuera_rango")
+        self.assertTrue(all(d.estado_vinculacion == "fuera_rango" for d in factura.detalles))
+
+    def test_aplica_compras_convertidas_y_registra_trazabilidad(self):
+        periodo = self._periodo()
+        palito = Producto.query.filter_by(nombre="Palito Crema Americana").one()
+        excel = ExcelImportado(
+            periodo_id=periodo.id, cliente_id="C001", nombre_archivo="inventario.xls",
+            usuario_importador="admin", estado_validacion="ok",
+        )
+        db.session.add(excel)
+        db.session.flush()
+        detalle_excel = ExcelDetalle(
+            excel_id=excel.id, articulo="P1", artdescrip="Palito cremoso americana x unidad",
+            producto_id=palito.id, producto_nombre_interno=palito.nombre,
+            estado_vinculacion="vinculado", compras=999,
+        )
+        db.session.add(detalle_excel)
+        nombre, contenido = self._pdf("helacor")
+        factura, avisos = importar_factura(
+            periodo=periodo, cliente_id="C001", usuario="admin",
+            nombre_archivo=nombre, contenido=contenido,
+        )
+        db.session.flush()
+        linea = FacturaCompraDetalle.query.filter_by(
+            factura_id=factura.id, producto_id=palito.id,
+        ).one()
+        self.assertEqual(linea.compras_calculadas, 80)
+
+        resumen = aplicar_compras_facturas(periodo, "C001", "admin")
+        db.session.commit()
+        self.assertEqual(resumen["cambios"], 1)
+        self.assertEqual(detalle_excel.compras, 80)
+        self.assertEqual(ExcelDetalleEdicion.query.count(), 1)
+        self.assertIn('"origen": "facturas_pdf"', ExcelDetalleEdicion.query.one().cambios_json)
+        self.assertGreater(len(avisos), 0)  # líneas sin vínculo seguro quedan para revisión
+
+    def test_no_duplica_la_misma_factura_aunque_cambie_el_nombre(self):
+        periodo = self._periodo()
+        nombre, contenido = self._pdf("helacor")
+        primera, _ = importar_factura(
+            periodo=periodo, cliente_id="C001", usuario="admin",
+            nombre_archivo=nombre, contenido=contenido,
+        )
+        db.session.commit()
+        segunda, avisos = importar_factura(
+            periodo=periodo, cliente_id="C001", usuario="admin",
+            nombre_archivo="copia-renombrada.pdf", contenido=contenido,
+        )
+        self.assertIsNotNone(primera)
+        self.assertIsNone(segunda)
+        self.assertEqual(FacturaCompra.query.count(), 1)
+        self.assertIn("duplicada", avisos[0])
+
+    def test_todas_las_rutas_de_facturas_exigen_administrador(self):
+        codigo = (ROOT / "core" / "inventario.py").read_text(encoding="utf-8-sig")
+        funciones = {
+            nodo.name: nodo for nodo in ast.walk(ast.parse(codigo))
+            if isinstance(nodo, ast.FunctionDef)
+        }
+        for nombre in (
+            "desc_facturas_importar", "desc_factura_detalle_actualizar",
+            "desc_facturas_aplicar", "desc_factura_pdf",
+        ):
+            llamadas = [
+                nodo for nodo in ast.walk(funciones[nombre])
+                if isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Name)
+                and nodo.func.id == "_requiere_admin"
+            ]
+            self.assertTrue(llamadas, f"{nombre} debe exigir administrador")
+
+
+if __name__ == "__main__":
+    unittest.main()

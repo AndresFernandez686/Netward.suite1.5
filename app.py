@@ -28,7 +28,8 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     InventarioDescSnapshot, RegistroAveriado, RegistroVencimiento,
                     SincronizacionLog,
                     InventarioPeriodo, ConteoDetalle, InventarioBorrador, AjusteInventario,
-                    ExcelImportado, ExcelDetalle, AuditoriaResultado,
+                    ExcelImportado, ExcelDetalle, FacturaCompra, FacturaCompraDetalle,
+                    AuditoriaResultado,
                     Justificacion, ProductoRelacionado, ConfiguracionSistema,
                     NotificacionUsuario, AsistenteIAConsulta)
 from core.auditoria import (ejecutar_auditoria, build_reporte_gerencial,
@@ -1551,7 +1552,7 @@ def empleado_sincronizar():
         flash((
             f"Sincronización completada: {resumen['n_total']} registro(s) enviado(s) "
             f"(Inventario: {resumen['n_inv']}, Averiados: {resumen['n_aver']}, Vencimientos: {resumen['n_venc']}) "
-            "y catálogo consultado. Los productos nuevos se publican desde Excel oficial."
+            "y catálogo consultado. Los productos nuevos se publican desde Documentación Oficial."
         ), "success")
     else:
         flash(
@@ -3130,7 +3131,7 @@ def admin_auditoria_exportar(periodo_id):
         "Código Producto", "Producto", "Categoría",
         "Stock Inicial Anterior", "Stock Inicial Excel", "Alerta Continuidad",
         "Compras", "Promedio Compras Histórico", "Factor Desvío Compra",
-        "Ventas (Excel oficial)", "Ventas Delivery (info)", "Otros Ingresos", "Otras Salidas", "Stock Final Excel",
+        "Ventas (inventario oficial)", "Ventas Delivery (info)", "Otros Ingresos", "Otras Salidas", "Stock Final oficial",
         "Stock Esperado Sistema", "Conteo Empleado", "Ajuste Admin",
         "Conteo Final", "Diferencia", "Tipo Diferencia", "Severidad",
         "Costo Unitario", "Fuente Costo", "Impacto",

@@ -14,6 +14,8 @@ DROP TABLE IF EXISTS justificaciones              CASCADE;
 DROP TABLE IF EXISTS auditoria_resultados         CASCADE;
 DROP TABLE IF EXISTS excel_detalles               CASCADE;
 DROP TABLE IF EXISTS excel_importados             CASCADE;
+DROP TABLE IF EXISTS facturas_compra_detalles     CASCADE;
+DROP TABLE IF EXISTS facturas_compra              CASCADE;
 DROP TABLE IF EXISTS ajustes_inventario           CASCADE;
 DROP TABLE IF EXISTS conteo_detalle               CASCADE;
 DROP TABLE IF EXISTS inventario_periodos          CASCADE;

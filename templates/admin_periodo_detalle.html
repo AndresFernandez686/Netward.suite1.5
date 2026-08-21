@@ -84,7 +84,7 @@
 
   <section class="panel periodo-det-panel">
     <div class="periodo-det-panel__head">
-      <h3>Excel oficial del período</h3>
+      <h3>Documentación Oficial del período</h3>
     </div>
     {% if excel_imp %}
     <p class="periodo-det-note-ok">
@@ -95,19 +95,19 @@
       {% endif %}
     </p>
     {% else %}
-    <p class="periodo-det-note-warn">Este período todavía no tiene un Excel oficial importado.</p>
+    <p class="periodo-det-note-warn">Este período todavía no tiene un inventario oficial importado.</p>
     {% endif %}
     <form method="post" action="{{ url_for('desc.admin_desc') }}"
           enctype="multipart/form-data" id="periodo-excel-form"
           data-confirm-delay="0"
-          data-confirm-loading-text="{{ 'Reemplazando' if excel_imp else 'Importando' }} Excel oficial..."
-          data-confirm-message="{{ '¿Reemplazar el Excel oficial de este período? El archivo anterior quedará en el historial y Auditoría utilizará el nuevo.' if excel_imp else '¿Importar este archivo como Excel oficial del período?' }}">
+          data-confirm-loading-text="{{ 'Reemplazando' if excel_imp else 'Importando' }} inventario oficial..."
+          data-confirm-message="{{ '¿Reemplazar el inventario oficial de este período? El archivo anterior quedará en el historial y Auditoría utilizará el nuevo.' if excel_imp else '¿Importar este archivo como inventario oficial del período?' }}">
       <input type="hidden" name="periodo_id" value="{{ periodo.id }}">
       <input type="hidden" name="return_to" value="periodo">
       <input type="file" name="archivo" id="periodo-excel-input" accept=".xlsx,.xls" hidden>
       <button type="button" class="btn btn--primary" id="periodo-excel-button">
         <span class="nav__icon">{% include 'icons/upload.svg' %}</span>
-        {{ 'Reemplazar Excel oficial' if excel_imp else 'Cargar Excel oficial' }}
+        {{ 'Reemplazar inventario oficial' if excel_imp else 'Cargar inventario oficial' }}
       </button>
     </form>
   </section>
@@ -359,7 +359,7 @@
       excelInput.addEventListener('change', function () {
         if (!excelInput.files.length) return;
         excelForm.dataset.confirmMessage =
-          '¿Usar "' + excelInput.files[0].name + '" como Excel oficial de este período?';
+          '¿Usar "' + excelInput.files[0].name + '" como inventario oficial de este período?';
         excelForm.requestSubmit();
       });
     }

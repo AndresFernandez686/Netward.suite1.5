@@ -1,7 +1,7 @@
 ﻿{% extends 'admin_base.html' %}
-{% block title %}Excel oficial - {{ app_nombre }}{% endblock %}
-{% block heading %}Excel oficial{% endblock %}
-{% block subheading %}Importación, validación y preparación para auditoría{% endblock %}
+{% block title %}Documentación Oficial - {{ app_nombre }}{% endblock %}
+{% block heading %}Documentación Oficial{% endblock %}
+{% block subheading %}Inventario XLS/XLSX y facturas PDF de compras para auditoría{% endblock %}
 
 {% block content %}
 <div class="desc-layout">
@@ -28,14 +28,35 @@
     </article>
   </section>
 
-  <section class="card card--skip-collapse">
+  <nav class="desc-doc-tabs" role="tablist" aria-label="Secciones de Documentación Oficial" data-active-tab="{{ active_doc_tab }}">
+    <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'inventario' else '' }}" data-doc-tab="inventario" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'inventario' else 'false' }}" aria-controls="inventario-oficial-card">
+      <span class="desc-doc-tab__icon">{% include 'icons/upload.svg' %}</span>
+      <span>Inventario XLS/XLSX</span>
+    </button>
+    <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'facturas' else '' }}" data-doc-tab="facturas" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'facturas' else 'false' }}" aria-controls="facturas-card">
+      <span class="desc-doc-tab__icon">{% include 'icons/box.svg' %}</span>
+      <span>Facturas PDF</span>
+      {% if facturas_periodo %}<span class="desc-doc-tab__badge">{{ facturas_periodo|length }}</span>{% endif %}
+    </button>
+    <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'datos' else '' }}" data-doc-tab="datos" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'datos' else 'false' }}" aria-controls="datos-extraidos-card">
+      <span class="desc-doc-tab__icon">{% include 'icons/chart.svg' %}</span>
+      <span>Datos extraídos</span>
+      {% if excel_detalles %}<span class="desc-doc-tab__badge">{{ excel_detalles|length }}</span>{% endif %}
+    </button>
+    <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'historial' else '' }}" data-doc-tab="historial" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'historial' else 'false' }}" aria-controls="procesamientos-recientes">
+      <span class="desc-doc-tab__icon">{% include 'icons/clock.svg' %}</span>
+      <span>Historial</span>
+    </button>
+  </nav>
+
+  <section class="card card--skip-collapse" id="inventario-oficial-card" data-doc-panel="inventario" {{ 'hidden' if active_doc_tab != 'inventario' else '' }}>
     <div class="panel__head" style="margin-bottom:8px;">
       <h3 class="panel__title">Nuevo procesamiento</h3>
     </div>
     <form method="post" action="{{ url_for('desc.admin_desc') }}" enctype="multipart/form-data" id="proc-form" class="desc-form">
       <div class="desc-dropzone">
         <label for="file-input" class="desc-dropzone__box">
-          <span class="desc-dropzone__title">Excel oficial (.XLS / .XLSX)</span>
+          <span class="desc-dropzone__title">Inventario oficial (.XLS / .XLSX)</span>
           <span class="desc-dropzone__sub">Arrastra o selecciona un archivo</span>
           <span class="desc-dropzone__hint">Tamaño recomendado: hasta 20 MB</span>
           <span class="btn btn--ghost btn--sm">Seleccionar archivo</span>
@@ -93,12 +114,85 @@
     </div>
     {% if not periodos_disponibles %}
     <div class="banner banner--warning" style="margin-top:12px;">
-      <div>No hay períodos contables registrados. Crea uno en Auditoría para procesar el Excel oficial.</div>
+      <div>No hay períodos contables registrados. Crea uno en Auditoría para procesar la documentación oficial.</div>
     </div>
     {% endif %}
   </section>
 
-  <section class="desc-rules-grid">
+  <section class="card card--skip-collapse" id="facturas-card" data-doc-panel="facturas" {{ 'hidden' if active_doc_tab != 'facturas' else '' }}>
+    <div class="panel__head desc-invoice-head">
+      <div>
+        <h3 class="panel__title">Facturas de compras</h3>
+        <p class="muted">Carga una o varias facturas PDF. Helacor se valida contra Impulsivo/Por Kilos y Fane contra Extras.</p>
+      </div>
+      {% if facturas_periodo %}<span class="badge badge--green">{{ facturas_periodo|length }} factura(s)</span>{% endif %}
+    </div>
+
+    {% if periodo_seleccionado %}
+    <form method="post" action="{{ url_for('desc.desc_facturas_importar') }}" enctype="multipart/form-data" class="desc-invoice-upload" id="invoice-upload-form">
+      <input type="hidden" name="periodo_id" value="{{ periodo_seleccionado.id }}">
+      <label class="desc-invoice-picker" for="invoice-files">
+        <span><strong>Seleccionar facturas PDF</strong><small id="invoice-file-label">Hasta 20 archivos · 15 MB por factura</small></span>
+        <span class="btn btn--ghost btn--sm">Elegir archivos</span>
+      </label>
+      <input type="file" id="invoice-files" name="facturas_pdf" accept="application/pdf,.pdf" multiple required hidden>
+      <button class="btn btn--primary" type="submit">Leer facturas y detectar compras</button>
+    </form>
+    {% else %}
+    <div class="empty"><p>Selecciona un período antes de cargar facturas.</p></div>
+    {% endif %}
+
+    {% if factura_detalles %}
+    <div class="desc-invoice-summary">
+      <span><strong>{{ factura_detalles|length }}</strong> líneas detectadas</span>
+      <span class="{{ 'text-warning' if facturas_pendientes else 'text-success' }}"><strong>{{ facturas_pendientes }}</strong> requieren revisión</span>
+      <span>La columna Compras solo cambia al pulsar “Aplicar compras detectadas”.</span>
+    </div>
+    <div class="table-wrap desc-invoice-table-wrap">
+      <table class="table desc-invoice-table">
+        <thead><tr>
+          <th>Factura</th><th>Proveedor</th><th>Producto detectado</th><th>Producto Netward</th>
+          <th>Cant. factura</th><th>Factor UME</th><th>Compra calculada</th><th>Estado</th><th></th>
+        </tr></thead>
+        <tbody>
+          {% for d in factura_detalles %}
+          {% set permitidas = ['Impulsivo', 'Por Kilos'] if d.factura.proveedor == 'Helacor' else ['Extras'] %}
+          <tr>
+            <td><a href="{{ url_for('desc.desc_factura_pdf', factura_id=d.factura_id) }}" target="_blank" rel="noopener">{{ d.factura.numero_factura }}</a><small>{{ d.factura.fecha_emision or 'Sin fecha' }}</small></td>
+            <td>{{ d.factura.proveedor }}<small>{{ d.factura.metodo_extraccion }}</small></td>
+            <td><strong>{{ d.descripcion }}</strong><small>{{ d.codigo_proveedor or 'Sin código' }}</small></td>
+            <td>
+              <select name="producto_id" form="invoice-line-{{ d.id }}" aria-label="Producto Netward para {{ d.descripcion }}">
+                <option value="">Seleccionar producto…</option>
+                {% for producto in productos_factura if producto.categoria in permitidas %}
+                <option value="{{ producto.id }}" {{ 'selected' if d.producto_id == producto.id else '' }}>{{ producto.nombre }} · {{ producto.categoria }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><input name="cantidad_facturada" form="invoice-line-{{ d.id }}" type="number" min="0" step="any" value="{{ d.cantidad_facturada }}" aria-label="Cantidad facturada"></td>
+            <td><input name="factor_conversion" form="invoice-line-{{ d.id }}" type="number" min="0.000001" step="any" value="{{ d.factor_conversion }}" aria-label="Factor de conversión"></td>
+            <td><strong>{{ '%.2f'|format(d.compras_calculadas) }}</strong></td>
+            <td><span class="badge {{ 'badge--green' if d.estado_vinculacion in ('vinculado', 'aplicado') else 'badge--amber' }}">{{ d.estado_vinculacion|replace('_', ' ') }}</span><small>{{ d.observacion }}</small></td>
+            <td><button class="btn btn--ghost btn--sm" form="invoice-line-{{ d.id }}" type="submit" {{ 'disabled' if d.estado_vinculacion == 'fuera_rango' else '' }}>Confirmar</button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% for d in factura_detalles %}
+    <form id="invoice-line-{{ d.id }}" method="post" action="{{ url_for('desc.desc_factura_detalle_actualizar', detalle_id=d.id) }}"></form>
+    {% endfor %}
+    <form method="post" action="{{ url_for('desc.desc_facturas_aplicar') }}" class="desc-invoice-apply" data-confirm-message="¿Reemplazar la columna Compras del inventario oficial con las compras confirmadas de estas facturas?">
+      <input type="hidden" name="periodo_id" value="{{ periodo_seleccionado.id }}">
+      <span>Las filas pendientes o fuera del período no se aplicarán.</span>
+      <button class="btn btn--success" type="submit" {{ 'disabled' if not excel_seleccionado else '' }}>Aplicar compras detectadas</button>
+    </form>
+    {% elif periodo_seleccionado %}
+    <div class="empty"><p>Aún no hay facturas cargadas para este período.</p></div>
+    {% endif %}
+  </section>
+
+  <section class="desc-rules-grid" data-doc-panel="inventario" {{ 'hidden' if active_doc_tab != 'inventario' else '' }}>
     <article class="card card--skip-collapse desc-rule desc-rule--blue">
       <h4>Validaciones</h4>
       <p><strong>{{ reglas_activas }}</strong> reglas activas</p>
@@ -117,11 +211,11 @@
   </section>
 
   <section class="card card--skip-collapse desc-excel-card" id="datos-extraidos-card"
-           style="display:{{ 'block' if mostrar_datos else 'none' }};"
+           data-doc-panel="datos" {{ 'hidden' if active_doc_tab != 'datos' else '' }}
            {% if excel_seleccionado %}data-save-url="{{ url_for('desc.desc_excel_datos_guardar', excel_id=excel_seleccionado.id) }}"{% endif %}>
     <div class="desc-excel-head">
       <div>
-        <h3 class="panel__title">Datos extraídos del Excel</h3>
+        <h3 class="panel__title">Datos extraídos del inventario oficial</h3>
         {% if excel_seleccionado %}
         <p class="muted">{{ excel_seleccionado.nombre_archivo }} · {{ excel_detalles|length }} fila(s). Las modificaciones quedan registradas y serán utilizadas al volver a ejecutar Auditoría.</p>
         {% endif %}
@@ -173,13 +267,13 @@
       <button type="button" class="btn btn--primary" id="excel-save" disabled>Guardar modificaciones</button>
     </div>
     {% elif periodo_seleccionado %}
-    <div class="empty"><p>Este período todavía no tiene datos extraídos. Selecciona el Excel oficial y pulsa “Importar y validar”.</p></div>
+    <div class="empty"><p>Este período todavía no tiene datos extraídos. Selecciona el inventario XLS/XLSX y pulsa “Importar y validar”.</p></div>
     {% else %}
     <div class="empty"><p>Selecciona un período para consultar sus datos extraídos.</p></div>
     {% endif %}
   </section>
 
-  <section class="card card--skip-collapse" id="procesamientos-recientes">
+  <section class="card card--skip-collapse" id="procesamientos-recientes" data-doc-panel="historial" {{ 'hidden' if active_doc_tab != 'historial' else '' }}>
     <h3 class="panel__title">Procesamientos recientes</h3>
     {% if snapshots %}
     <div class="table-wrap">
@@ -223,7 +317,21 @@
     var periodoSelect = document.getElementById('periodo-select');
     var btnVerDatos = document.getElementById('btn-ver-datos');
     var datosCard = document.getElementById('datos-extraidos-card');
+    var invoiceFiles = document.getElementById('invoice-files');
+    var invoiceFileLabel = document.getElementById('invoice-file-label');
     var defaultLabel = 'Importar y validar';
+
+    if (invoiceFiles && invoiceFileLabel) {
+      invoiceFiles.addEventListener('change', function () {
+        if (!this.files.length) {
+          invoiceFileLabel.textContent = 'Hasta 20 archivos · 15 MB por factura';
+          return;
+        }
+        invoiceFileLabel.textContent = this.files.length === 1
+          ? this.files[0].name
+          : this.files.length + ' facturas seleccionadas';
+      });
+    }
 
     fileInput.addEventListener('change', function() {
       if (this.files.length > 0) {

@@ -572,7 +572,7 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         elif sin_excel or sin_inventario:
             faltantes = []
             if sin_excel:
-                faltantes.append("Excel oficial")
+                faltantes.append("Inventario oficial")
             if sin_inventario:
                 faltantes.append("conteo de inventario")
             causa = "Pendiente de revisión"

@@ -748,6 +748,65 @@
 }
 
 .desc-excel-head p { margin: 5px 0 0; }
+.desc-invoice-head { align-items: flex-start; gap: 14px; }
+.desc-invoice-head p { margin: 5px 0 0; }
+.desc-invoice-upload {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 16px;
+}
+.desc-invoice-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px dashed #93c5fd;
+  border-radius: 12px;
+  background: #f8fbff;
+  cursor: pointer;
+}
+.desc-invoice-picker span:first-child { display: grid; gap: 3px; min-width: 0; }
+.desc-invoice-picker small { color: #64748b; overflow-wrap: anywhere; }
+.desc-invoice-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin: 16px 0 10px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: .86rem;
+}
+.desc-invoice-table-wrap { max-height: 560px; }
+.desc-invoice-table { min-width: 1240px; }
+.desc-invoice-table td { vertical-align: top; }
+.desc-invoice-table td small { display: block; margin-top: 4px; color: #64748b; max-width: 260px; }
+.desc-invoice-table select { min-width: 230px; }
+.desc-invoice-table input[type="number"] { min-width: 92px; width: 100%; }
+.desc-invoice-apply {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+  margin-top: 14px;
+  color: #64748b;
+}
+.text-warning { color: #b45309; }
+.text-success { color: #15803d; }
+
+@media (max-width: 760px) {
+  .desc-invoice-upload { grid-template-columns: 1fr; }
+  .desc-invoice-picker { align-items: flex-start; flex-direction: column; }
+  .desc-invoice-picker .btn { width: 100%; }
+  .desc-invoice-upload > .btn { width: 100%; }
+  .desc-invoice-apply { align-items: stretch; flex-direction: column; }
+  .desc-invoice-apply .btn { width: 100%; }
+}
 .desc-excel-search input { min-width: 260px; }
 .desc-excel-notice {
   margin: 14px 0 10px;

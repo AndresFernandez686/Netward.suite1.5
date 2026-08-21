@@ -31,6 +31,8 @@ PERIOD_TABLES_DELETE_ORDER = (
     "asistente_ia_consultas",
     "justificaciones",
     "auditoria_resultados",
+    "facturas_compra_detalles",
+    "facturas_compra",
     "excel_detalle_ediciones",
     "excel_detalles",
     "excel_importados",

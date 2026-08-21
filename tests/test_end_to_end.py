@@ -180,7 +180,7 @@ class PruebaEndToEnd(unittest.TestCase):
         self.assertEqual(pendientes, [])
         self.assertEqual(periodo.estado, "Cerrado")
 
-        # 5. Importar el Excel oficial y vincular automáticamente el producto.
+        # 5. Importar el inventario oficial y vincular automáticamente el producto.
         excel, advertencias = importar_excel(
             periodo_id=periodo.id,
             cliente_id=CLIENTE,

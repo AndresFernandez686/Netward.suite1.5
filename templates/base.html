@@ -58,7 +58,7 @@
             <span class="nav__icon">{% include 'icons/box.svg' %}</span> Inventario
           </a>
           <a href="{{ url_for('desc.admin_desc') }}" class="nav__link {{ 'is-active' if request.endpoint == 'desc.admin_desc' }}">
-            <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Excel oficial
+            <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Documentación Oficial
           </a>
           <a href="{{ url_for('admin_historial') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_historial' }}">
             <span class="nav__icon">{% include 'icons/chart.svg' %}</span> Historial

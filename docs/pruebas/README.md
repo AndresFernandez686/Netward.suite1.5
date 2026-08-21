@@ -10,12 +10,18 @@ Comando:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Resultado general: **135 pruebas automatizadas disponibles**; la regresión de contexto de períodos fue validada correctamente.
+Resultado general: **155 pruebas automatizadas disponibles**; las pruebas funcionales de Documentación Oficial y facturas PDF fueron validadas correctamente.
 
-## Flujo único del Excel oficial
+## Flujo del inventario oficial
 
 La importación sin descarga automática y el consumo desde Auditoría están documentados en
-[flujo definitivo de Excel oficial](excel_oficial/12-flujo-unico-desc.md).
+[flujo definitivo del inventario oficial](excel_oficial/12-flujo-unico-desc.md).
+
+## Documentación Oficial y facturas PDF
+
+La carga múltiple, lectura Helacor/Fane, rango del período, conversiones UME,
+duplicados y aplicación de Compras están documentados en
+[pruebas de facturas PDF](documentacion_oficial_facturas.md).
 
 ## Notificación de carga de inventario
 
@@ -100,7 +106,7 @@ Los nueve escenarios defensivos están documentados en el
 6. [Continuidad no coincidente](periodos/06-continuidad-no-coincidente.md)
 7. [Selección persistente del período del empleado](periodos/07-seleccion-empleado.md)
 
-## Excel oficial
+## Inventario oficial XLS/XLSX
 
 1. [Importación de Excel válido](excel_oficial/01-importacion-valida.md)
 2. [Importación con columnas faltantes](excel_oficial/02-columnas-faltantes.md)

@@ -27,7 +27,8 @@ TABLAS = [
     "inventario_desc_snapshots", "delivery_ventas",
     "registros_averiados", "registros_vencimiento", "sincronizacion_log",
     "inventario_periodos", "conteo_detalle", "ajustes_inventario",
-    "excel_importados", "excel_detalles", "excel_detalle_ediciones", "auditoria_resultados",
+    "excel_importados", "excel_detalles", "excel_detalle_ediciones",
+    "facturas_compra", "facturas_compra_detalles", "auditoria_resultados",
     "asistente_ia_consultas", "justificaciones", "productos_relacionados",
 ]
 
@@ -58,6 +59,14 @@ COLUMNAS_CRITICAS = {
         "cliente_id", "periodo_id", "excel_id", "detalle_id", "usuario",
         "cambios_json", "creado",
     },
+    "facturas_compra": {
+        "periodo_id", "cliente_id", "proveedor", "numero_factura", "fecha_emision",
+        "sha256", "archivo_pdf", "metodo_extraccion", "estado", "total_factura",
+    },
+    "facturas_compra_detalles": {
+        "factura_id", "cantidad_facturada", "factor_conversion", "compras_calculadas",
+        "producto_id", "estado_vinculacion", "confianza",
+    },
 }
 
 CLAVES_CRITICAS = (
@@ -68,6 +77,9 @@ CLAVES_CRITICAS = (
     ("excel_detalle_ediciones", "periodo_id", "inventario_periodos"),
     ("excel_detalle_ediciones", "excel_id", "excel_importados"),
     ("excel_detalle_ediciones", "detalle_id", "excel_detalles"),
+    ("facturas_compra", "periodo_id", "inventario_periodos"),
+    ("facturas_compra_detalles", "factura_id", "facturas_compra"),
+    ("facturas_compra_detalles", "producto_id", "productos"),
     ("asistente_ia_consultas", "periodo_id", "inventario_periodos"),
     ("asistente_ia_consultas", "resultado_id", "auditoria_resultados"),
 )

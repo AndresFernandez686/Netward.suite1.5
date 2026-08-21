@@ -14,6 +14,7 @@
 | `migracion/09_version_catalogo_empleado.sql` | Sincronización versionada del catálogo por empleado |
 | `migracion/10_reparar_estado_excel_importado.sql` | Repara períodos cuyo estado operativo fue reemplazado al importar Excel |
 | `migracion/11_eliminar_artcosto_excel.sql` | Elimina el costo externo; Auditoría usa exclusivamente el precio interno |
+| `migracion/12_documentacion_oficial_facturas.sql` | Facturas PDF, OCR y compras detectadas por período |
 | `migracion/migrate_sqlite_to_postgres.py` | Migra datos SQLite → PostgreSQL con conversión de tipos |
 | `migracion/verificar_migracion.py` | Compara conteos y verifica secuencias SERIAL |
 
@@ -52,6 +53,7 @@ psql -U user -d netward -f migracion/08_edicion_datos_excel.sql
 psql -U user -d netward -f migracion/09_version_catalogo_empleado.sql
 psql -U user -d netward -f migracion/10_reparar_estado_excel_importado.sql
 psql -U user -d netward -f migracion/11_eliminar_artcosto_excel.sql
+psql -U user -d netward -f migracion/12_documentacion_oficial_facturas.sql
 
 # 2. Dry-run (ver cuántas filas hay)
 python migracion/migrate_sqlite_to_postgres.py --pg "postgresql://..." --dry-run

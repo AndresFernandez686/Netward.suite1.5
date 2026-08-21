@@ -247,7 +247,7 @@ class PruebasCasosLimite(unittest.TestCase):
         self.assertEqual(resultado.ventas_delivery, 4)
         self.assertEqual(resultado.estado_auditoria, "Sin datos")
         self.assertEqual(resultado.impacto, 0)
-        self.assertIn("Excel oficial", resultado.evidencia)
+        self.assertIn("Inventario oficial", resultado.evidencia)
 
 
 if __name__ == "__main__":

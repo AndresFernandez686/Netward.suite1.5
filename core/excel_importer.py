@@ -1,5 +1,5 @@
 """
-Importador del Excel oficial generado por el sistema externo.
+Importador del inventario XLS/XLSX de Documentación Oficial.
 Lee las columnas estándar y crea los registros ExcelImportado + ExcelDetalle.
 Usa 'articulo' como clave de integración; vincula con producto interno cuando es posible.
 """
@@ -12,7 +12,7 @@ from typing import Optional
 
 from .models import db, ExcelImportado, ExcelDetalle, InventarioPeriodo, Producto
 
-# Columnas reconocidas del Excel oficial (nombres en minúsculas, sin acentos)
+# Columnas reconocidas del inventario oficial (nombres en minúsculas, sin acentos)
 _COL_MAP = {
     "articulo": ["articulo", "art", "codigo", "cod"],
     "artdescrip": ["artdescrip", "descripcion", "nombre", "producto"],
@@ -404,7 +404,7 @@ def importar_excel(
     contenido: bytes,
 ) -> tuple[ExcelImportado, list[str]]:
     """
-    Parsea el contenido binario del Excel oficial, crea ExcelImportado y sus ExcelDetalle.
+    Parsea el inventario oficial, crea ExcelImportado y sus ExcelDetalle.
     Retorna (excel_importado, lista_de_advertencias).
     Los ExcelDetalle no se agregan a la sesión de BD hasta que el llamador hace db.session.commit().
     """
@@ -434,7 +434,7 @@ def importar_excel(
     faltantes = sorted(_COLUMNAS_OBLIGATORIAS - set(col_map))
     if faltantes:
         raise ValueError(
-            "Faltan columnas obligatorias del Excel oficial: " + ", ".join(faltantes)
+            "Faltan columnas obligatorias del inventario oficial: " + ", ".join(faltantes)
         )
     nombre_map = _build_nombre_map(cliente_id)
     codigo_map = _build_codigo_map()

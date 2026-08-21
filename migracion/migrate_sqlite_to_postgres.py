@@ -50,6 +50,8 @@ TABLAS_ORDEN = [
     "excel_importados",
     "excel_detalles",
     "excel_detalle_ediciones",
+    "facturas_compra",
+    "facturas_compra_detalles",
     "auditoria_resultados",
     "asistente_ia_consultas",
     "justificaciones",
@@ -77,7 +79,8 @@ SERIAL_TABLES = [
     "inventario_snapshots", "inventario_desc_snapshots", "delivery_ventas",
     "registros_averiados", "registros_vencimiento", "sincronizacion_log",
     "inventario_periodos", "conteo_detalle", "ajustes_inventario",
-    "excel_importados", "excel_detalles", "excel_detalle_ediciones", "auditoria_resultados",
+    "excel_importados", "excel_detalles", "excel_detalle_ediciones",
+    "facturas_compra", "facturas_compra_detalles", "auditoria_resultados",
     "asistente_ia_consultas", "justificaciones", "productos_relacionados",
 ]
 

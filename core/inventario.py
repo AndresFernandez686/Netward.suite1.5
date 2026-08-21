@@ -1,5 +1,5 @@
 ﻿"""
-inventario.py — Importación del Excel oficial de inventario por período.
+inventario.py — Importación del inventario de Documentación Oficial por período.
 
 Flujo completo:
   1. Admin sube .xls/.xlsx de inventario + elige tienda y rango de fechas.
@@ -23,7 +23,7 @@ from typing import Optional, Tuple
 
 import openpyxl
 from flask import (Blueprint, abort, flash, redirect, render_template,
-                   request, session, url_for, jsonify)
+                   request, session, url_for, jsonify, send_file as send_pdf_response)
 
 desc_bp = Blueprint("desc", __name__)
 
@@ -397,7 +397,7 @@ def admin_desc():
     _requiere_admin()
     from core.models import (
         db, Tienda, InventarioDescSnapshot, Producto, InventarioPeriodo,
-        ExcelImportado, ExcelDetalle,
+        ExcelImportado, ExcelDetalle, FacturaCompra, FacturaCompraDetalle,
     )
 
     cliente_id = session.get("cliente_id", "C001")
@@ -411,12 +411,19 @@ def admin_desc():
     )
 
     periodo_id_arg = request.args.get("periodo_id", type=int)
+    active_doc_tab = request.args.get("doc_tab", "inventario")
+    if active_doc_tab not in {"inventario", "facturas", "datos", "historial"}:
+        active_doc_tab = "inventario"
+    if request.args.get("ver_datos") == "1":
+        active_doc_tab = "datos"
     periodo_seleccionado = next((p for p in periodos_disponibles if p.id == periodo_id_arg), None)
     if periodo_seleccionado is None and periodos_disponibles:
         periodo_seleccionado = periodos_disponibles[0]
 
     excel_seleccionado = None
     excel_detalles = []
+    facturas_periodo = []
+    factura_detalles = []
     if periodo_seleccionado is not None:
         excel_seleccionado = (
             ExcelImportado.query
@@ -442,6 +449,20 @@ def admin_desc():
                 .order_by(ExcelDetalle.grupo, ExcelDetalle.artdescrip, ExcelDetalle.id)
                 .all()
             )
+        facturas_periodo = (
+            FacturaCompra.query
+            .filter_by(periodo_id=periodo_seleccionado.id, cliente_id=cliente_id)
+            .order_by(FacturaCompra.fecha_importacion.desc(), FacturaCompra.id.desc())
+            .all()
+        )
+        if facturas_periodo:
+            ids_facturas = [factura.id for factura in facturas_periodo]
+            factura_detalles = (
+                FacturaCompraDetalle.query
+                .filter(FacturaCompraDetalle.factura_id.in_(ids_facturas))
+                .order_by(FacturaCompraDetalle.factura_id.desc(), FacturaCompraDetalle.id)
+                .all()
+            )
 
     # Historial de snapshots para mostrar en la UI
     snapshots = (InventarioDescSnapshot.query
@@ -458,7 +479,7 @@ def admin_desc():
             .first()
         )
         if periodo is None:
-            flash("Selecciona un período contable válido para procesar el Excel oficial.", "warning")
+            flash("Selecciona un período contable válido para procesar la documentación oficial.", "warning")
             return redirect(url_for("desc.admin_desc"))
 
         volver_al_periodo = request.form.get("return_to") == "periodo"
@@ -469,6 +490,7 @@ def admin_desc():
             destino = url_for(
                 "desc.admin_desc",
                 periodo_id=periodo.id,
+                doc_tab="datos" if ver_datos else "inventario",
                 **({"ver_datos": 1} if ver_datos else {}),
             )
             return redirect(destino + ("#datos-extraidos-card" if ver_datos else ""))
@@ -493,8 +515,8 @@ def admin_desc():
                 flash("El archivo no contiene datos.", "error")
                 return redirigir_importacion()
 
-            # Excel oficial y Auditoría deben usar exactamente el mismo
-            # Excel oficial. Antes solo se generaba la descarga/snapshot y la
+            # Documentación Oficial y Auditoría deben usar exactamente el mismo
+            # inventario. Antes solo se generaba la descarga/snapshot y la
             # auditoría quedaba sin ExcelDetalle, por lo que Compras aparecía 0.
             from core.excel_importer import importar_excel
             excel_anteriores = (
@@ -516,7 +538,7 @@ def admin_desc():
             # Determinar mes para regla de continuidad
             mes = fecha_fin[:7]   # YYYY-MM
 
-            # Datos del período seleccionado (Periodo vs Excel oficial)
+            # Datos del período seleccionado (período vs inventario oficial)
             sm   = _stock_map_periodo(periodo.id)
             vm   = _ventas_map(tienda_id, fecha_ini, fecha_fin, periodo.id) if tienda_id else {}
             pm   = _precios_map()
@@ -544,7 +566,7 @@ def admin_desc():
                 f"({resumen['excluidos']} excluidas por grupo). "
                 f"SI desde período ({periodo.numero}) / {continuidad}: {resumen['si_snap'] + resumen['si_sys']} prods. "
                 f"VR desde sistema: {resumen['vr_sys']} prods. "
-                f"Excel oficial #{excel_imp.id} registrado para auditoría.",
+                f"Inventario oficial #{excel_imp.id} registrado para auditoría.",
                 "success",
             )
             for advertencia in advertencias_excel[:5]:
@@ -569,8 +591,16 @@ def admin_desc():
         tiendas_map=tiendas_map,
         periodos_disponibles=periodos_disponibles,
         periodo_seleccionado=periodo_seleccionado,
+        active_doc_tab=active_doc_tab,
         excel_seleccionado=excel_seleccionado,
         excel_detalles=excel_detalles,
+        facturas_periodo=facturas_periodo,
+        factura_detalles=factura_detalles,
+        productos_factura=Producto.query.order_by(Producto.categoria, Producto.nombre).all(),
+        facturas_pendientes=sum(
+            1 for detalle in factura_detalles
+            if detalle.estado_vinculacion not in ("vinculado", "aplicado", "fuera_rango")
+        ),
         estado_sync=estado_sync,
         mostrar_datos=request.args.get("ver_datos") == "1",
         snapshots=snapshots,
@@ -583,6 +613,170 @@ def admin_desc():
         hoy=date.today().isoformat(),
         primer_dia=date.today().replace(day=1).isoformat(),
     )
+
+
+@desc_bp.route("/admin/documentacion/facturas/importar", methods=["POST"])
+def desc_facturas_importar():
+    """Importa hasta 20 facturas PDF en una sola operación."""
+    _requiere_admin()
+    from core.models import db, InventarioPeriodo
+    from core.factura_ocr import (
+        FacturaError, MAX_FACTURAS_POR_CARGA, MAX_TOTAL_BYTES, importar_factura,
+    )
+
+    cliente_id = session.get("cliente_id", "C001")
+    periodo_id = request.form.get("periodo_id", type=int)
+    periodo = InventarioPeriodo.query.filter_by(
+        id=periodo_id, cliente_id=cliente_id,
+    ).first()
+    if periodo is None:
+        flash("Selecciona un período contable válido.", "warning")
+        return redirect(url_for("desc.admin_desc"))
+
+    archivos = [archivo for archivo in request.files.getlist("facturas_pdf") if archivo.filename]
+    if not archivos:
+        flash("Selecciona al menos una factura PDF.", "warning")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+    if len(archivos) > MAX_FACTURAS_POR_CARGA:
+        flash(f"Puedes cargar hasta {MAX_FACTURAS_POR_CARGA} facturas por operación.", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+
+    contenidos = []
+    total_bytes = 0
+    for archivo in archivos:
+        if not archivo.filename.lower().endswith(".pdf"):
+            flash(f"{archivo.filename}: solo se permiten archivos PDF.", "error")
+            return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+        contenido = archivo.read()
+        total_bytes += len(contenido)
+        contenidos.append((archivo.filename, contenido))
+    if total_bytes > MAX_TOTAL_BYTES:
+        flash("El conjunto de facturas supera el límite de 60 MB.", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+
+    importadas = 0
+    avisos = []
+    try:
+        for nombre, contenido in contenidos:
+            factura, advertencias = importar_factura(
+                periodo=periodo, cliente_id=cliente_id,
+                usuario=session.get("usuario", "administrador"),
+                nombre_archivo=nombre, contenido=contenido,
+            )
+            importadas += int(factura is not None)
+            avisos.extend(advertencias)
+        db.session.commit()
+    except FacturaError as exc:
+        db.session.rollback()
+        flash(f"No se pudieron importar las facturas: {exc}", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+    except Exception:
+        db.session.rollback()
+        flash("Ocurrió un error al guardar las facturas; no se almacenaron datos parciales.", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+
+    flash(f"{importadas} factura(s) procesada(s). Revisa las compras detectadas antes de aplicarlas.", "success")
+    for aviso in avisos[:8]:
+        flash(aviso, "warning")
+    if len(avisos) > 8:
+        flash(f"Hay {len(avisos) - 8} advertencia(s) adicionales en la tabla de revisión.", "warning")
+    return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+
+
+@desc_bp.route("/admin/documentacion/facturas/detalle/<int:detalle_id>", methods=["POST"])
+def desc_factura_detalle_actualizar(detalle_id):
+    """Permite confirmar el producto y la conversión antes de aplicar Compras."""
+    _requiere_admin()
+    from core.models import db, FacturaCompra, FacturaCompraDetalle, Producto
+
+    cliente_id = session.get("cliente_id", "C001")
+    detalle = (
+        FacturaCompraDetalle.query.join(FacturaCompra)
+        .filter(FacturaCompraDetalle.id == detalle_id, FacturaCompra.cliente_id == cliente_id)
+        .first()
+    )
+    if detalle is None:
+        abort(404)
+    producto_id = request.form.get("producto_id", type=int)
+    producto = db.session.get(Producto, producto_id) if producto_id else None
+    try:
+        cantidad = float(request.form.get("cantidad_facturada", detalle.cantidad_facturada))
+        factor = float(request.form.get("factor_conversion", detalle.factor_conversion))
+    except (TypeError, ValueError):
+        flash("Cantidad o factor de conversión inválidos.", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=detalle.factura.periodo_id, doc_tab="facturas") + "#facturas-card")
+    if (
+        producto is None or not math.isfinite(cantidad) or not math.isfinite(factor)
+        or cantidad < 0 or factor <= 0
+    ):
+        flash("Selecciona un producto y utiliza valores de conversión válidos.", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=detalle.factura.periodo_id, doc_tab="facturas") + "#facturas-card")
+    permitidas = {"Impulsivo", "Por Kilos"} if detalle.factura.proveedor == "Helacor" else {"Extras"}
+    if producto.categoria not in permitidas:
+        flash(f"{detalle.factura.proveedor} solo puede vincular productos de {', '.join(sorted(permitidas))}.", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=detalle.factura.periodo_id, doc_tab="facturas") + "#facturas-card")
+    detalle.producto_id = producto.id
+    detalle.producto_nombre = producto.nombre
+    detalle.cantidad_facturada = cantidad
+    detalle.factor_conversion = factor
+    detalle.compras_calculadas = cantidad * factor
+    detalle.estado_vinculacion = "fuera_rango" if detalle.factura.estado == "fuera_rango" else "vinculado"
+    detalle.confianza = "Confirmada"
+    detalle.observacion = "Vinculación y conversión confirmadas por administrador"
+    db.session.commit()
+    flash(f"Compra de {producto.nombre} actualizada.", "success")
+    return redirect(url_for("desc.admin_desc", periodo_id=detalle.factura.periodo_id, doc_tab="facturas") + "#facturas-card")
+
+
+@desc_bp.route("/admin/documentacion/facturas/aplicar", methods=["POST"])
+def desc_facturas_aplicar():
+    """Reemplaza Compras del Excel por las unidades confirmadas de las facturas."""
+    _requiere_admin()
+    from core.models import db, InventarioPeriodo
+    from core.factura_ocr import FacturaError, aplicar_compras_facturas
+
+    cliente_id = session.get("cliente_id", "C001")
+    periodo = InventarioPeriodo.query.filter_by(
+        id=request.form.get("periodo_id", type=int), cliente_id=cliente_id,
+    ).first()
+    if periodo is None:
+        abort(404)
+    try:
+        resumen = aplicar_compras_facturas(
+            periodo, cliente_id, session.get("usuario", "administrador")
+        )
+        db.session.commit()
+    except FacturaError as exc:
+        db.session.rollback()
+        flash(str(exc), "warning")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+    except Exception:
+        db.session.rollback()
+        flash("No se aplicaron las compras; la operación fue revertida completamente.", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+    mensaje = f"Compras actualizadas desde facturas: {resumen['cambios']} producto(s)."
+    if resumen["no_encontrados"]:
+        mensaje += f" {len(resumen['no_encontrados'])} producto(s) no existen en el inventario XLS/XLSX."
+    flash(mensaje, "success")
+    return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="datos", ver_datos=1) + "#datos-extraidos-card")
+
+
+@desc_bp.route("/admin/documentacion/facturas/<int:factura_id>/pdf")
+def desc_factura_pdf(factura_id):
+    _requiere_admin()
+    from core.models import FacturaCompra
+    factura = FacturaCompra.query.filter_by(
+        id=factura_id, cliente_id=session.get("cliente_id", "C001")
+    ).first()
+    if factura is None:
+        abort(404)
+    response = send_pdf_response(
+        io.BytesIO(factura.archivo_pdf), mimetype="application/pdf",
+        download_name=factura.nombre_archivo, as_attachment=False,
+    )
+    response.headers["Content-Security-Policy"] = "sandbox"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 _CAMPOS_EXCEL_TEXTO = {
