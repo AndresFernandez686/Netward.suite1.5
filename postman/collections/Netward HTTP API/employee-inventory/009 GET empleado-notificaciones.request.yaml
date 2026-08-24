@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /empleado/notificaciones'
+method: GET
+url: '{{baseUrl}}/empleado/notificaciones'
+order: 9000

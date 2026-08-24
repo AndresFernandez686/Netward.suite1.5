@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'GET /admin/periodos/<int:periodo_id>/exportar'
+method: GET
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/exportar'
+order: 71000
+pathVariables:
+  - key: periodo_id
+    value: '1'

@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'GET /admin/notificaciones/<int:notif_id>/ir'
+method: GET
+url: '{{baseUrl}}/admin/notificaciones/{{notif_id}}/ir'
+order: 37000
+pathVariables:
+  - key: notif_id
+    value: '1'

@@ -1,0 +1,10 @@
+$kind: http-request
+name: 'POST /admin/periodos/config/autoclose'
+method: POST
+url: '{{baseUrl}}/admin/periodos/config/autoclose'
+order: 74000
+body:
+  type: urlencoded
+  content:
+    - key: horas
+      value: ''

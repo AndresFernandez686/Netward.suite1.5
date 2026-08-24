@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /empleado/sincronizar-page'
+method: GET
+url: '{{baseUrl}}/empleado/sincronizar-page'
+order: 23000

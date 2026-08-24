@@ -1,0 +1,19 @@
+$kind: http-request
+name: 'POST /admin/usuarios/<int:usuario_id>/editar'
+method: POST
+url: '{{baseUrl}}/admin/usuarios/{{usuario_id}}/editar'
+order: 35000
+pathVariables:
+  - key: usuario_id
+    value: '1'
+body:
+  type: urlencoded
+  content:
+    - key: contrasena
+      value: ''
+    - key: rol
+      value: ''
+    - key: tienda_id
+      value: ''
+    - key: username
+      value: ''

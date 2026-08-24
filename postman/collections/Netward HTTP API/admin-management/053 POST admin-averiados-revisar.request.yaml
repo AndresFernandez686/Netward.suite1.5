@@ -1,0 +1,14 @@
+$kind: http-request
+name: 'POST /admin/averiados/revisar'
+method: POST
+url: '{{baseUrl}}/admin/averiados/revisar'
+order: 53000
+body:
+  type: urlencoded
+  content:
+    - key: desde
+      value: ''
+    - key: hasta
+      value: ''
+    - key: tienda
+      value: ''

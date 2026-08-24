@@ -1,0 +1,17 @@
+$kind: http-request
+name: 'POST /admin/documentacion/facturas/detalle/<int:detalle_id>'
+method: POST
+url: '{{baseUrl}}/admin/documentacion/facturas/detalle/{{detalle_id}}'
+order: 82000
+pathVariables:
+  - key: detalle_id
+    value: '1'
+body:
+  type: urlencoded
+  content:
+    - key: cantidad_facturada
+      value: ''
+    - key: factor_conversion
+      value: ''
+    - key: producto_id
+      value: ''

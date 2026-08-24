@@ -1,0 +1,12 @@
+$kind: http-request
+name: 'GET /admin/vencimientos'
+method: GET
+url: '{{baseUrl}}/admin/vencimientos'
+order: 54000
+queryParams:
+  - key: desde
+    value: ''
+  - key: hasta
+    value: ''
+  - key: tienda
+    value: ''

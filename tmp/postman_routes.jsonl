@@ -1,0 +1,79 @@
+{"file": "app.py", "line": 623, "function": "index", "route": "/", "methods": ["GET"]}
+{"file": "app.py", "line": 632, "function": "login", "route": "/login", "methods": ["GET", "POST"]}
+{"file": "app.py", "line": 671, "function": "logout", "route": "/logout", "methods": ["GET"]}
+{"file": "app.py", "line": 794, "function": "empleado_inventario", "route": "/empleado/inventario", "methods": ["GET"]}
+{"file": "app.py", "line": 800, "function": "empleado_periodo_abierto", "route": "/empleado/periodo-abierto", "methods": ["GET"]}
+{"file": "app.py", "line": 865, "function": "empleado_productos_no_cargados", "route": "/empleado/periodo-abierto/productos-no-cargados", "methods": ["GET"]}
+{"file": "app.py", "line": 912, "function": "empleado_periodo_seleccionar", "route": "/empleado/periodo-abierto/seleccionar", "methods": ["POST"]}
+{"file": "app.py", "line": 934, "function": "empleado_notificaciones", "route": "/empleado/notificaciones", "methods": ["GET"]}
+{"file": "app.py", "line": 956, "function": "empleado_notificaciones_marcar_todas", "route": "/empleado/notificaciones/marcar-todas", "methods": ["POST"]}
+{"file": "app.py", "line": 974, "function": "empleado_notificacion_ir", "route": "/empleado/notificaciones/<int:notif_id>/ir", "methods": ["GET"]}
+{"file": "app.py", "line": 1018, "function": "carrito_agregar", "route": "/empleado/carrito/agregar", "methods": ["POST"]}
+{"file": "app.py", "line": 1132, "function": "carrito_eliminar", "route": "/empleado/carrito/eliminar/<int:idx>", "methods": ["POST"]}
+{"file": "app.py", "line": 1148, "function": "carrito_limpiar", "route": "/empleado/carrito/limpiar", "methods": ["POST"]}
+{"file": "app.py", "line": 1159, "function": "carrito_guardar", "route": "/empleado/carrito/guardar", "methods": ["POST"]}
+{"file": "app.py", "line": 1244, "function": "carrito_confirmar_conflicto", "route": "/empleado/carrito/confirmar-conflicto", "methods": ["POST"]}
+{"file": "app.py", "line": 1338, "function": "empleado_averiado", "route": "/empleado/averiado", "methods": ["GET", "POST"]}
+{"file": "app.py", "line": 1386, "function": "averiado_eliminar", "route": "/empleado/averiado/<int:reg_id>/eliminar", "methods": ["POST"]}
+{"file": "app.py", "line": 1400, "function": "empleado_vencimiento", "route": "/empleado/vencimiento", "methods": ["GET", "POST"]}
+{"file": "app.py", "line": 1448, "function": "vencimiento_eliminar", "route": "/empleado/vencimiento/<int:reg_id>/eliminar", "methods": ["POST"]}
+{"file": "app.py", "line": 1462, "function": "empleado_sincronizar_page", "route": "/empleado/sincronizar-page", "methods": ["GET"]}
+{"file": "app.py", "line": 1490, "function": "empleado_sincronizar", "route": "/empleado/sincronizar", "methods": ["POST"]}
+{"file": "app.py", "line": 1567, "function": "empleado_historial", "route": "/empleado/historial", "methods": ["GET"]}
+{"file": "app.py", "line": 1588, "function": "empleado_delivery", "route": "/empleado/delivery", "methods": ["GET", "POST"]}
+{"file": "app.py", "line": 1654, "function": "admin_dashboard", "route": "/admin/", "methods": ["GET"]}
+{"file": "app.py", "line": 1654, "function": "admin_dashboard", "route": "/admin/dashboard", "methods": ["GET"]}
+{"file": "app.py", "line": 1772, "function": "admin_precios", "route": "/admin/precios", "methods": ["GET", "POST"]}
+{"file": "app.py", "line": 1853, "function": "admin_usuarios", "route": "/admin/usuarios", "methods": ["GET"]}
+{"file": "app.py", "line": 1867, "function": "usuario_crear", "route": "/admin/usuarios/crear", "methods": ["POST"]}
+{"file": "app.py", "line": 1907, "function": "usuario_eliminar", "route": "/admin/usuarios/<int:usuario_id>/eliminar", "methods": ["POST"]}
+{"file": "app.py", "line": 1925, "function": "usuario_editar", "route": "/admin/usuarios/<int:usuario_id>/editar", "methods": ["POST"]}
+{"file": "app.py", "line": 1981, "function": "admin_alertas", "route": "/admin/alertas", "methods": ["GET"]}
+{"file": "app.py", "line": 2046, "function": "admin_notificacion_ir", "route": "/admin/notificaciones/<int:notif_id>/ir", "methods": ["GET"]}
+{"file": "app.py", "line": 2072, "function": "admin_sincronizacion", "route": "/admin/sincronizar", "methods": ["GET"]}
+{"file": "app.py", "line": 2102, "function": "admin_sincronizar_forzar", "route": "/admin/sincronizar/forzar", "methods": ["POST"]}
+{"file": "app.py", "line": 2127, "function": "admin_inventario", "route": "/admin/inventario", "methods": ["GET"]}
+{"file": "app.py", "line": 2163, "function": "admin_historial", "route": "/admin/historial", "methods": ["GET"]}
+{"file": "app.py", "line": 2191, "function": "admin_configuracion", "route": "/admin/configuracion", "methods": ["GET"]}
+{"file": "app.py", "line": 2222, "function": "producto_precio_guardar", "route": "/admin/configuracion/precios", "methods": ["POST"]}
+{"file": "app.py", "line": 2262, "function": "producto_crear", "route": "/admin/producto/crear", "methods": ["POST"]}
+{"file": "app.py", "line": 2296, "function": "producto_eliminar", "route": "/admin/producto/<int:producto_id>/eliminar", "methods": ["POST"]}
+{"file": "app.py", "line": 2314, "function": "tienda_crear", "route": "/admin/tienda/crear", "methods": ["POST"]}
+{"file": "app.py", "line": 2332, "function": "tienda_toggle", "route": "/admin/tienda/<tienda_id>/toggle", "methods": ["POST"]}
+{"file": "app.py", "line": 2345, "function": "tienda_default", "route": "/admin/tienda/<tienda_id>/default", "methods": ["POST"]}
+{"file": "app.py", "line": 2360, "function": "admin_delivery", "route": "/admin/delivery", "methods": ["GET", "POST"]}
+{"file": "app.py", "line": 2404, "function": "delivery_toggle", "route": "/admin/delivery/<int:prod_id>/toggle", "methods": ["POST"]}
+{"file": "app.py", "line": 2421, "function": "admin_averiados", "route": "/admin/averiados", "methods": ["GET"]}
+{"file": "app.py", "line": 2457, "function": "admin_averiados_revisar", "route": "/admin/averiados/revisar", "methods": ["POST"]}
+{"file": "app.py", "line": 2485, "function": "admin_vencimientos", "route": "/admin/vencimientos", "methods": ["GET"]}
+{"file": "app.py", "line": 2510, "function": "admin_vencimientos_revisar", "route": "/admin/vencimientos/revisar", "methods": ["POST"]}
+{"file": "app.py", "line": 2559, "function": "export_inventario", "route": "/admin/inventario/export", "methods": ["GET"]}
+{"file": "app.py", "line": 2585, "function": "export_historial", "route": "/admin/historial/export", "methods": ["GET"]}
+{"file": "app.py", "line": 2605, "function": "admin_periodos", "route": "/admin/periodos", "methods": ["GET"]}
+{"file": "app.py", "line": 2626, "function": "admin_periodo_crear", "route": "/admin/periodos/crear", "methods": ["POST"]}
+{"file": "app.py", "line": 2684, "function": "admin_periodo_detalle", "route": "/admin/periodos/<int:periodo_id>", "methods": ["GET"]}
+{"file": "app.py", "line": 2712, "function": "admin_periodo_cerrar", "route": "/admin/periodos/<int:periodo_id>/cerrar", "methods": ["POST"]}
+{"file": "app.py", "line": 2742, "function": "admin_periodo_ajuste", "route": "/admin/periodos/<int:periodo_id>/ajuste", "methods": ["POST"]}
+{"file": "app.py", "line": 2780, "function": "admin_periodo_excel_importar", "route": "/admin/periodos/<int:periodo_id>/excel/importar", "methods": ["POST"]}
+{"file": "app.py", "line": 2817, "function": "admin_excel_vincular", "route": "/admin/periodos/<int:periodo_id>/excel/<int:excel_id>/vincular", "methods": ["POST"]}
+{"file": "app.py", "line": 2851, "function": "admin_auditoria_ejecutar", "route": "/admin/periodos/<int:periodo_id>/auditoria/ejecutar", "methods": ["POST"]}
+{"file": "app.py", "line": 2906, "function": "admin_auditoria", "route": "/admin/periodos/<int:periodo_id>/auditoria", "methods": ["GET"]}
+{"file": "app.py", "line": 2954, "function": "admin_asistente_consultar", "route": "/admin/periodos/<int:periodo_id>/asistente/consultar", "methods": ["POST"]}
+{"file": "app.py", "line": 3027, "function": "admin_justificar", "route": "/admin/periodos/<int:periodo_id>/justificar/<int:resultado_id>", "methods": ["POST"]}
+{"file": "app.py", "line": 3077, "function": "admin_marcar_revisado", "route": "/admin/periodos/<int:periodo_id>/revisar/<int:resultado_id>", "methods": ["POST"]}
+{"file": "app.py", "line": 3094, "function": "admin_reporte_gerencial", "route": "/admin/periodos/<int:periodo_id>/reporte", "methods": ["GET"]}
+{"file": "app.py", "line": 3105, "function": "admin_auditoria_exportar", "route": "/admin/periodos/<int:periodo_id>/exportar", "methods": ["GET"]}
+{"file": "app.py", "line": 3214, "function": "admin_conteo_manual", "route": "/admin/periodos/<int:periodo_id>/conteo/manual", "methods": ["POST"]}
+{"file": "app.py", "line": 3253, "function": "admin_config_autoclose", "route": "/admin/periodos/config/autoclose", "methods": ["GET", "POST"]}
+{"file": "app.py", "line": 3278, "function": "admin_productos_relacionados", "route": "/admin/productos-relacionados", "methods": ["GET"]}
+{"file": "app.py", "line": 3290, "function": "admin_producto_relacionado_crear", "route": "/admin/productos-relacionados/crear", "methods": ["POST"]}
+{"file": "app.py", "line": 3329, "function": "admin_producto_relacionado_toggle", "route": "/admin/productos-relacionados/<int:rel_id>/toggle", "methods": ["POST"]}
+{"file": "app.py", "line": 3342, "function": "admin_producto_relacionado_eliminar", "route": "/admin/productos-relacionados/<int:rel_id>/eliminar", "methods": ["POST"]}
+{"file": "core/inventario.py", "line": 396, "function": "admin_desc", "route": "/admin/desc", "methods": ["GET", "POST"]}
+{"file": "core/inventario.py", "line": 619, "function": "desc_facturas_importar", "route": "/admin/documentacion/facturas/importar", "methods": ["POST"]}
+{"file": "core/inventario.py", "line": 687, "function": "desc_factura_detalle_actualizar", "route": "/admin/documentacion/facturas/detalle/<int:detalle_id>", "methods": ["POST"]}
+{"file": "core/inventario.py", "line": 732, "function": "desc_facturas_aplicar", "route": "/admin/documentacion/facturas/aplicar", "methods": ["POST"]}
+{"file": "core/inventario.py", "line": 765, "function": "desc_factura_pdf", "route": "/admin/documentacion/facturas/<int:factura_id>/pdf", "methods": ["GET"]}
+{"file": "core/inventario.py", "line": 826, "function": "desc_excel_datos_guardar", "route": "/admin/desc/excel/<int:excel_id>/datos", "methods": ["POST"]}
+{"file": "core/inventario.py", "line": 958, "function": "desc_snapshot_eliminar", "route": "/admin/desc/snapshot/<int:snap_id>/eliminar", "methods": ["POST"]}
+{"file": "core/inventario.py", "line": 1106, "function": "desc_sincronizar", "route": "/admin/desc/sincronizar", "methods": ["GET", "POST"]}

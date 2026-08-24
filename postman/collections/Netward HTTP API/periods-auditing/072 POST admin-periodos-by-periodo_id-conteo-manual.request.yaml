@@ -1,0 +1,19 @@
+$kind: http-request
+name: 'POST /admin/periodos/<int:periodo_id>/conteo/manual'
+method: POST
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/conteo/manual'
+order: 72000
+pathVariables:
+  - key: periodo_id
+    value: '1'
+body:
+  type: urlencoded
+  content:
+    - key: cantidad
+      value: ''
+    - key: categoria
+      value: ''
+    - key: observacion
+      value: ''
+    - key: producto_nombre
+      value: ''

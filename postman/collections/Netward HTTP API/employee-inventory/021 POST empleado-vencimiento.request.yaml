@@ -1,0 +1,22 @@
+$kind: http-request
+name: 'POST /empleado/vencimiento'
+method: POST
+url: '{{baseUrl}}/empleado/vencimiento'
+order: 21000
+body:
+  type: urlencoded
+  content:
+    - key: cantidad
+      value: ''
+    - key: categoria
+      value: ''
+    - key: detalle
+      value: ''
+    - key: fecha
+      value: ''
+    - key: fecha_vencimiento
+      value: ''
+    - key: producto
+      value: ''
+    - key: ume
+      value: ''

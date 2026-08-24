@@ -1,0 +1,10 @@
+$kind: http-request
+name: 'POST /admin/documentacion/facturas/aplicar'
+method: POST
+url: '{{baseUrl}}/admin/documentacion/facturas/aplicar'
+order: 83000
+body:
+  type: urlencoded
+  content:
+    - key: periodo_id
+      value: ''

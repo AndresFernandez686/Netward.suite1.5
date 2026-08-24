@@ -1,0 +1,1211 @@
+[
+  {
+    "file": "app.py",
+    "line": 623,
+    "path": "/",
+    "methods": [
+      "GET"
+    ],
+    "name": "index",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 632,
+    "path": "/login",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "name": "login",
+    "forms": [
+      "contrasena",
+      "usuario"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 671,
+    "path": "/logout",
+    "methods": [
+      "GET"
+    ],
+    "name": "logout",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 794,
+    "path": "/empleado/inventario",
+    "methods": [
+      "GET"
+    ],
+    "name": "empleado_inventario",
+    "forms": [],
+    "args": [
+      "tab"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 800,
+    "path": "/empleado/periodo-abierto",
+    "methods": [
+      "GET"
+    ],
+    "name": "empleado_periodo_abierto",
+    "forms": [],
+    "args": [
+      "marcar_visto",
+      "tab"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 865,
+    "path": "/empleado/periodo-abierto/productos-no-cargados",
+    "methods": [
+      "GET"
+    ],
+    "name": "empleado_productos_no_cargados",
+    "forms": [],
+    "args": [
+      "tab"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 912,
+    "path": "/empleado/periodo-abierto/seleccionar",
+    "methods": [
+      "POST"
+    ],
+    "name": "empleado_periodo_seleccionar",
+    "forms": [
+      "periodo_id"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 934,
+    "path": "/empleado/notificaciones",
+    "methods": [
+      "GET"
+    ],
+    "name": "empleado_notificaciones",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 956,
+    "path": "/empleado/notificaciones/marcar-todas",
+    "methods": [
+      "POST"
+    ],
+    "name": "empleado_notificaciones_marcar_todas",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 974,
+    "path": "/empleado/notificaciones/<int:notif_id>/ir",
+    "methods": [
+      "GET"
+    ],
+    "name": "empleado_notificacion_ir",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1018,
+    "path": "/empleado/carrito/agregar",
+    "methods": [
+      "POST"
+    ],
+    "name": "carrito_agregar",
+    "forms": [
+      "cantidad",
+      "categoria",
+      "confirmar_sobreescritura",
+      "detalle",
+      "fecha",
+      "producto",
+      "tipo_inventario",
+      "ume",
+      "version_esperada"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1132,
+    "path": "/empleado/carrito/eliminar/<int:idx>",
+    "methods": [
+      "POST"
+    ],
+    "name": "carrito_eliminar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1148,
+    "path": "/empleado/carrito/limpiar",
+    "methods": [
+      "POST"
+    ],
+    "name": "carrito_limpiar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1159,
+    "path": "/empleado/carrito/guardar",
+    "methods": [
+      "POST"
+    ],
+    "name": "carrito_guardar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1244,
+    "path": "/empleado/carrito/confirmar-conflicto",
+    "methods": [
+      "POST"
+    ],
+    "name": "carrito_confirmar_conflicto",
+    "forms": [
+      "categoria",
+      "producto"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1338,
+    "path": "/empleado/averiado",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "name": "empleado_averiado",
+    "forms": [
+      "cantidad",
+      "categoria",
+      "detalle",
+      "fecha",
+      "producto",
+      "ume"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1386,
+    "path": "/empleado/averiado/<int:reg_id>/eliminar",
+    "methods": [
+      "POST"
+    ],
+    "name": "averiado_eliminar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1400,
+    "path": "/empleado/vencimiento",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "name": "empleado_vencimiento",
+    "forms": [
+      "cantidad",
+      "categoria",
+      "detalle",
+      "fecha",
+      "fecha_vencimiento",
+      "producto",
+      "ume"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1448,
+    "path": "/empleado/vencimiento/<int:reg_id>/eliminar",
+    "methods": [
+      "POST"
+    ],
+    "name": "vencimiento_eliminar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1462,
+    "path": "/empleado/sincronizar-page",
+    "methods": [
+      "GET"
+    ],
+    "name": "empleado_sincronizar_page",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1490,
+    "path": "/empleado/sincronizar",
+    "methods": [
+      "POST"
+    ],
+    "name": "empleado_sincronizar",
+    "forms": [
+      "accion"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1567,
+    "path": "/empleado/historial",
+    "methods": [
+      "GET"
+    ],
+    "name": "empleado_historial",
+    "forms": [],
+    "args": [
+      "fecha"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1588,
+    "path": "/empleado/delivery",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "name": "empleado_delivery",
+    "forms": [
+      "cantidad",
+      "fecha",
+      "producto_id"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1654,
+    "path": "/admin/",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_dashboard",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1654,
+    "path": "/admin/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_dashboard",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1772,
+    "path": "/admin/precios",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "name": "admin_precios",
+    "forms": [
+      "active_tab",
+      "ids"
+    ],
+    "args": [
+      "tab"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1853,
+    "path": "/admin/usuarios",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_usuarios",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1867,
+    "path": "/admin/usuarios/crear",
+    "methods": [
+      "POST"
+    ],
+    "name": "usuario_crear",
+    "forms": [
+      "contrasena",
+      "rol",
+      "tienda_id",
+      "username"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1907,
+    "path": "/admin/usuarios/<int:usuario_id>/eliminar",
+    "methods": [
+      "POST"
+    ],
+    "name": "usuario_eliminar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1925,
+    "path": "/admin/usuarios/<int:usuario_id>/editar",
+    "methods": [
+      "POST"
+    ],
+    "name": "usuario_editar",
+    "forms": [
+      "contrasena",
+      "rol",
+      "tienda_id",
+      "username"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 1981,
+    "path": "/admin/alertas",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_alertas",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2046,
+    "path": "/admin/notificaciones/<int:notif_id>/ir",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_notificacion_ir",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2072,
+    "path": "/admin/sincronizar",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_sincronizacion",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2102,
+    "path": "/admin/sincronizar/forzar",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_sincronizar_forzar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2127,
+    "path": "/admin/inventario",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_inventario",
+    "forms": [],
+    "args": [
+      "alerta",
+      "busqueda",
+      "categoria",
+      "estado",
+      "tienda"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2163,
+    "path": "/admin/historial",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_historial",
+    "forms": [],
+    "args": [
+      "empleado",
+      "fecha",
+      "fecha_fin",
+      "fecha_inicio",
+      "tienda",
+      "tipo"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2191,
+    "path": "/admin/configuracion",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_configuracion",
+    "forms": [],
+    "args": [
+      "section",
+      "tab"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2222,
+    "path": "/admin/configuracion/precios",
+    "methods": [
+      "POST"
+    ],
+    "name": "producto_precio_guardar",
+    "forms": [
+      "ids"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2262,
+    "path": "/admin/producto/crear",
+    "methods": [
+      "POST"
+    ],
+    "name": "producto_crear",
+    "forms": [
+      "active_tab",
+      "categoria",
+      "codigo_articulo",
+      "nombre"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2296,
+    "path": "/admin/producto/<int:producto_id>/eliminar",
+    "methods": [
+      "POST"
+    ],
+    "name": "producto_eliminar",
+    "forms": [
+      "active_tab"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2314,
+    "path": "/admin/tienda/crear",
+    "methods": [
+      "POST"
+    ],
+    "name": "tienda_crear",
+    "forms": [
+      "direccion",
+      "nombre"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2332,
+    "path": "/admin/tienda/<tienda_id>/toggle",
+    "methods": [
+      "POST"
+    ],
+    "name": "tienda_toggle",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2345,
+    "path": "/admin/tienda/<tienda_id>/default",
+    "methods": [
+      "POST"
+    ],
+    "name": "tienda_default",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2360,
+    "path": "/admin/delivery",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "name": "admin_delivery",
+    "forms": [
+      "_section",
+      "es_promocion",
+      "nombre",
+      "precio"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2404,
+    "path": "/admin/delivery/<int:prod_id>/toggle",
+    "methods": [
+      "POST"
+    ],
+    "name": "delivery_toggle",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2421,
+    "path": "/admin/averiados",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_averiados",
+    "forms": [],
+    "args": [
+      "desde",
+      "hasta",
+      "tienda"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2457,
+    "path": "/admin/averiados/revisar",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_averiados_revisar",
+    "forms": [
+      "desde",
+      "hasta",
+      "tienda"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2485,
+    "path": "/admin/vencimientos",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_vencimientos",
+    "forms": [],
+    "args": [
+      "desde",
+      "hasta",
+      "tienda"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2510,
+    "path": "/admin/vencimientos/revisar",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_vencimientos_revisar",
+    "forms": [
+      "desde",
+      "hasta",
+      "tienda"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2559,
+    "path": "/admin/inventario/export",
+    "methods": [
+      "GET"
+    ],
+    "name": "export_inventario",
+    "forms": [],
+    "args": [
+      "tienda"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2585,
+    "path": "/admin/historial/export",
+    "methods": [
+      "GET"
+    ],
+    "name": "export_historial",
+    "forms": [],
+    "args": [
+      "tienda"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2605,
+    "path": "/admin/periodos",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_periodos",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2626,
+    "path": "/admin/periodos/crear",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_periodo_crear",
+    "forms": [
+      "fecha_desde",
+      "fecha_hasta",
+      "observacion",
+      "tienda_id"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2684,
+    "path": "/admin/periodos/<int:periodo_id>",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_periodo_detalle",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2712,
+    "path": "/admin/periodos/<int:periodo_id>/cerrar",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_periodo_cerrar",
+    "forms": [
+      "forzar"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2742,
+    "path": "/admin/periodos/<int:periodo_id>/ajuste",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_periodo_ajuste",
+    "forms": [
+      "cantidad",
+      "impacta_stock",
+      "motivo",
+      "observacion",
+      "producto_nombre"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2780,
+    "path": "/admin/periodos/<int:periodo_id>/excel/importar",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_periodo_excel_importar",
+    "forms": [],
+    "args": [],
+    "files": [
+      "archivo_excel"
+    ],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2817,
+    "path": "/admin/periodos/<int:periodo_id>/excel/<int:excel_id>/vincular",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_excel_vincular",
+    "forms": [
+      "detalle_id",
+      "nombre_interno"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2851,
+    "path": "/admin/periodos/<int:periodo_id>/auditoria/ejecutar",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_auditoria_ejecutar",
+    "forms": [
+      "forzar"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2906,
+    "path": "/admin/periodos/<int:periodo_id>/auditoria",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_auditoria",
+    "forms": [],
+    "args": [
+      "filtro"
+    ],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 2954,
+    "path": "/admin/periodos/<int:periodo_id>/asistente/consultar",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_asistente_consultar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": true
+  },
+  {
+    "file": "app.py",
+    "line": 3027,
+    "path": "/admin/periodos/<int:periodo_id>/justificar/<int:resultado_id>",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_justificar",
+    "forms": [
+      "cantidad_justificada",
+      "causa",
+      "observacion"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 3077,
+    "path": "/admin/periodos/<int:periodo_id>/revisar/<int:resultado_id>",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_marcar_revisado",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 3094,
+    "path": "/admin/periodos/<int:periodo_id>/reporte",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_reporte_gerencial",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 3105,
+    "path": "/admin/periodos/<int:periodo_id>/exportar",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_auditoria_exportar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 3214,
+    "path": "/admin/periodos/<int:periodo_id>/conteo/manual",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_conteo_manual",
+    "forms": [
+      "cantidad",
+      "categoria",
+      "observacion",
+      "producto_nombre"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 3253,
+    "path": "/admin/periodos/config/autoclose",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "name": "admin_config_autoclose",
+    "forms": [
+      "horas"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 3278,
+    "path": "/admin/productos-relacionados",
+    "methods": [
+      "GET"
+    ],
+    "name": "admin_productos_relacionados",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 3290,
+    "path": "/admin/productos-relacionados/crear",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_producto_relacionado_crear",
+    "forms": [
+      "producto_principal",
+      "producto_relacionado",
+      "ratio_esperado",
+      "tolerancia"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 3329,
+    "path": "/admin/productos-relacionados/<int:rel_id>/toggle",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_producto_relacionado_toggle",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "app.py",
+    "line": 3342,
+    "path": "/admin/productos-relacionados/<int:rel_id>/eliminar",
+    "methods": [
+      "POST"
+    ],
+    "name": "admin_producto_relacionado_eliminar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "core\\inventario.py",
+    "line": 396,
+    "path": "/admin/desc",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "name": "admin_desc",
+    "forms": [
+      "periodo_id",
+      "return_to"
+    ],
+    "args": [
+      "doc_tab",
+      "periodo_id",
+      "ver_datos"
+    ],
+    "files": [
+      "archivo"
+    ],
+    "json": false
+  },
+  {
+    "file": "core\\inventario.py",
+    "line": 619,
+    "path": "/admin/documentacion/facturas/importar",
+    "methods": [
+      "POST"
+    ],
+    "name": "desc_facturas_importar",
+    "forms": [
+      "periodo_id"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "core\\inventario.py",
+    "line": 687,
+    "path": "/admin/documentacion/facturas/detalle/<int:detalle_id>",
+    "methods": [
+      "POST"
+    ],
+    "name": "desc_factura_detalle_actualizar",
+    "forms": [
+      "cantidad_facturada",
+      "factor_conversion",
+      "producto_id"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "core\\inventario.py",
+    "line": 732,
+    "path": "/admin/documentacion/facturas/aplicar",
+    "methods": [
+      "POST"
+    ],
+    "name": "desc_facturas_aplicar",
+    "forms": [
+      "periodo_id"
+    ],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "core\\inventario.py",
+    "line": 765,
+    "path": "/admin/documentacion/facturas/<int:factura_id>/pdf",
+    "methods": [
+      "GET"
+    ],
+    "name": "desc_factura_pdf",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "core\\inventario.py",
+    "line": 826,
+    "path": "/admin/desc/excel/<int:excel_id>/datos",
+    "methods": [
+      "POST"
+    ],
+    "name": "desc_excel_datos_guardar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": true
+  },
+  {
+    "file": "core\\inventario.py",
+    "line": 958,
+    "path": "/admin/desc/snapshot/<int:snap_id>/eliminar",
+    "methods": [
+      "POST"
+    ],
+    "name": "desc_snapshot_eliminar",
+    "forms": [],
+    "args": [],
+    "files": [],
+    "json": false
+  },
+  {
+    "file": "core\\inventario.py",
+    "line": 1106,
+    "path": "/admin/desc/sincronizar",
+    "methods": [
+      "GET",
+      "POST"
+    ],
+    "name": "desc_sincronizar",
+    "forms": [],
+    "args": [
+      "completado"
+    ],
+    "files": [],
+    "json": false
+  }
+]

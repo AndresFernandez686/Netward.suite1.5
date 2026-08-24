@@ -1,0 +1,16 @@
+$kind: http-request
+name: 'POST /admin/usuarios/crear'
+method: POST
+url: '{{baseUrl}}/admin/usuarios/crear'
+order: 33000
+body:
+  type: urlencoded
+  content:
+    - key: contrasena
+      value: ''
+    - key: rol
+      value: ''
+    - key: tienda_id
+      value: ''
+    - key: username
+      value: ''

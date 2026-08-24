@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /admin/usuarios'
+method: GET
+url: '{{baseUrl}}/admin/usuarios'
+order: 32000

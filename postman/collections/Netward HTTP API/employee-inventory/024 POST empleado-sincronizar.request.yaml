@@ -1,0 +1,10 @@
+$kind: http-request
+name: 'POST /empleado/sincronizar'
+method: POST
+url: '{{baseUrl}}/empleado/sincronizar'
+order: 24000
+body:
+  type: urlencoded
+  content:
+    - key: accion
+      value: ''

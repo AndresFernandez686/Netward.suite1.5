@@ -1,0 +1,20 @@
+$kind: http-request
+name: 'POST /empleado/averiado'
+method: POST
+url: '{{baseUrl}}/empleado/averiado'
+order: 18000
+body:
+  type: urlencoded
+  content:
+    - key: cantidad
+      value: ''
+    - key: categoria
+      value: ''
+    - key: detalle
+      value: ''
+    - key: fecha
+      value: ''
+    - key: producto
+      value: ''
+    - key: ume
+      value: ''

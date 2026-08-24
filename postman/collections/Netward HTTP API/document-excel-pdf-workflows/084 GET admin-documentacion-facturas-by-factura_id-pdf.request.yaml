@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'GET /admin/documentacion/facturas/<int:factura_id>/pdf'
+method: GET
+url: '{{baseUrl}}/admin/documentacion/facturas/{{factura_id}}/pdf'
+order: 84000
+pathVariables:
+  - key: factura_id
+    value: '1'

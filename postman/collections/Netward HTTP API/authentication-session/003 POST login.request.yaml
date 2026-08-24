@@ -1,0 +1,12 @@
+$kind: http-request
+name: 'POST /login'
+method: POST
+url: '{{baseUrl}}/login'
+order: 3000
+body:
+  type: urlencoded
+  content:
+    - key: contrasena
+      value: ''
+    - key: usuario
+      value: ''

@@ -1,0 +1,12 @@
+$kind: http-request
+name: 'POST /empleado/carrito/confirmar-conflicto'
+method: POST
+url: '{{baseUrl}}/empleado/carrito/confirmar-conflicto'
+order: 16000
+body:
+  type: urlencoded
+  content:
+    - key: categoria
+      value: ''
+    - key: producto
+      value: ''

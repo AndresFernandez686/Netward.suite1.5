@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'POST /empleado/vencimiento/<int:reg_id>/eliminar'
+method: POST
+url: '{{baseUrl}}/empleado/vencimiento/{{reg_id}}/eliminar'
+order: 22000
+pathVariables:
+  - key: reg_id
+    value: '1'

@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'GET /admin/historial/export'
+method: GET
+url: '{{baseUrl}}/admin/historial/export'
+order: 57000
+queryParams:
+  - key: tienda
+    value: ''

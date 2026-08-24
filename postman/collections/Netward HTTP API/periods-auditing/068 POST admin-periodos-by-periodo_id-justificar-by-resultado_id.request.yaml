@@ -1,0 +1,19 @@
+$kind: http-request
+name: 'POST /admin/periodos/<int:periodo_id>/justificar/<int:resultado_id>'
+method: POST
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/justificar/{{resultado_id}}'
+order: 68000
+pathVariables:
+  - key: periodo_id
+    value: '1'
+  - key: resultado_id
+    value: '1'
+body:
+  type: urlencoded
+  content:
+    - key: cantidad_justificada
+      value: ''
+    - key: causa
+      value: ''
+    - key: observacion
+      value: ''

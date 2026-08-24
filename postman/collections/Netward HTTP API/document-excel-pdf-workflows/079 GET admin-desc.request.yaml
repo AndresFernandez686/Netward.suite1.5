@@ -1,0 +1,12 @@
+$kind: http-request
+name: 'GET /admin/desc'
+method: GET
+url: '{{baseUrl}}/admin/desc'
+order: 79000
+queryParams:
+  - key: doc_tab
+    value: ''
+  - key: periodo_id
+    value: ''
+  - key: ver_datos
+    value: ''

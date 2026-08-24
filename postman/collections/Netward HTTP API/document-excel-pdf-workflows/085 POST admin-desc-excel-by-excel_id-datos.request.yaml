@@ -1,0 +1,17 @@
+$kind: http-request
+name: 'POST /admin/desc/excel/<int:excel_id>/datos'
+method: POST
+url: '{{baseUrl}}/admin/desc/excel/{{excel_id}}/datos'
+order: 85000
+pathVariables:
+  - key: excel_id
+    value: '1'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "filas": ""
+    }

@@ -1,0 +1,10 @@
+$kind: http-request
+name: 'POST /empleado/periodo-abierto/seleccionar'
+method: POST
+url: '{{baseUrl}}/empleado/periodo-abierto/seleccionar'
+order: 8000
+body:
+  type: urlencoded
+  content:
+    - key: periodo_id
+      value: ''

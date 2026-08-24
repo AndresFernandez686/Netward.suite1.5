@@ -1,0 +1,21 @@
+$kind: http-request
+name: 'POST /admin/periodos/<int:periodo_id>/ajuste'
+method: POST
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/ajuste'
+order: 62000
+pathVariables:
+  - key: periodo_id
+    value: '1'
+body:
+  type: urlencoded
+  content:
+    - key: cantidad
+      value: ''
+    - key: impacta_stock
+      value: ''
+    - key: motivo
+      value: ''
+    - key: observacion
+      value: ''
+    - key: producto_nombre
+      value: ''

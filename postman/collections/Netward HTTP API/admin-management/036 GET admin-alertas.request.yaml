@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /admin/alertas'
+method: GET
+url: '{{baseUrl}}/admin/alertas'
+order: 36000

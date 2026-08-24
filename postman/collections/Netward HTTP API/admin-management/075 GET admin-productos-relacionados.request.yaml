@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /admin/productos-relacionados'
+method: GET
+url: '{{baseUrl}}/admin/productos-relacionados'
+order: 75000

@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'POST /admin/desc/snapshot/<int:snap_id>/eliminar'
+method: POST
+url: '{{baseUrl}}/admin/desc/snapshot/{{snap_id}}/eliminar'
+order: 86000
+pathVariables:
+  - key: snap_id
+    value: '1'

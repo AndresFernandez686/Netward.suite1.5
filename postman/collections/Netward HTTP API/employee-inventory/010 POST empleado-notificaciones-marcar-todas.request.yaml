@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'POST /empleado/notificaciones/marcar-todas'
+method: POST
+url: '{{baseUrl}}/empleado/notificaciones/marcar-todas'
+order: 10000

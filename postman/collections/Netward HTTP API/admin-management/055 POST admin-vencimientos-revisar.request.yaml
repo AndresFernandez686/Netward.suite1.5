@@ -1,0 +1,14 @@
+$kind: http-request
+name: 'POST /admin/vencimientos/revisar'
+method: POST
+url: '{{baseUrl}}/admin/vencimientos/revisar'
+order: 55000
+body:
+  type: urlencoded
+  content:
+    - key: desde
+      value: ''
+    - key: hasta
+      value: ''
+    - key: tienda
+      value: ''

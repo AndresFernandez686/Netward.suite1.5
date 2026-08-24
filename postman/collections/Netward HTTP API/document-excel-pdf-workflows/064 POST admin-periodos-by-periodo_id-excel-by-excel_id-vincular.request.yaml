@@ -1,0 +1,17 @@
+$kind: http-request
+name: 'POST /admin/periodos/<int:periodo_id>/excel/<int:excel_id>/vincular'
+method: POST
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/excel/{{excel_id}}/vincular'
+order: 64000
+pathVariables:
+  - key: periodo_id
+    value: '1'
+  - key: excel_id
+    value: '1'
+body:
+  type: urlencoded
+  content:
+    - key: detalle_id
+      value: ''
+    - key: nombre_interno
+      value: ''

@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'GET /admin/inventario/export'
+method: GET
+url: '{{baseUrl}}/admin/inventario/export'
+order: 56000
+queryParams:
+  - key: tienda
+    value: ''

@@ -310,6 +310,52 @@
 {% block scripts %}
 <script>
   (function () {
+    var docTabs = document.querySelectorAll('[data-doc-tab]');
+    var docPanels = document.querySelectorAll('[data-doc-panel]');
+
+    function activateDocTab(tabName, updateUrl) {
+      var validTab = Array.prototype.some.call(docTabs, function(tab) {
+        return tab.dataset.docTab === tabName;
+      });
+      if (!validTab) tabName = 'inventario';
+
+      docTabs.forEach(function(tab) {
+        var active = tab.dataset.docTab === tabName;
+        tab.classList.toggle('is-active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+        tab.setAttribute('tabindex', active ? '0' : '-1');
+      });
+      docPanels.forEach(function(panel) {
+        panel.hidden = panel.dataset.docPanel !== tabName;
+      });
+
+      if (updateUrl && window.history && window.history.replaceState) {
+        var url = new URL(window.location.href);
+        url.searchParams.set('doc_tab', tabName);
+        url.searchParams.delete('ver_datos');
+        url.hash = '';
+        window.history.replaceState({}, '', url.toString());
+      }
+    }
+
+    docTabs.forEach(function(tab, index) {
+      tab.addEventListener('click', function() {
+        activateDocTab(tab.dataset.docTab, true);
+      });
+      tab.addEventListener('keydown', function(event) {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        var nextIndex = event.key === 'ArrowRight'
+          ? (index + 1) % docTabs.length
+          : (index - 1 + docTabs.length) % docTabs.length;
+        docTabs[nextIndex].focus();
+        activateDocTab(docTabs[nextIndex].dataset.docTab, true);
+      });
+    });
+
+    var initialTab = document.querySelector('.desc-doc-tabs');
+    activateDocTab(initialTab ? initialTab.dataset.activeTab : 'inventario', false);
+
     var form = document.getElementById('proc-form');
     var fileInput = document.getElementById('file-input');
     var btn = document.getElementById('btn-proc');
@@ -368,14 +414,9 @@
     }
 
     if (btnVerDatos && datosCard) {
-      btnVerDatos.textContent = datosCard.style.display === 'none' ? 'Ver datos extraídos' : 'Ocultar datos extraídos';
       btnVerDatos.addEventListener('click', function() {
-        var hidden = datosCard.style.display === 'none';
-        datosCard.style.display = hidden ? 'block' : 'none';
-        btnVerDatos.textContent = hidden ? 'Ocultar datos extraídos' : 'Ver datos extraídos';
-        if (hidden) {
-          datosCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+        activateDocTab('datos', true);
+        datosCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
 

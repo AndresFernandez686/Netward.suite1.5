@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'POST /admin/configuracion/precios'
+method: POST
+url: '{{baseUrl}}/admin/configuracion/precios'
+order: 43000

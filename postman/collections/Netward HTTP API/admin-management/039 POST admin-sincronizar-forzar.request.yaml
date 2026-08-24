@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'POST /admin/sincronizar/forzar'
+method: POST
+url: '{{baseUrl}}/admin/sincronizar/forzar'
+order: 39000

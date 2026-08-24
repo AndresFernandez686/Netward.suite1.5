@@ -1,0 +1,10 @@
+$kind: http-request
+name: 'POST /admin/periodos/<int:periodo_id>/revisar/<int:resultado_id>'
+method: POST
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/revisar/{{resultado_id}}'
+order: 69000
+pathVariables:
+  - key: periodo_id
+    value: '1'
+  - key: resultado_id
+    value: '1'

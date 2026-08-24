@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'POST /empleado/carrito/limpiar'
+method: POST
+url: '{{baseUrl}}/empleado/carrito/limpiar'
+order: 14000

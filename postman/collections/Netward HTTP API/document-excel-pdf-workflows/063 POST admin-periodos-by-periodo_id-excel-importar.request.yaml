@@ -1,0 +1,14 @@
+$kind: http-request
+name: 'POST /admin/periodos/<int:periodo_id>/excel/importar'
+method: POST
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/excel/importar'
+order: 63000
+pathVariables:
+  - key: periodo_id
+    value: '1'
+body:
+  type: formdata
+  content:
+    - key: archivo_excel
+      type: file
+      src: ''

@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'POST /admin/productos-relacionados/<int:rel_id>/toggle'
+method: POST
+url: '{{baseUrl}}/admin/productos-relacionados/{{rel_id}}/toggle'
+order: 77000
+pathVariables:
+  - key: rel_id
+    value: '1'

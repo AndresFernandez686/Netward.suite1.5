@@ -1,0 +1,14 @@
+$kind: http-request
+name: 'POST /empleado/delivery'
+method: POST
+url: '{{baseUrl}}/empleado/delivery'
+order: 27000
+body:
+  type: urlencoded
+  content:
+    - key: cantidad
+      value: ''
+    - key: fecha
+      value: ''
+    - key: producto_id
+      value: ''

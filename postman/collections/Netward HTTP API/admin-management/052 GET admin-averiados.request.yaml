@@ -1,0 +1,12 @@
+$kind: http-request
+name: 'GET /admin/averiados'
+method: GET
+url: '{{baseUrl}}/admin/averiados'
+order: 52000
+queryParams:
+  - key: desde
+    value: ''
+  - key: hasta
+    value: ''
+  - key: tienda
+    value: ''

@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'GET /empleado/periodo-abierto/productos-no-cargados'
+method: GET
+url: '{{baseUrl}}/empleado/periodo-abierto/productos-no-cargados'
+order: 7000
+queryParams:
+  - key: tab
+    value: ''

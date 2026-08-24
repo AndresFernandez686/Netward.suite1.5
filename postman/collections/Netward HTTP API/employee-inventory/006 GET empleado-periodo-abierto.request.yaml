@@ -1,0 +1,10 @@
+$kind: http-request
+name: 'GET /empleado/periodo-abierto'
+method: GET
+url: '{{baseUrl}}/empleado/periodo-abierto'
+order: 6000
+queryParams:
+  - key: marcar_visto
+    value: ''
+  - key: tab
+    value: ''

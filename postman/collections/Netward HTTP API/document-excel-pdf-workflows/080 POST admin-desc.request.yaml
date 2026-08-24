@@ -1,0 +1,24 @@
+$kind: http-request
+name: 'POST /admin/desc'
+method: POST
+url: '{{baseUrl}}/admin/desc'
+order: 80000
+queryParams:
+  - key: doc_tab
+    value: ''
+  - key: periodo_id
+    value: ''
+  - key: ver_datos
+    value: ''
+body:
+  type: formdata
+  content:
+    - key: periodo_id
+      type: text
+      value: ''
+    - key: return_to
+      type: text
+      value: ''
+    - key: archivo
+      type: file
+      src: ''

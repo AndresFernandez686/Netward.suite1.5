@@ -1,0 +1,10 @@
+$kind: http-request
+name: 'POST /admin/documentacion/facturas/importar'
+method: POST
+url: '{{baseUrl}}/admin/documentacion/facturas/importar'
+order: 81000
+body:
+  type: urlencoded
+  content:
+    - key: periodo_id
+      value: ''

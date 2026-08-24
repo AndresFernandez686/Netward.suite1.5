@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /admin/periodos/config/autoclose'
+method: GET
+url: '{{baseUrl}}/admin/periodos/config/autoclose'
+order: 73000

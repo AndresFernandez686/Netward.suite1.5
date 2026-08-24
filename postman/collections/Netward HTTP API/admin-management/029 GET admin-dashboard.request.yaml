@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /admin/dashboard'
+method: GET
+url: '{{baseUrl}}/admin/dashboard'
+order: 29000

@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'POST /empleado/carrito/eliminar/<int:idx>'
+method: POST
+url: '{{baseUrl}}/empleado/carrito/eliminar/{{idx}}'
+order: 13000
+pathVariables:
+  - key: idx
+    value: '1'

@@ -1,0 +1,12 @@
+$kind: http-request
+name: 'POST /admin/tienda/crear'
+method: POST
+url: '{{baseUrl}}/admin/tienda/crear'
+order: 46000
+body:
+  type: urlencoded
+  content:
+    - key: direccion
+      value: ''
+    - key: nombre
+      value: ''

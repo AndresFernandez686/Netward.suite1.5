@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /empleado/vencimiento'
+method: GET
+url: '{{baseUrl}}/empleado/vencimiento'
+order: 20000

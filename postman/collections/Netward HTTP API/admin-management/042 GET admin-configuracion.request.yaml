@@ -1,0 +1,10 @@
+$kind: http-request
+name: 'GET /admin/configuracion'
+method: GET
+url: '{{baseUrl}}/admin/configuracion'
+order: 42000
+queryParams:
+  - key: section
+    value: ''
+  - key: tab
+    value: ''

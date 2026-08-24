@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'GET /admin/periodos/<int:periodo_id>'
+method: GET
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}'
+order: 60000
+pathVariables:
+  - key: periodo_id
+    value: '1'

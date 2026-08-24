@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'POST /admin/usuarios/<int:usuario_id>/eliminar'
+method: POST
+url: '{{baseUrl}}/admin/usuarios/{{usuario_id}}/eliminar'
+order: 34000
+pathVariables:
+  - key: usuario_id
+    value: '1'

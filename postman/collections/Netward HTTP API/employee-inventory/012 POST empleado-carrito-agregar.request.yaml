@@ -1,0 +1,26 @@
+$kind: http-request
+name: 'POST /empleado/carrito/agregar'
+method: POST
+url: '{{baseUrl}}/empleado/carrito/agregar'
+order: 12000
+body:
+  type: urlencoded
+  content:
+    - key: cantidad
+      value: ''
+    - key: categoria
+      value: ''
+    - key: confirmar_sobreescritura
+      value: ''
+    - key: detalle
+      value: ''
+    - key: fecha
+      value: ''
+    - key: producto
+      value: ''
+    - key: tipo_inventario
+      value: ''
+    - key: ume
+      value: ''
+    - key: version_esperada
+      value: ''

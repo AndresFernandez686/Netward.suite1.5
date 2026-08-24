@@ -1,0 +1,13 @@
+$kind: http-request
+name: 'POST /admin/precios'
+method: POST
+url: '{{baseUrl}}/admin/precios'
+order: 31000
+queryParams:
+  - key: tab
+    value: ''
+body:
+  type: urlencoded
+  content:
+    - key: active_tab
+      value: ''

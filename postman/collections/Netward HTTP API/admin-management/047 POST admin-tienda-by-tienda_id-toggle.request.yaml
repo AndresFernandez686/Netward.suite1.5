@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'POST /admin/tienda/<tienda_id>/toggle'
+method: POST
+url: '{{baseUrl}}/admin/tienda/{{tienda_id}}/toggle'
+order: 47000
+pathVariables:
+  - key: tienda_id
+    value: '1'

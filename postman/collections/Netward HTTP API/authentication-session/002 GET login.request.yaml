@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /login'
+method: GET
+url: '{{baseUrl}}/login'
+order: 2000

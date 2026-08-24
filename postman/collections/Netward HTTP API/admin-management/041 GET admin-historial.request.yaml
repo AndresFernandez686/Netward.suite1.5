@@ -1,0 +1,18 @@
+$kind: http-request
+name: 'GET /admin/historial'
+method: GET
+url: '{{baseUrl}}/admin/historial'
+order: 41000
+queryParams:
+  - key: empleado
+    value: ''
+  - key: fecha
+    value: ''
+  - key: fecha_fin
+    value: ''
+  - key: fecha_inicio
+    value: ''
+  - key: tienda
+    value: ''
+  - key: tipo
+    value: ''

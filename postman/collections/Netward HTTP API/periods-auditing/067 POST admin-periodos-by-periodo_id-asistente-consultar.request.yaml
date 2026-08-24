@@ -1,0 +1,18 @@
+$kind: http-request
+name: 'POST /admin/periodos/<int:periodo_id>/asistente/consultar'
+method: POST
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/asistente/consultar'
+order: 67000
+pathVariables:
+  - key: periodo_id
+    value: '1'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "pregunta": "",
+      "resultado_id": ""
+    }

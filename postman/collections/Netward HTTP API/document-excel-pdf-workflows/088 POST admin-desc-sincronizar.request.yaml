@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'POST /admin/desc/sincronizar'
+method: POST
+url: '{{baseUrl}}/admin/desc/sincronizar'
+order: 88000
+queryParams:
+  - key: completado
+    value: ''

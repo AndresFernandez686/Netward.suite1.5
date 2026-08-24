@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'GET /admin/desc/sincronizar'
+method: GET
+url: '{{baseUrl}}/admin/desc/sincronizar'
+order: 87000
+queryParams:
+  - key: completado
+    value: ''

@@ -1,0 +1,8 @@
+$kind: http-request
+name: 'GET /admin/precios'
+method: GET
+url: '{{baseUrl}}/admin/precios'
+order: 30000
+queryParams:
+  - key: tab
+    value: ''

@@ -1,0 +1,5 @@
+$kind: http-request
+name: 'GET /admin/periodos'
+method: GET
+url: '{{baseUrl}}/admin/periodos'
+order: 58000

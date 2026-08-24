@@ -25,6 +25,9 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn("btn-proc-label", plantilla)
         self.assertIn("Ver datos extraídos", plantilla)
         self.assertIn("Guardar modificaciones", plantilla)
+        self.assertIn("function activateDocTab", plantilla)
+        self.assertIn("docPanels.forEach", plantilla)
+        self.assertIn("activateDocTab('datos', true)", plantilla)
 
     def test_auditoria_remite_al_unico_importador_y_datetime_es_compatible(self):
         detalle = (ROOT / "templates" / "admin_periodo_detalle.html").read_text(

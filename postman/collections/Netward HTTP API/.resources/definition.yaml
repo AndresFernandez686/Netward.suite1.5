@@ -1,0 +1,5 @@
+$kind: collection
+name: Netward HTTP API
+variables:
+  - key: baseUrl
+    value: 'http://localhost:5000'

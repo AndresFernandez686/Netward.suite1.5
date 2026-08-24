@@ -1,0 +1,16 @@
+$kind: http-request
+name: 'POST /admin/productos-relacionados/crear'
+method: POST
+url: '{{baseUrl}}/admin/productos-relacionados/crear'
+order: 76000
+body:
+  type: urlencoded
+  content:
+    - key: producto_principal
+      value: ''
+    - key: producto_relacionado
+      value: ''
+    - key: ratio_esperado
+      value: ''
+    - key: tolerancia
+      value: ''

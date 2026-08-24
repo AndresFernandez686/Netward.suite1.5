@@ -1,0 +1,11 @@
+$kind: http-request
+name: 'GET /admin/periodos/<int:periodo_id>/auditoria'
+method: GET
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/auditoria'
+order: 66000
+pathVariables:
+  - key: periodo_id
+    value: '1'
+queryParams:
+  - key: filtro
+    value: ''

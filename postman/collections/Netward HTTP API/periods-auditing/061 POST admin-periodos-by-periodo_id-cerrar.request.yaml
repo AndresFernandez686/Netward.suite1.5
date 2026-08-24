@@ -1,0 +1,13 @@
+$kind: http-request
+name: 'POST /admin/periodos/<int:periodo_id>/cerrar'
+method: POST
+url: '{{baseUrl}}/admin/periodos/{{periodo_id}}/cerrar'
+order: 61000
+pathVariables:
+  - key: periodo_id
+    value: '1'
+body:
+  type: urlencoded
+  content:
+    - key: forzar
+      value: ''
