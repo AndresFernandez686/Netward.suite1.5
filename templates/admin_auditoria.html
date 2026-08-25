@@ -18,13 +18,15 @@
   </section>
 
   <div class="audit-toolbar">
-    <a href="{{ url_for('admin_periodo_detalle', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm">← Período</a>
+    <a href="{{ url_for('admin_periodo_detalle', periodo_id=periodo.id) }}" class="btn btn--ghost btn--back btn--sm">← Período</a>
     <a href="{{ url_for('admin_reporte_gerencial', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm"><span aria-hidden="true">▣</span> Reporte gerencial</a>
     <button type="button" class="btn btn--ghost btn--sm audit-ai-open" data-ai-open data-ai-result-id="" data-ai-context="Período #{{ periodo.numero }}"><span aria-hidden="true">✦</span> Asistente de auditoría</button>
     <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm audit-export"><span aria-hidden="true">↓</span> Exportar Excel</a>
     <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}"
-          data-confirm-message="¿Re-ejecutar la auditoría? Se recalcularán todos los resultados.">
-      <button type="submit" class="btn btn--sm audit-rerun"><span aria-hidden="true">↻</span> Re-ejecutar auditoría</button>
+          data-confirm-message="¿Re-ejecutar la auditoría? Se recalcularán todos los resultados."
+          data-confirm-loading-text="Re-ejecutando auditoría...">
+      <button type="submit" class="btn btn--sm audit-rerun" {{ 'disabled' if facturas_pendientes_auditoria else '' }}
+              title="{{ 'Completa las facturas pendientes antes de auditar.' if facturas_pendientes_auditoria else '' }}"><span aria-hidden="true">↻</span> Re-ejecutar auditoría</button>
     </form>
   </div>
 

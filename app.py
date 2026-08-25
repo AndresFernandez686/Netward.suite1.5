@@ -11,10 +11,11 @@ Estructura:
 """
 import io
 import os
+import re
 from datetime import datetime, date, timedelta, timezone
 from functools import wraps
 import secrets
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from flask import (Flask, render_template, request, redirect, url_for,
@@ -63,12 +64,24 @@ from core.ai_assistant import (AIConfig, build_period_context,
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=True)
 
+
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "si", "sí"}
+
+
+TENANT_ISOLATION_MODE = _env_flag("TENANT_ISOLATION_MODE")
+ISOLATED_TENANT_ID = os.getenv("ISOLATED_TENANT_ID", "C001").strip() or "C001"
+if not re.fullmatch(r"[A-Za-z0-9_-]{1,10}", ISOLATED_TENANT_ID):
+    raise RuntimeError("ISOLATED_TENANT_ID debe ser un identificador opaco de 1 a 10 caracteres.")
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or "netward-dev-secret-change-me"
 app.config["ASSET_VERSION"] = os.getenv(
     "ASSET_VERSION",
     datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"),
 )
+app.config["TENANT_ISOLATION_MODE"] = TENANT_ISOLATION_MODE
+app.config["ISOLATED_TENANT_ID"] = ISOLATED_TENANT_ID
 
 
 def utc_now():
@@ -211,6 +224,11 @@ def _notificar_admins_periodo_cargado(
 def select_database_for_request():
     """Asigna la base de datos adecuada antes de cada peticion."""
     set_database_bind(get_active_bind())
+    if app.config["TENANT_ISOLATION_MODE"] and session.get("usuario"):
+        if session.get("cliente_id") != app.config["ISOLATED_TENANT_ID"]:
+            session.clear()
+            flash("La sesión no pertenece a esta instancia.", "error")
+            return redirect(url_for("login"))
     # Selector global de tienda del admin: persiste en sesion
     if session.get("rol") == "administrador":
         tienda_arg = request.args.get("tienda")
@@ -305,6 +323,8 @@ def _catalog_tab_categoria(categoria):
 
 def get_cliente_filtro() -> str:
     """Cliente activo en sesión; usa C001 como fallback de compatibilidad."""
+    if app.config["TENANT_ISOLATION_MODE"]:
+        return app.config["ISOLATED_TENANT_ID"]
     return session.get("cliente_id", "C001")
 
 
@@ -343,6 +363,36 @@ def _get_all_db_engines():
         seen.add(key)
         unique.append(eng)
     return unique
+
+
+def assert_isolated_databases():
+    """Impide iniciar una instancia dedicada si contiene datos de otro tenant."""
+    if not app.config["TENANT_ISOLATION_MODE"]:
+        return
+    tenant_id = app.config["ISOLATED_TENANT_ID"]
+    violations = []
+    for engine in _get_all_db_engines():
+        inspector = inspect(engine)
+        preparer = engine.dialect.identifier_preparer
+        with engine.connect() as conn:
+            for table_name in inspector.get_table_names():
+                columns = {column["name"] for column in inspector.get_columns(table_name)}
+                tenant_column = "id" if table_name == "clientes" else "cliente_id"
+                if tenant_column not in columns:
+                    continue
+                table_sql = preparer.quote(table_name)
+                column_sql = preparer.quote(tenant_column)
+                statement = text(
+                    f"SELECT {column_sql} FROM {table_sql} "
+                    f"WHERE {column_sql} IS NULL OR {column_sql} <> :tenant_id LIMIT 1"
+                )
+                if conn.execute(statement, {"tenant_id": tenant_id}).first() is not None:
+                    violations.append(f"{engine.url.database}:{table_name}")
+    if violations:
+        raise RuntimeError(
+            "TENANT_ISOLATION_MODE no puede activarse: existen datos de otro tenant en "
+            + ", ".join(violations)
+        )
 
 
 def ensure_multitenant_schema():
@@ -458,6 +508,15 @@ def ensure_multitenant_schema():
                 ("ventas_delivery REAL NOT NULL DEFAULT 0",                "ventas_delivery"),
             ]:
                 _add_column_if_missing(conn, "auditoria_resultados", col_sql, col_name)
+            for col_sql, col_name in [
+                ("orden_carga INTEGER NOT NULL DEFAULT 0", "orden_carga"),
+                ("analisis_json TEXT", "analisis_json"),
+                ("analisis_motor VARCHAR(40)", "analisis_motor"),
+                ("analisis_precision REAL", "analisis_precision"),
+                ("analisis_estado VARCHAR(30)", "analisis_estado"),
+                ("analisis_fecha TIMESTAMP", "analisis_fecha"),
+            ]:
+                _add_column_if_missing(conn, "facturas_compra", col_sql, col_name)
 
 
 # --------------------------------------------------------------------------- #
@@ -472,6 +531,7 @@ def init_db():
             db.metadata.create_all(bind=conn, checkfirst=True)
 
     ensure_multitenant_schema()
+    assert_isolated_databases()
 
     if Cliente.query.count() == 0:
         for c in CLIENTES_DEFAULT:
@@ -670,7 +730,12 @@ def login():
             flash("Por favor, completa todos los campos.", "warning")
             return redirect(url_for("login"))
 
-        usuario = Usuario.query.filter_by(username=username).first()
+        usuario_query = Usuario.query.filter_by(username=username)
+        if app.config["TENANT_ISOLATION_MODE"]:
+            usuario_query = usuario_query.filter_by(
+                cliente_id=app.config["ISOLATED_TENANT_ID"]
+            )
+        usuario = usuario_query.first()
         if not usuario:
             flash(f"Usuario '{username}' no reconocido.", "error")
             return redirect(url_for("login"))
@@ -682,7 +747,7 @@ def login():
         session.clear()          # Eliminar cualquier sesion anterior antes de crear una nueva
         session.permanent = True # Aplicar PERMANENT_SESSION_LIFETIME
         session["usuario"] = usuario.username
-        session["cliente_id"] = usuario.cliente_id or "C001"
+        session["cliente_id"] = get_cliente_filtro() if app.config["TENANT_ISOLATION_MODE"] else (usuario.cliente_id or "C001")
         session["rol"] = usuario.rol
         session["tienda_id"] = usuario.tienda_id
         session["admin_tienda_id"] = "ALL"
@@ -695,7 +760,12 @@ def login():
         flash(f"Bienvenido, {usuario.username}.", "success")
         return redirect(url_for("index"))
 
-    usuarios = Usuario.query.order_by(Usuario.username).all()
+    usuarios_query = Usuario.query
+    if app.config["TENANT_ISOLATION_MODE"]:
+        usuarios_query = usuarios_query.filter_by(
+            cliente_id=app.config["ISOLATED_TENANT_ID"]
+        )
+    usuarios = usuarios_query.order_by(Usuario.username).all()
     return render_template("login.html", usuarios=usuarios)
 
 
@@ -2756,6 +2826,15 @@ def admin_periodo_detalle(periodo_id):
     auditoria = (AuditoriaResultado.query.filter_by(periodo_id=periodo_id)
                  .order_by(AuditoriaResultado.severidad.desc(),
                             AuditoriaResultado.impacto.desc()).all())
+    facturas_pendientes_auditoria = (
+        FacturaCompraDetalle.query.join(FacturaCompra)
+        .filter(
+            FacturaCompra.periodo_id == periodo_id,
+            FacturaCompra.cliente_id == cliente_id,
+            ~FacturaCompraDetalle.estado_vinculacion.in_(("vinculado", "aplicado", "fuera_rango")),
+        )
+        .count()
+    )
     productos_catalogo = (
         Producto.query
         .order_by(Producto.categoria, Producto.nombre)
@@ -2776,6 +2855,7 @@ def admin_periodo_detalle(periodo_id):
         ajustes=ajustes,
         excel_imp=excel_imp,
         auditoria=auditoria,
+        facturas_pendientes_auditoria=facturas_pendientes_auditoria,
         productos_catalogo=productos_catalogo,
         categorias=categorias_catalogo,
     )
@@ -3002,6 +3082,7 @@ def admin_auditoria_ejecutar(periodo_id):
         )
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
+    from core.factura_ocr import FacturaError
     try:
         resultados = ejecutar_auditoria(periodo)
         db.session.commit()
@@ -3011,6 +3092,12 @@ def admin_auditoria_ejecutar(periodo_id):
             f"Auditoría ejecutada: {len(resultados)} producto(s) evaluados, "
             f"{faltantes} con faltante{aviso_incompleta}.",
             "success" if not forzar else "warning",
+        )
+    except FacturaError as exc:
+        db.session.rollback()
+        flash(
+            f"Auditoría no ejecutada: {exc} Completa el procesamiento de las facturas antes de continuar.",
+            "warning",
         )
     except Exception as exc:
         db.session.rollback()
@@ -3037,6 +3124,15 @@ def admin_auditoria(periodo_id):
         AuditoriaResultado.severidad.desc(),
         AuditoriaResultado.impacto.desc(),
     ).all()
+    facturas_pendientes_auditoria = (
+        FacturaCompraDetalle.query.join(FacturaCompra)
+        .filter(
+            FacturaCompra.periodo_id == periodo_id,
+            FacturaCompra.cliente_id == cliente_id,
+            ~FacturaCompraDetalle.estado_vinculacion.in_(("vinculado", "aplicado", "fuera_rango")),
+        )
+        .count()
+    )
 
     total_impacto = sum(r.impacto for r in resultados if r.tipo_diferencia == "faltante")
     resumen = {
@@ -3063,6 +3159,7 @@ def admin_auditoria(periodo_id):
         resumen=resumen,
         categorias=categorias,
         ultima_ejecucion=ultima_ejecucion,
+        facturas_pendientes_auditoria=facturas_pendientes_auditoria,
         causas_disponibles=causas_disponibles,
         asistente_estado=AIConfig.from_env().public_status(),
     )

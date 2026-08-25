@@ -16,6 +16,12 @@ CREATE TABLE IF NOT EXISTS facturas_compra (
     total_factura       DOUBLE PRECISION NOT NULL DEFAULT 0,
     usuario_importador  VARCHAR(80)  NOT NULL,
     texto_extraido      TEXT         NOT NULL DEFAULT '',
+    orden_carga         INTEGER      NOT NULL DEFAULT 0,
+    analisis_json       TEXT,
+    analisis_motor      VARCHAR(40),
+    analisis_precision  DOUBLE PRECISION,
+    analisis_estado     VARCHAR(30),
+    analisis_fecha      TIMESTAMP,
     fecha_importacion   TIMESTAMP    NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_factura_cliente_sha256 UNIQUE (cliente_id, sha256)
 );

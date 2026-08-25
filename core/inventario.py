@@ -428,6 +428,7 @@ def admin_desc():
     snapshot_detalles = []
     facturas_periodo = []
     factura_detalles = []
+    facturas_historial = []
     if periodo_seleccionado is not None:
         if excel_id_arg:
             excel_seleccionado = ExcelImportado.query.filter_by(
@@ -463,17 +464,51 @@ def admin_desc():
         facturas_periodo = (
             FacturaCompra.query
             .filter_by(periodo_id=periodo_seleccionado.id, cliente_id=cliente_id)
-            .order_by(FacturaCompra.fecha_importacion.desc(), FacturaCompra.id.desc())
+            .order_by(FacturaCompra.orden_carga.asc(), FacturaCompra.id.asc())
             .all()
         )
         if facturas_periodo:
             ids_facturas = [factura.id for factura in facturas_periodo]
             factura_detalles = (
                 FacturaCompraDetalle.query
+                .join(FacturaCompra)
                 .filter(FacturaCompraDetalle.factura_id.in_(ids_facturas))
-                .order_by(FacturaCompraDetalle.factura_id.desc(), FacturaCompraDetalle.id)
+                .order_by(
+                    FacturaCompra.orden_carga.asc(), FacturaCompra.id.asc(),
+                    FacturaCompraDetalle.id.asc(),
+                )
                 .all()
             )
+
+    facturas_historial = (
+        db.session.query(InventarioPeriodo, db.func.count(FacturaCompra.id))
+        .join(FacturaCompra, FacturaCompra.periodo_id == InventarioPeriodo.id)
+        .filter(
+            InventarioPeriodo.cliente_id == cliente_id,
+            FacturaCompra.cliente_id == cliente_id,
+        )
+        .group_by(InventarioPeriodo.id)
+        .order_by(InventarioPeriodo.id.desc())
+        .limit(20)
+        .all()
+    )
+    facturas_historial_archivos = {}
+    ids_periodos_factura = [periodo.id for periodo, _cantidad in facturas_historial]
+    if ids_periodos_factura:
+        for factura_hist in (
+            FacturaCompra.query
+            .filter(
+                FacturaCompra.cliente_id == cliente_id,
+                FacturaCompra.periodo_id.in_(ids_periodos_factura),
+            )
+            .order_by(
+                FacturaCompra.periodo_id.desc(),
+                FacturaCompra.orden_carga.asc(),
+                FacturaCompra.id.asc(),
+            )
+            .all()
+        ):
+            facturas_historial_archivos.setdefault(factura_hist.periodo_id, []).append(factura_hist)
 
     # Historial de snapshots para mostrar en la UI
     snapshots = (InventarioDescSnapshot.query
@@ -640,6 +675,8 @@ def admin_desc():
             flash(f"Error al procesar: {exc}", "error")
             return redirigir_importacion()
 
+    from core.azure_document import AzureDocumentConfig
+
     estado_sync = estado_sincronizacion_catalogo(cliente_id, detallado=True)
     return render_template(
         "admin_desc.html",
@@ -654,6 +691,9 @@ def admin_desc():
         snapshot_seleccionado=snapshot_seleccionado,
         snapshot_detalles=snapshot_detalles,
         facturas_periodo=facturas_periodo,
+        facturas_historial=facturas_historial,
+        facturas_historial_archivos=facturas_historial_archivos,
+        azure_document_status=AzureDocumentConfig.from_env().public_status(),
         factura_detalles=factura_detalles,
         productos_factura=Producto.query.order_by(Producto.categoria, Producto.nombre).all(),
         facturas_pendientes=sum(
@@ -679,7 +719,7 @@ def admin_desc():
 def desc_facturas_importar():
     """Importa hasta 20 facturas PDF en una sola operación."""
     _requiere_admin()
-    from core.models import db, InventarioPeriodo
+    from core.models import db, FacturaCompra, InventarioPeriodo
     from core.factura_ocr import (
         FacturaError, MAX_FACTURAS_POR_CARGA, MAX_TOTAL_BYTES, importar_factura,
     )
@@ -716,12 +756,25 @@ def desc_facturas_importar():
 
     importadas = 0
     avisos = []
+    ultima_factura = (
+        FacturaCompra.query
+        .filter_by(periodo_id=periodo.id, cliente_id=cliente_id)
+        .order_by(FacturaCompra.orden_carga.desc(), FacturaCompra.id.desc())
+        .first()
+    )
+    siguiente_orden = max(
+        int(ultima_factura.orden_carga or 0) if ultima_factura else 0,
+        FacturaCompra.query.filter_by(
+            periodo_id=periodo.id, cliente_id=cliente_id
+        ).count(),
+    )
     try:
-        for nombre, contenido in contenidos:
+        for posicion, (nombre, contenido) in enumerate(contenidos, start=1):
             factura, advertencias = importar_factura(
                 periodo=periodo, cliente_id=cliente_id,
                 usuario=session.get("usuario", "administrador"),
                 nombre_archivo=nombre, contenido=contenido,
+                orden_carga=siguiente_orden + posicion,
             )
             importadas += int(factura is not None)
             avisos.extend(advertencias)
@@ -847,6 +900,110 @@ def desc_factura_pdf(factura_id):
     response.headers["Content-Security-Policy"] = "sandbox"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
+
+
+@desc_bp.route("/admin/documentacion/facturas/<int:factura_id>/descargar")
+def desc_factura_descargar(factura_id):
+    _requiere_admin()
+    from core.models import FacturaCompra
+
+    factura = FacturaCompra.query.filter_by(
+        id=factura_id, cliente_id=session.get("cliente_id", "C001")
+    ).first()
+    if factura is None:
+        abort(404)
+    response = send_pdf_response(
+        io.BytesIO(factura.archivo_pdf),
+        mimetype="application/pdf",
+        download_name=factura.nombre_archivo,
+        as_attachment=True,
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@desc_bp.route(
+    "/admin/documentacion/facturas/<int:factura_id>/analisis",
+    methods=["GET", "POST"],
+)
+def desc_factura_analisis(factura_id):
+    _requiere_admin()
+    from core.azure_document import (
+        AzureDocumentConfig, AzureDocumentError, analyze_pdf, local_ocr_result,
+    )
+    from core.models import FacturaCompra, db, utc_now
+
+    factura = FacturaCompra.query.filter_by(
+        id=factura_id, cliente_id=session.get("cliente_id", "C001")
+    ).first()
+    if factura is None:
+        abort(404)
+
+    config = AzureDocumentConfig.from_env()
+    public_status = config.public_status()
+    if request.method == "GET":
+        if not factura.analisis_json:
+            return jsonify(
+                ok=True,
+                estado="sin_analisis",
+                configuracion=public_status,
+            )
+        try:
+            resultado = json.loads(factura.analisis_json)
+        except (TypeError, ValueError):
+            resultado = None
+        if not isinstance(resultado, dict):
+            return jsonify(
+                ok=False,
+                estado="resultado_invalido",
+                error="El análisis guardado no tiene un formato válido.",
+                configuracion=public_status,
+            ), 500
+        return jsonify(
+            ok=True,
+            estado=factura.analisis_estado or "completado",
+            resultado=resultado,
+            configuracion=public_status,
+        )
+
+    try:
+        if config.configured:
+            resultado = analyze_pdf(factura.archivo_pdf, config)
+        elif not config.enabled:
+            resultado = local_ocr_result(factura)
+        else:
+            raise AzureDocumentError(
+                "Azure AI está activado, pero faltan el endpoint o la clave de Document Intelligence."
+            )
+        precision = (resultado.get("precision") or {}).get("porcentaje")
+        factura.analisis_json = json.dumps(resultado, ensure_ascii=False)
+        factura.analisis_motor = str(resultado.get("motor") or "")[:40]
+        factura.analisis_precision = float(precision) if precision is not None else None
+        factura.analisis_estado = str(resultado.get("estado") or "completado")[:30]
+        factura.analisis_fecha = utc_now()
+        db.session.commit()
+        return jsonify(
+            ok=True,
+            estado=factura.analisis_estado,
+            resultado=resultado,
+            configuracion=public_status,
+        )
+    except AzureDocumentError as exc:
+        db.session.rollback()
+        return jsonify(
+            ok=False,
+            estado="error",
+            error=str(exc),
+            configuracion=public_status,
+        ), 503 if config.enabled and not config.configured else 502
+    except Exception:
+        db.session.rollback()
+        return jsonify(
+            ok=False,
+            estado="error",
+            error="No se pudo completar el análisis del documento.",
+            configuracion=public_status,
+        ), 500
 
 
 _CAMPOS_EXCEL_TEXTO = {

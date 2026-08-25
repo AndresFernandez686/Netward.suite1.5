@@ -8,7 +8,7 @@
 </div>
 
 <div class="audit-toolbar report-toolbar" aria-label="Acciones del reporte gerencial">
-  <a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm">
+  <a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn--ghost btn--back btn--sm">
     <span aria-hidden="true">←</span> Auditoría
   </a>
   <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm audit-export">

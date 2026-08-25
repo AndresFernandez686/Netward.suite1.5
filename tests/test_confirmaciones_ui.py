@@ -28,6 +28,17 @@ class PruebasConfirmacionesUI(unittest.TestCase):
             plantilla = ROOT.joinpath("templates", nombre).read_text(encoding="utf-8")
             self.assertIn("confirm-no-delay-1", plantilla)
 
+    def test_indicador_de_proceso_es_simple_y_global(self):
+        codigo = ROOT.joinpath("static", "js", "main.js").read_text(encoding="utf-8")
+        estilos = ROOT.joinpath("static", "css", "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn("nw-processing-card", codigo)
+        self.assertIn("nw-processing-spinner", codigo)
+        self.assertIn("Procesando solicitud...", codigo)
+        self.assertIn("form[method=\"post\"]", codigo)
+        self.assertIn("window.NetwardProcessing", codigo)
+        self.assertIn(".nw-processing-card", estilos)
+
 
 if __name__ == "__main__":
     unittest.main()

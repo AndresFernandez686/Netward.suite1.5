@@ -104,21 +104,22 @@
     uiLockOverlay.hidden = true;
 
     uiLockOverlay.innerHTML =
-      '<div style="text-align:center;padding:18px 20px;border-radius:12px;background:#111827;color:#fff;box-shadow:0 12px 36px rgba(0,0,0,.35);min-width:220px;max-width:90vw;">' +
-      '<div style="font-weight:700;font-size:1rem;margin-bottom:6px;">Procesando</div>' +
-      '<div data-lock-text style="font-size:.9rem;opacity:.92;">Estamos guardando tus cambios</div>' +
+      '<div class="nw-processing-card">' +
+      '<span class="nw-processing-spinner" aria-hidden="true"></span>' +
+      '<strong data-lock-title>Procesando datos...</strong>' +
+      '<span data-lock-subtitle>Procesando solicitud...</span>' +
       '</div>';
 
     Object.assign(uiLockOverlay.style, {
       position: 'fixed',
       inset: '0',
       zIndex: '10000',
-      background: 'rgba(15, 23, 42, .45)',
+      background: 'rgba(71, 85, 105, .38)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       pointerEvents: 'auto',
-      backdropFilter: 'blur(1px)'
+      backdropFilter: 'blur(2px)'
     });
 
     uiLockOverlay.addEventListener('click', function (e) {
@@ -134,12 +135,12 @@
     return document.body.classList.contains('nw-ui-locked');
   }
 
-  function lockUi(message) {
+  function lockUi(title, subtitle) {
     var overlay = ensureUiLockOverlay();
-    var textEl = overlay.querySelector('[data-lock-text]');
-    if (textEl) {
-      textEl.textContent = message || 'Estamos guardando tus cambios';
-    }
+    var titleEl = overlay.querySelector('[data-lock-title]');
+    var subtitleEl = overlay.querySelector('[data-lock-subtitle]');
+    if (titleEl) titleEl.textContent = title || 'Procesando datos...';
+    if (subtitleEl) subtitleEl.textContent = subtitle || 'Procesando solicitud...';
     overlay.hidden = false;
     document.body.classList.add('nw-ui-locked');
     document.body.setAttribute('aria-busy', 'true');
@@ -185,7 +186,10 @@
   });
 
   function initSubmitLoading() {
-    document.querySelectorAll('form[data-loading-text]').forEach(function (form) {
+    var forms = document.querySelectorAll(
+      'form[data-loading-text], form[data-loading-title], form[method="post"]:not([data-no-loading])'
+    );
+    forms.forEach(function (form) {
       form.addEventListener('submit', function (event) {
         if (event.defaultPrevented) return;
         if (form.dataset.confirmMessage && form.dataset.confirmBypassed !== '1') return;
@@ -195,16 +199,43 @@
           submitter = form.querySelector('button[type="submit"], input[type="submit"]');
         }
 
-        var loadingText =
+        var loadingTitle =
+          (submitter && submitter.dataset.loadingTitle) ||
+          form.dataset.loadingTitle ||
           (submitter && submitter.dataset.loadingText) ||
-          form.dataset.loadingText ||
-          'Cargando...';
+          form.dataset.loadingText;
+        var action = String(form.getAttribute('action') || '').toLowerCase();
+        var buttonText = String(submitter ? submitter.textContent : '').trim().toLowerCase();
+        if (!loadingTitle) {
+          if (action.indexOf('sincron') !== -1 || buttonText.indexOf('sincron') !== -1) {
+            loadingTitle = 'Sincronizando datos...';
+          } else if (action.indexOf('factura') !== -1) {
+            loadingTitle = 'Procesando facturas...';
+          } else if (action.indexOf('import') !== -1 || buttonText.indexOf('import') !== -1) {
+            loadingTitle = 'Importando datos...';
+          } else if (action.indexOf('eliminar') !== -1 || buttonText.indexOf('eliminar') !== -1) {
+            loadingTitle = 'Eliminando registro...';
+          } else if (buttonText.indexOf('aplicar') !== -1) {
+            loadingTitle = 'Aplicando cambios...';
+          } else {
+            loadingTitle = 'Guardando datos...';
+          }
+        }
+        var loadingSubtitle =
+          (submitter && submitter.dataset.loadingSubtitle) ||
+          form.dataset.loadingSubtitle ||
+          'Procesando solicitud...';
 
-        setLoadingButtonState(submitter, loadingText);
-        lockUi(loadingText);
-      }, true);
+        setLoadingButtonState(submitter, loadingTitle);
+        lockUi(loadingTitle, loadingSubtitle);
+      });
     });
   }
+
+  window.NetwardProcessing = {
+    show: lockUi,
+    hide: unlockUi
+  };
 
   function ensureConfirmOverlay() {
     if (confirmOverlay) return confirmOverlay;
@@ -330,7 +361,10 @@
       form.addEventListener('submit', function (event) {
         if (event.defaultPrevented) return;
         if (form.dataset.confirmBypassed === '1') {
-          lockUi(form.dataset.confirmLoadingText || 'Procesando acción...');
+          lockUi(
+            form.dataset.confirmLoadingText || 'Procesando acción...',
+            form.dataset.loadingSubtitle || 'Procesando solicitud...'
+          );
           return;
         }
 
@@ -551,9 +585,11 @@
   }
 
   initCollapsibleCards();
+  // La validación debe registrarse primero para que un formulario incompleto
+  // pueda cancelar el envío antes de mostrar el bloqueo de procesamiento.
+  initInlineValidation();
   initSubmitLoading();
   initFormConfirm();
-  initInlineValidation();
 
   // Auto-ocultar mensajes flash despues de 5s
   setTimeout(function () {

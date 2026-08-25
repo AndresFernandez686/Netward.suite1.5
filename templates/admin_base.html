@@ -138,7 +138,7 @@
 
         {% block admin_back_button %}
         <div class="admin-back-nav">
-          <a href="{{ url_for('admin_dashboard') }}" class="btn btn--ghost btn--sm"
+          <a href="{{ url_for('admin_dashboard') }}" class="btn btn--ghost btn--back btn--sm"
              onclick="if (window.history.length > 1) { window.history.back(); return false; }">
             ← Volver atrás
           </a>
@@ -156,7 +156,7 @@
   </div>
   <div class="sidebar-backdrop" id="backdrop"></div>
 
-  <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-confirm-no-delay-1') }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-sidebar-scroll-fix-1-confirm-no-delay-1-processing-card-1') }}"></script>
   <script>
     function cambiarTiendaGlobal(valor) {
       var url = new URL(window.location.href);

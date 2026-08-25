@@ -53,7 +53,8 @@
   {% endif %}
 
   <form method="post" action="{{ url_for('empleado_sincronizar') }}" id="sync-form"
-        data-loading-text="Procesando sincronización...">
+        data-loading-title="Sincronizando inventario..."
+        data-loading-subtitle="Enviando y recibiendo los datos del período...">
 
     <input type="hidden" name="accion" id="accion-hidden" value="{{ 'enviar_recibir' if catalogo_pendiente else 'solo_enviar' }}" />
     {% if periodo_activo %}<input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />{% endif %}

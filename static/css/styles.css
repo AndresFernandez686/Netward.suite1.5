@@ -400,6 +400,28 @@ small { font-size: .78rem; }
 .btn--success:hover { background: #15803d; }
 .btn--ghost { background: #fff; border-color: var(--line); color: var(--ink-2); }
 .btn--ghost:hover { background: var(--bg); border-color: #cbd5e1; }
+.btn.btn--soft-green {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+.btn.btn--soft-green:hover {
+  background: #bbf7d0;
+  border-color: #4ade80;
+  color: #14532d;
+  box-shadow: 0 5px 14px rgba(22, 101, 52, .12);
+}
+.btn.btn--back {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+  color: #075985;
+}
+.btn.btn--back:hover {
+  background: #bae6fd;
+  border-color: #38bdf8;
+  color: #0c4a6e;
+  box-shadow: 0 5px 14px rgba(3, 105, 161, .13);
+}
 .btn--danger { background: #fef2f2; border-color: #fecaca; color: var(--danger); }
 .btn--danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
 .btn--block { width: 100%; }
@@ -1441,4 +1463,46 @@ small { font-size: .78rem; }
   .content { padding: 12px; }
   .inv-form__grid { grid-template-columns: 1fr !important; }
   .filters__actions { margin-left: 0; width: 100%; }
+}
+/* Indicador global para cargas, guardados, sincronizaciones y procesos. */
+.nw-processing-card {
+  display: grid;
+  justify-items: center;
+  width: min(350px, calc(100vw - 32px));
+  padding: 27px 26px 25px;
+  border: 1px solid #d8e2f0;
+  border-radius: 17px;
+  background: #fff;
+  color: #172033;
+  text-align: center;
+  box-shadow: 0 18px 55px rgba(15, 23, 42, .22);
+}
+
+.nw-processing-card strong {
+  margin-top: 15px;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.nw-processing-card [data-lock-subtitle] {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: .88rem;
+}
+
+.nw-processing-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #dbeafe;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: nw-processing-spin .8s linear infinite;
+}
+
+@keyframes nw-processing-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nw-processing-spinner { animation-duration: 1.8s; }
 }

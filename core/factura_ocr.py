@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 import hashlib
+from importlib import import_module
 import io
 import json
 import math
@@ -81,14 +82,18 @@ def _extraer_texto_pdf(contenido: bytes) -> tuple[str, str]:
 
     try:
         import pypdfium2 as pdfium
-        import pytesseract
+        # Tesseract es un respaldo opcional: se carga solo cuando el PDF no
+        # trae texto para que el flujo digital no dependa del ejecutable OCR.
+        pytesseract = import_module("pytesseract")
         if os.getenv("TESSERACT_CMD", "").strip():
-            pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD", "").strip()
+            getattr(pytesseract, "pytesseract").tesseract_cmd = os.getenv(
+                "TESSERACT_CMD", ""
+            ).strip()
         pdf = pdfium.PdfDocument(contenido)
         partes = []
         for pagina in pdf:
-            imagen = pagina.render(scale=2.2).to_pil()
-            partes.append(pytesseract.image_to_string(imagen, lang="spa"))
+            imagen = pagina.render(scale=2).to_pil()
+            partes.append(getattr(pytesseract, "image_to_string")(imagen, lang="spa"))
         texto = "\n".join(partes)
     except Exception as exc:
         raise FacturaError(
@@ -396,7 +401,7 @@ def _buscar_producto(proveedor: str, linea: LineaExtraida) -> tuple[Producto | N
 
 def importar_factura(
     *, periodo: InventarioPeriodo, cliente_id: str, usuario: str,
-    nombre_archivo: str, contenido: bytes,
+    nombre_archivo: str, contenido: bytes, orden_carga: int = 0,
 ) -> tuple[FacturaCompra | None, list[str]]:
     if len(contenido) > MAX_PDF_BYTES:
         raise FacturaError("Cada factura puede pesar como máximo 15 MB.")
@@ -418,7 +423,7 @@ def importar_factura(
         # silenciosamente una compra confirmada dentro de ese período.
         metodo_extraccion=extraida.metodo, estado="procesada",
         total_factura=extraida.total, usuario_importador=usuario,
-        texto_extraido=extraida.texto[:100_000],
+        texto_extraido=extraida.texto[:100_000], orden_carga=max(0, int(orden_carga)),
     )
     db.session.add(factura)
     db.session.flush()
@@ -493,6 +498,7 @@ def aplicar_compras_facturas(periodo: InventarioPeriodo, cliente_id: str, usuari
                 if producto and producto.categoria in permitidas:
                     detalle.producto_id = producto.id
                     detalle.producto_nombre = producto.nombre
+                    detalle.estado_vinculacion = "vinculado"
                     detalle.confianza = "Alta"
                     detalle.observacion = f"{motivo}; reconciliada al aplicar compras"[:255]
             if detalle.estado_vinculacion == "fuera_rango":
@@ -513,6 +519,33 @@ def aplicar_compras_facturas(periodo: InventarioPeriodo, cliente_id: str, usuari
                     )
                     detalle.observacion = f"{fuente}; conversión sincronizada"[:255]
     db.session.flush()
+
+    detalles_periodo = (
+        FacturaCompraDetalle.query.join(FacturaCompra)
+        .filter(
+            FacturaCompra.periodo_id == periodo.id,
+            FacturaCompra.cliente_id == cliente_id,
+        )
+        .all()
+    )
+    incompletas = []
+    for detalle in detalles_periodo:
+        if detalle.estado_vinculacion == "fuera_rango":
+            continue
+        cantidad = float(detalle.cantidad_facturada or 0)
+        factor = float(detalle.factor_conversion or 0)
+        if (
+            detalle.producto_id is None
+            or detalle.estado_vinculacion not in ("vinculado", "aplicado")
+            or not math.isfinite(cantidad) or cantidad < 0
+            or not math.isfinite(factor) or factor <= 0
+        ):
+            incompletas.append(detalle)
+    if incompletas:
+        raise FacturaError(
+            f"No se aplicaron compras: completa y guarda las {len(incompletas)} "
+            "línea(s) marcadas para revisión."
+        )
 
     filas = (
         FacturaCompraDetalle.query.join(FacturaCompra)

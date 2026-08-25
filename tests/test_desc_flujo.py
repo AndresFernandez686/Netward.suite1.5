@@ -44,6 +44,61 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn(".desc-invoice-table thead th", estilos)
         self.assertIn("position: sticky", estilos)
         self.assertIn("table-layout: fixed", estilos)
+        self.assertIn("desc-invoice-validation-alert", plantilla)
+        self.assertIn("has-empty-fields", plantilla)
+        self.assertIn("not excel_seleccionado or facturas_pendientes", plantilla)
+
+    def test_documentacion_oficial_no_muestra_tarjetas_de_resumen(self):
+        plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("Inventarios procesados", plantilla)
+        self.assertNotIn("Estado del servicio", plantilla)
+        self.assertNotIn("desc-kpis", plantilla)
+
+    def test_panel_de_documento_y_analisis_azure(self):
+        plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
+            encoding="utf-8"
+        )
+        estilos = (ROOT / "static" / "css" / "admin.css").read_text(
+            encoding="utf-8"
+        )
+        rutas = (ROOT / "core" / "inventario.py").read_text(encoding="utf-8")
+
+        self.assertIn("Ver documento", plantilla)
+        self.assertIn("Análisis de Nexa", plantilla)
+        self.assertIn("invoice-document-inline", plantilla)
+        self.assertNotIn("invoice-document-dialog", plantilla)
+        self.assertIn("Ocultar documento", plantilla)
+        self.assertIn("Abrir en pestaña", plantilla)
+        self.assertIn("invoice-analysis-table-slot", plantilla)
+        self.assertIn("invoice-review-table", plantilla)
+        self.assertNotIn("Impresión con sangría", plantilla)
+        self.assertIn("desc.desc_factura_descargar", plantilla)
+        self.assertIn("desc.desc_factura_analisis", plantilla)
+        self.assertIn("loadStoredAnalysis", plantilla)
+        self.assertIn(".desc-document-analysis", estilos)
+        self.assertIn("def desc_factura_descargar", rutas)
+        self.assertIn("def desc_factura_analisis", rutas)
+        self.assertIn("facturas_historial", plantilla)
+        self.assertIn("Ver factura", plantilla)
+        self.assertIn("FacturaCompra.orden_carga.asc()", rutas)
+        self.assertIn("orden_carga=siguiente_orden + posicion", rutas)
+        self.assertNotIn("Leer facturas y detectar compras", plantilla)
+        self.assertNotIn("Descargar PDF", plantilla)
+        self.assertIn("invoiceUploadForm.requestSubmit()", plantilla)
+        self.assertIn("facturas_historial_archivos", plantilla)
+        self.assertIn("factura_hist.nombre_archivo", plantilla)
+        inicio_historial = plantilla.index(
+            '<section class="card card--skip-collapse" id="procesamientos-recientes"'
+        )
+        datos = plantilla[plantilla.index('id="datos-extraidos-card"'):inicio_historial]
+        historial = plantilla[inicio_historial:]
+        self.assertIn('id="datos-ver-facturas"', datos)
+        self.assertIn("Ver factura", datos)
+        self.assertNotIn("Ver factura", historial)
+        self.assertNotIn("desc-rules-grid", plantilla)
 
     def test_auditoria_remite_al_unico_importador_y_datetime_es_compatible(self):
         detalle = (ROOT / "templates" / "admin_periodo_detalle.html").read_text(

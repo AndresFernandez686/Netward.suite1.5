@@ -248,20 +248,16 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
     # Las facturas oficiales son la fuente de Compras. Sincronizarlas justo
     # antes de auditar impide que un total aplicado anteriormente (por ejemplo,
     # 5 bultos) sobreviva después de corregir la factura (por ejemplo, 4).
-    if excel_imp:
-        from .factura_ocr import aplicar_compras_facturas
-        from .models import FacturaCompra
-        hay_compras_factura = FacturaCompra.query.filter_by(
-            periodo_id=periodo.id, cliente_id=periodo.cliente_id,
-        ).first() is not None
-        if hay_compras_factura:
-            try:
-                aplicar_compras_facturas(periodo, periodo.cliente_id, "motor_auditoria")
-                db.session.flush()
-            except ValueError:
-                # Las líneas aún pendientes continúan visibles para revisión;
-                # no deben impedir auditar los restantes datos del Excel.
-                pass
+    from .factura_ocr import aplicar_compras_facturas
+    from .models import FacturaCompra
+    hay_compras_factura = FacturaCompra.query.filter_by(
+        periodo_id=periodo.id, cliente_id=periodo.cliente_id,
+    ).first() is not None
+    if hay_compras_factura:
+        # Una factura incompleta o sin inventario oficial invalida la fuente de
+        # Compras. No generar una auditoría parcial ni conservar valores antiguos.
+        aplicar_compras_facturas(periodo, periodo.cliente_id, "motor_auditoria")
+        db.session.flush()
 
     # Borrar resultados anteriores solo después de sincronizar correctamente
     # las fuentes; un error de factura no debe destruir una auditoría existente.

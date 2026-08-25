@@ -5,7 +5,10 @@ import unittest
 
 from flask import Flask
 
-from core.factura_ocr import aplicar_compras_facturas, extraer_factura, importar_factura
+from core.factura_ocr import (
+    FacturaError, aplicar_compras_facturas, extraer_factura, importar_factura,
+)
+from core.auditoria import ejecutar_auditoria
 from core.models import (
     Cliente, ExcelDetalle, ExcelDetalleEdicion, ExcelImportado, FacturaCompra,
     FacturaCompraDetalle, InventarioPeriodo, Producto, ProductoPrecio, Tienda, db,
@@ -117,6 +120,12 @@ class PruebasFacturasOCR(unittest.TestCase):
             factura_id=factura.id, producto_id=palito.id,
         ).one()
         self.assertEqual(linea.compras_calculadas, 80)
+        # Esta prueba evalúa una aplicación completa de una sola línea.
+        # Las demás líneas del PDF se prueban por separado como pendientes.
+        for otra in list(factura.detalles):
+            if otra.id != linea.id:
+                db.session.delete(otra)
+        db.session.flush()
 
         resumen = aplicar_compras_facturas(periodo, "C001", "admin")
         db.session.commit()
@@ -125,6 +134,37 @@ class PruebasFacturasOCR(unittest.TestCase):
         self.assertEqual(ExcelDetalleEdicion.query.count(), 1)
         self.assertIn('"origen": "facturas_pdf"', ExcelDetalleEdicion.query.one().cambios_json)
         self.assertGreater(len(avisos), 0)  # líneas sin vínculo seguro quedan para revisión
+
+    def test_no_aplica_ninguna_compra_si_hay_lineas_incompletas(self):
+        periodo = self._periodo()
+        palito = Producto.query.filter_by(nombre="Palito Crema Americana").one()
+        excel = ExcelImportado(
+            periodo_id=periodo.id, cliente_id="C001", nombre_archivo="inventario.xls",
+            usuario_importador="admin", estado_validacion="ok",
+        )
+        db.session.add(excel)
+        db.session.flush()
+        detalle_excel = ExcelDetalle(
+            excel_id=excel.id, articulo="P1", artdescrip="Palito cremoso americana x unidad",
+            producto_id=palito.id, producto_nombre_interno=palito.nombre,
+            estado_vinculacion="vinculado", compras=999,
+        )
+        db.session.add(detalle_excel)
+        nombre, contenido = self._pdf("helacor")
+        importar_factura(
+            periodo=periodo, cliente_id="C001", usuario="admin",
+            nombre_archivo=nombre, contenido=contenido,
+        )
+        db.session.flush()
+
+        with self.assertRaisesRegex(FacturaError, "completa y guarda"):
+            aplicar_compras_facturas(periodo, "C001", "admin")
+
+        self.assertEqual(detalle_excel.compras, 999)
+        self.assertEqual(ExcelDetalleEdicion.query.count(), 0)
+
+        with self.assertRaisesRegex(FacturaError, "completa y guarda"):
+            ejecutar_auditoria(periodo)
 
     def test_helacor_usa_presentacion_especifica_de_cada_producto(self):
         """2 bultos de 6 unidades/caja y 6 cajas/bulto son 72, no 96."""
@@ -234,6 +274,7 @@ class PruebasFacturasOCR(unittest.TestCase):
         for nombre in (
             "desc_facturas_importar", "desc_factura_detalle_actualizar",
             "desc_facturas_aplicar", "desc_factura_pdf",
+            "desc_factura_descargar", "desc_factura_analisis",
         ):
             llamadas = [
                 nodo for nodo in ast.walk(funciones[nombre])

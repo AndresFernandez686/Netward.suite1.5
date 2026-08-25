@@ -512,6 +512,12 @@ class FacturaCompra(BaseModel):
     total_factura = db.Column(db.Float, nullable=False, default=0)
     usuario_importador = db.Column(db.String(80), nullable=False)
     texto_extraido = db.Column(db.Text, nullable=False, default="")
+    orden_carga = db.Column(db.Integer, nullable=False, default=0)
+    analisis_json = db.Column(db.Text, nullable=True)
+    analisis_motor = db.Column(db.String(40), nullable=True)
+    analisis_precision = db.Column(db.Float, nullable=True)
+    analisis_estado = db.Column(db.String(30), nullable=True)
+    analisis_fecha = db.Column(db.DateTime, nullable=True)
     fecha_importacion = db.Column(db.DateTime, nullable=False, default=utc_now)
 
     periodo = db.relationship("InventarioPeriodo", backref=db.backref(

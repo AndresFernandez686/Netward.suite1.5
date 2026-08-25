@@ -53,14 +53,16 @@
 
       {% if periodo.estado in ('Cerrado','Conciliado','Auditado') %}
       <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline;"
-            data-confirm-message="¿Ejecutar la auditoría automática de este período?">
-        <button type="submit" class="btn btn--primary">Ejecutar auditoría</button>
+            data-confirm-message="¿Ejecutar la auditoría automática de este período?"
+            data-confirm-loading-text="Ejecutando auditoría...">
+        <button type="submit" class="btn btn--primary" {{ 'disabled' if facturas_pendientes_auditoria else '' }}
+                title="{{ 'Completa las facturas pendientes antes de auditar.' if facturas_pendientes_auditoria else '' }}">Ejecutar auditoría</button>
       </form>
       {% if excel_imp and excel_imp.estado_validacion == 'pendiente_vinculacion' %}
       <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline;"
             data-confirm-message="¿Ejecutar la auditoría con productos sin vincular? Los resultados pueden quedar incompletos.">
         <input type="hidden" name="forzar" value="1">
-        <button type="submit" class="btn btn--danger">Forzar auditoría</button>
+        <button type="submit" class="btn btn--danger" {{ 'disabled' if facturas_pendientes_auditoria else '' }}>Forzar auditoría</button>
       </form>
       {% endif %}
       <a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn--ghost">Ver auditoría</a>
@@ -69,6 +71,13 @@
       {% endif %}
     </div>
   </section>
+
+  {% if facturas_pendientes_auditoria %}
+  <section class="periodo-det-alerta">
+    <strong>Auditoría bloqueada.</strong>
+    Completa y procesa las {{ facturas_pendientes_auditoria }} línea(s) de factura pendientes antes de continuar.
+  </section>
+  {% endif %}
 
   {% if sin_cargar %}
   <section class="periodo-det-alerta">
