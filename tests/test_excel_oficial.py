@@ -155,6 +155,28 @@ class PruebasExcelOficial(unittest.TestCase):
         self.assertEqual(len(detalles), 1)
         self.assertEqual(detalles[0].articulo, "A-001")
 
+    def test_columnas_auxiliares_se_descartan_del_excel_procesado(self):
+        excel, _ = self.importar([fila_oficial()])
+        detalle = ExcelDetalle.query.filter_by(excel_id=excel.id).one()
+
+        self.assertEqual(detalle.importedesvio, 0)
+        self.assertEqual(detalle.kilos, 0)
+        self.assertEqual(detalle.unidades, 0)
+        self.assertEqual(detalle.grupo, "")
+        self.assertEqual(detalle.grudescrip, "")
+
+    def test_depdescrip_se_usa_para_excluir_y_luego_se_descarta(self):
+        headers = ["depdescrip" if h == "grudescrip" else h for h in HEADERS]
+        fila = fila_oficial("X-DEP", "Producto de promoción")
+        fila[-1] = "Promociones"
+
+        excel, _ = self.importar([fila], headers=headers)
+        detalle = ExcelDetalle.query.filter_by(excel_id=excel.id).one()
+
+        self.assertTrue(detalle.excluido_auditoria)
+        self.assertEqual(detalle.estado_vinculacion, "excluido")
+        self.assertEqual(detalle.grudescrip, "")
+
     def test_importar_excel_no_cambia_el_estado_operativo_del_periodo(self):
         self.periodo.estado = "Abierto"
         db.session.commit()

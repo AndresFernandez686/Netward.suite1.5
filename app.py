@@ -3624,7 +3624,22 @@ def admin_producto_relacionado_crear():
         flash("Ratio y tolerancia deben ser números.", "error")
         return redirect(url_for("admin_productos_relacionados"))
 
-    if not principal or not relacionado or principal == relacionado:
+    productos_catalogo = (
+        Producto.query
+        .filter(Producto.visible_empleado.is_(True))
+        .filter(db.func.lower(Producto.nombre).in_((principal.lower(), relacionado.lower())))
+        .all()
+    )
+    productos_por_nombre = {producto.nombre.lower(): producto for producto in productos_catalogo}
+    producto_principal = productos_por_nombre.get(principal.lower())
+    producto_relacionado = productos_por_nombre.get(relacionado.lower())
+    if producto_principal is None or producto_relacionado is None:
+        flash("Seleccioná ambos productos desde el catálogo interno.", "warning")
+        return redirect(url_for("admin_productos_relacionados"))
+
+    principal = producto_principal.nombre
+    relacionado = producto_relacionado.nombre
+    if principal == relacionado:
         flash("Seleccioná dos productos distintos.", "warning")
         return redirect(url_for("admin_productos_relacionados"))
 

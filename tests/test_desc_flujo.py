@@ -48,6 +48,57 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn("has-empty-fields", plantilla)
         self.assertIn("not excel_seleccionado or facturas_pendientes", plantilla)
 
+    def test_selectores_de_producto_siguen_al_campo_y_limitan_resultados(self):
+        codigo = (ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
+        empleado = (ROOT / "templates" / "empleado_inventario.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("document.addEventListener('scroll', scheduleReposition, true)", codigo)
+        self.assertIn("window.addEventListener('resize', scheduleReposition)", codigo)
+        self.assertIn('data-min-chars="2" data-max-results="8"', empleado)
+        self.assertIn('data-search="{{ p|lower|e }}"', empleado)
+
+    def test_tabla_extraida_no_muestra_columnas_auxiliares_descartadas(self):
+        plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("<th>Importe desvío</th>", plantilla)
+        self.assertNotIn('data-field="importedesvio"', plantilla)
+        self.assertNotIn('data-field="kilos"', plantilla)
+        self.assertNotIn('data-field="unidades"', plantilla)
+        self.assertNotIn('data-field="grupo"', plantilla)
+        self.assertNotIn('data-field="grudescrip"', plantilla)
+
+    def test_busqueda_interna_por_palabras_en_relaciones_y_facturas(self):
+        relaciones = (ROOT / "templates" / "admin_productos_relacionados.html").read_text(
+            encoding="utf-8"
+        )
+        facturas = (ROOT / "templates" / "admin_desc.html").read_text(encoding="utf-8")
+        buscador = (ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
+        aplicacion = (ROOT / "app.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("<datalist", relaciones)
+        self.assertIn("rel-product-combo", relaciones)
+        self.assertIn('data-min-chars="2" data-max-results="8"', relaciones)
+        self.assertIn("p.codigo_articulo", relaciones)
+        self.assertIn("function searchScore", buscador)
+        self.assertIn("queryWords.every", buscador)
+        self.assertIn("matches.sort", buscador)
+        self.assertIn("Seleccioná ambos productos desde el catálogo interno.", aplicacion)
+        self.assertIn('data-search="{{ (producto.nombre ~', facturas)
+
+    def test_periodo_contable_usa_validacion_visual_del_sistema(self):
+        plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('id="proc-form" class="desc-form"', plantilla)
+        self.assertIn("data-inline-validation novalidate", plantilla)
+        self.assertIn("Selecciona un período contable antes de importar.", plantilla)
+        self.assertIn("Seleccionar período...", plantilla)
+
     def test_documentacion_oficial_no_muestra_tarjetas_de_resumen(self):
         plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
             encoding="utf-8"

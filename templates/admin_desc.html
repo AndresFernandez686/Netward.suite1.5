@@ -31,22 +31,26 @@
       <h3 class="panel__title">Nuevo procesamiento</h3>
     </div>
     <form method="post" action="{{ url_for('desc.admin_desc') }}" enctype="multipart/form-data" id="proc-form" class="desc-form"
+          data-inline-validation novalidate
           data-loading-title="Importando inventario..." data-loading-subtitle="Validando y preparando los datos oficiales...">
-      <div class="desc-dropzone">
+      <div class="desc-dropzone" data-validation-field>
         <label for="file-input" class="desc-dropzone__box">
           <span class="desc-dropzone__title">Inventario oficial (.XLS / .XLSX)</span>
           <span class="desc-dropzone__sub">Arrastra o selecciona un archivo</span>
           <span class="desc-dropzone__hint">Tamaño recomendado: hasta 20 MB</span>
           <span class="btn btn--ghost btn--sm">Seleccionar archivo</span>
         </label>
-        <input type="file" name="archivo" id="file-input" accept=".xlsx,.xls" required />
+        <input type="file" name="archivo" id="file-input" accept=".xlsx,.xls" required
+               data-required-message="Selecciona el archivo Excel oficial." />
       </div>
 
       <div class="desc-fields">
         <div class="form-row" style="margin-bottom:10px;">
           <label class="field">
             <span class="field__label">Período contable</span>
-            <select name="periodo_id" id="periodo-select" required>
+            <select name="periodo_id" id="periodo-select" required
+                    data-required-message="Selecciona un período contable antes de importar.">
+              <option value="" disabled {{ 'selected' if not periodo_seleccionado else '' }}>Seleccionar período...</option>
               {% for p in periodos_disponibles %}
               <option value="{{ p.id }}" {{ 'selected' if periodo_seleccionado and p.id == periodo_seleccionado.id else '' }}>
                 #{{ p.numero }} · {{ tiendas_map.get(p.tienda_id, p.tienda_id) }} · {{ p.fecha_desde }} a {{ p.fecha_hasta }} · {{ p.estado }}
@@ -350,8 +354,7 @@
           <th>Vínculo</th><th>Código</th><th>Producto Excel</th>
           <th>Stock inicial</th><th>Compras</th><th>Otros ingresos</th><th>Otras salidas</th>
           <th>Stock final</th><th>Venta teórica</th><th>Venta real</th><th>Diferencia</th>
-          <th>Importe desvío</th><th>Kilos</th><th>Unidades</th><th>Grupo</th>
-          <th>Descripción grupo</th><th>Excluir</th><th>Motivo exclusión</th>
+          <th>Excluir</th><th>Motivo exclusión</th>
         </tr></thead>
         <tbody>
           {% for d in excel_detalles %}
@@ -367,11 +370,6 @@
             <td><input data-field="ventateorica" type="number" step="any" value="{{ d.ventateorica or 0 }}"></td>
             <td><input data-field="ventareal" type="number" step="any" value="{{ d.ventareal or 0 }}"></td>
             <td><input data-field="diferencia" type="number" step="any" value="{{ d.diferencia or 0 }}"></td>
-            <td><input data-field="importedesvio" type="number" step="any" value="{{ d.importedesvio or 0 }}"></td>
-            <td><input data-field="kilos" type="number" step="any" value="{{ d.kilos or 0 }}"></td>
-            <td><input data-field="unidades" type="number" step="any" value="{{ d.unidades or 0 }}"></td>
-            <td><input data-field="grupo" value="{{ d.grupo|e }}" maxlength="120"></td>
-            <td><input data-field="grudescrip" value="{{ d.grudescrip|e }}" maxlength="120"></td>
             <td class="desc-excel-check"><input data-field="excluido_auditoria" type="checkbox" {{ 'checked' if d.excluido_auditoria else '' }}></td>
             <td><input data-field="motivo_exclusion" value="{{ (d.motivo_exclusion or '')|e }}" maxlength="120"></td>
           </tr>

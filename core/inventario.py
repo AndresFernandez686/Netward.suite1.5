@@ -1043,14 +1043,12 @@ def desc_factura_analisis(factura_id):
 _CAMPOS_EXCEL_TEXTO = {
     "articulo": 40,
     "artdescrip": 255,
-    "grupo": 120,
-    "grudescrip": 120,
     "motivo_exclusion": 120,
 }
 _CAMPOS_EXCEL_NUMERO = {
     "stockinicial", "compras", "otrosingresos",
     "otrassalidas", "stockfinal", "ventateorica", "ventareal",
-    "diferencia", "importedesvio", "kilos", "unidades",
+    "diferencia",
 }
 
 

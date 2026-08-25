@@ -1865,6 +1865,38 @@ body.periodos-help-open {
   grid-column: 1 / -1;
 }
 
+.rel-product-combo {
+  min-width: 0;
+}
+
+.rel-product-combo .combo__list {
+  z-index: 80;
+  max-height: 250px;
+}
+
+.rel-product-combo .combo__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rel-product-combo .combo__option[hidden] {
+  display: none;
+}
+
+.rel-product-combo .combo__option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rel-product-combo .combo__option small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: .7rem;
+}
+
 .rel-examples {
   margin: 14px 0 0;
   border: 1px solid #dbeafe;

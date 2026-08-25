@@ -12,7 +12,9 @@ from typing import Optional
 
 from .models import db, ExcelImportado, ExcelDetalle, InventarioPeriodo, Producto
 
-# Columnas reconocidas del inventario oficial (nombres en minúsculas, sin acentos)
+# Columnas reconocidas del inventario oficial (nombres en minúsculas, sin acentos).
+# Los campos auxiliares del proveedor se detectan para compatibilidad y para
+# excluir grupos no auditables, pero no forman parte del inventario procesado.
 _COL_MAP = {
     "articulo": ["articulo", "art", "codigo", "cod"],
     "artdescrip": ["artdescrip", "descripcion", "nombre", "producto"],
@@ -28,7 +30,16 @@ _COL_MAP = {
     "kilos": ["kilos", "kg"],
     "unidades": ["unidades", "unid"],
     "grupo": ["grupo"],
-    "grudescrip": ["grudescrip", "grupo descrip", "grupo descripcion"],
+    "grudescrip": [
+        "grudescrip", "grupo descrip", "grupo descripcion",
+        "depdescrip", "dep descrip", "departamento descripcion",
+    ],
+}
+
+_COLUMNAS_DESCARTADAS = {
+    "porcentaje", "porcentaje_vtapos", "importedesvio", "kilos",
+    "unidades", "grupo", "depdescrip", "desdefecha", "hastafecha",
+    "kilosvta",
 }
 
 _COLUMNAS_OBLIGATORIAS = {
@@ -481,10 +492,6 @@ def importar_excel(
         ventateorica = _safe_float(_get("ventateorica")) or 0.0
         ventareal = _safe_float(_get("ventareal")) or 0.0
         diferencia = _safe_float(_get("diferencia")) or 0.0
-        importedesvio = _safe_float(_get("importedesvio")) or 0.0
-        kilos = _safe_float(_get("kilos")) or 0.0
-        unidades = _safe_float(_get("unidades")) or 0.0
-
         # Vincular: código primero, luego nombre exacto, luego parcial
         nombre_interno = _vincular_producto(
             articulo, str(_get("artdescrip") or ""), codigo_map, nombre_map, alias_map
@@ -544,11 +551,13 @@ def importar_excel(
             ventateorica=ventateorica,
             ventareal=ventareal,
             diferencia=diferencia,
-            importedesvio=importedesvio,
-            kilos=kilos,
-            unidades=unidades,
-            grupo=str(_get("grupo") or ""),
-            grudescrip=str(_get("grudescrip") or ""),
+            # Las columnas auxiliares del archivo oficial se usan, cuando
+            # corresponde, antes de este punto y se descartan del resultado.
+            importedesvio=0.0,
+            kilos=0.0,
+            unidades=0.0,
+            grupo="",
+            grudescrip="",
             producto_nombre_interno=nombre_interno if not grupo_excluido else None,
             producto_id=prod_id,
             estado_vinculacion=estado_vinc,

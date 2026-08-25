@@ -3,6 +3,31 @@
 {% block heading %}Productos relacionados{% endblock %}
 {% block subheading %}Relaciones de consumo para alertas de auditoría{% endblock %}
 
+{% macro selector_producto(nombre, etiqueta, placeholder, list_id) %}
+<div class="field field--grow combo rel-product-combo" data-combo data-min-chars="2" data-max-results="8">
+  <span class="field__label">{{ etiqueta }}</span>
+  <input type="hidden" name="{{ nombre }}" class="combo__value" required
+         data-required-message="Busca y selecciona un producto del catálogo." />
+  <div class="combo__control">
+    <svg class="combo__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="text" class="combo__input" placeholder="{{ placeholder }}" autocomplete="off"
+           role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="{{ list_id }}" />
+    <button type="button" class="combo__clear" aria-label="Limpiar selección" hidden>&times;</button>
+  </div>
+  <ul class="combo__list" id="{{ list_id }}" role="listbox" hidden>
+    {% for p in productos %}
+    <li class="combo__option" role="option" data-value="{{ p.nombre|e }}"
+        data-display="{{ p.nombre|e }}"
+        data-search="{{ (p.nombre ~ ' ' ~ p.categoria ~ ' ' ~ (p.codigo_articulo or ''))|lower|e }}">
+      <span>{{ p.nombre }}</span><small>{{ p.categoria }}</small>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="combo__empty" data-prompt="Escribe al menos 2 letras para buscar en el catálogo."
+     data-no-results="No encontramos productos relacionados con esas palabras." hidden></p>
+</div>
+{% endmacro %}
+
 {% block content %}
 <div class="rel-page">
   <section class="rel-hero">
@@ -26,16 +51,11 @@
       <h3 id="ttl-rel-nueva">Nueva relación</h3>
     </div>
 
-    <form method="post" action="{{ url_for('admin_producto_relacionado_crear') }}" class="rel-form">
-      <label class="field field--grow">
-        <span class="field__label">Producto principal</span>
-        <input type="text" name="producto_principal" list="productos-list" required placeholder="Buscar producto principal...">
-      </label>
+    <form method="post" action="{{ url_for('admin_producto_relacionado_crear') }}" class="rel-form"
+          data-inline-validation novalidate>
+      {{ selector_producto('producto_principal', 'Producto principal', 'Buscar producto principal...', 'rel-producto-principal') }}
 
-      <label class="field field--grow">
-        <span class="field__label">Producto relacionado (consumido juntos)</span>
-        <input type="text" name="producto_relacionado" list="productos-list" required placeholder="Buscar producto relacionado...">
-      </label>
+      {{ selector_producto('producto_relacionado', 'Producto relacionado (consumido juntos)', 'Buscar producto relacionado...', 'rel-producto-relacionado') }}
 
       <label class="field">
         <span class="field__label">Ratio esperado</span>
@@ -53,10 +73,6 @@
         <button type="submit" class="btn btn--primary">Agregar relación</button>
       </div>
     </form>
-
-    <datalist id="productos-list">
-      {% for p in productos %}<option value="{{ p.nombre }}">{% endfor %}
-    </datalist>
 
     <p class="rel-examples">
       <strong>Ejemplos:</strong>
@@ -151,17 +167,22 @@
 
     function applySearch() {
       if (!searchInput || rows.length === 0) return;
-      var query = normalize(searchInput.value);
+      var queryWords = normalize(searchInput.value).split(/\s+/).filter(Boolean);
       var visibleCount = 0;
 
       rows.forEach(function (row) {
-        var match = !query || normalize(row.textContent).indexOf(query) !== -1;
+        var rowWords = normalize(row.textContent).split(/\s+/).filter(Boolean);
+        var match = queryWords.every(function (queryWord) {
+          return rowWords.some(function (rowWord) {
+            return rowWord.indexOf(queryWord) !== -1;
+          });
+        });
         row.hidden = !match;
         if (match) visibleCount += 1;
       });
 
       if (filteredEmpty) {
-        filteredEmpty.hidden = !query || visibleCount > 0;
+        filteredEmpty.hidden = queryWords.length === 0 || visibleCount > 0;
       }
     }
 

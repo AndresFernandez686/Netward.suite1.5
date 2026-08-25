@@ -78,7 +78,7 @@
     <input type="hidden" name="tipo_inventario" class="form-tipo" value="Diario" />
 
     <div class="inv-form__grid">
-      <div class="field combo" data-combo>
+      <div class="field combo" data-combo data-min-chars="2" data-max-results="8">
         <span class="field__label">Producto</span>
         <input type="hidden" name="producto" class="combo__value" required />
         <div class="combo__control">
@@ -90,10 +90,12 @@
           {% for p in productos[cat] %}
           <li class="combo__option" role="option"
               data-value="{{ p }}"
-              data-display="{{ p | strip_unidad }}">{{ p | strip_unidad }}</li>
+              data-display="{{ p | strip_unidad }}"
+              data-search="{{ p|lower|e }}">{{ p | strip_unidad }}</li>
           {% endfor %}
         </ul>
-        <p class="combo__empty" hidden>Sin resultados para tu busqueda.</p>
+        <p class="combo__empty" data-prompt="Escribe al menos 2 letras para buscar."
+           data-no-results="No encontramos productos relacionados con tu búsqueda." hidden></p>
       </div>
 
       {% if cat == 'Por Kilos' %}

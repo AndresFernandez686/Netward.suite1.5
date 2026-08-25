@@ -627,16 +627,51 @@
    ========================================================================== */
 (function () {
   function norm(s) {
-    return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
   }
 
-  function matchesSearch(productName, query) {
-    if (!query) return true;
-    var pn = norm(productName), q = norm(query);
-    if (pn.indexOf(q) !== -1) return true;
-    return pn.split(/[\s\-\/,()]+/).filter(Boolean).some(function (w) {
-      return w.indexOf(q) === 0;
+  function searchScore(productName, query) {
+    var product = norm(productName);
+    var searched = norm(query);
+    if (!searched) return 0;
+
+    var productWords = product.split(/\s+/).filter(Boolean);
+    var rawQueryWords = searched.split(/\s+/).filter(Boolean);
+    var connectors = {
+      a: true, al: true, de: true, del: true, el: true, la: true,
+      las: true, los: true, un: true, una: true, y: true, e: true,
+      con: true, x: true, and: true
+    };
+    var meaningfulWords = rawQueryWords.filter(function (word) {
+      return word.length > 1 && !connectors[word];
     });
+    var queryWords = meaningfulWords.length ? meaningfulWords : rawQueryWords;
+    var wordScore = 0;
+    var everyWordMatches = queryWords.every(function (queryWord) {
+      var best = Infinity;
+      productWords.forEach(function (productWord) {
+        if (productWord === queryWord) best = Math.min(best, 0);
+        else if (productWord.indexOf(queryWord) === 0 ||
+                 (productWord.length >= 3 && queryWord.indexOf(productWord) === 0)) {
+          best = Math.min(best, 1);
+        }
+        else if (productWord.indexOf(queryWord) !== -1) best = Math.min(best, 2);
+      });
+      if (!isFinite(best)) return false;
+      wordScore += best;
+      return true;
+    });
+
+    if (!everyWordMatches) return -1;
+    if (product === searched) return wordScore;
+    if (product.indexOf(searched) === 0) return 10 + wordScore;
+    if (product.indexOf(searched) !== -1) return 20 + wordScore;
+    return 30 + wordScore;
   }
 
   function initCombo(combo) {
@@ -647,19 +682,41 @@
     var empty   = combo.querySelector('.combo__empty');
     var clear   = combo.querySelector('.combo__clear');
     var options = Array.prototype.slice.call(combo.querySelectorAll('.combo__option'));
+    options.forEach(function (option, index) { option._comboOrder = index; });
     var minChars = Math.max(0, parseInt(combo.dataset.minChars || '0', 10) || 0);
     var maxResults = Math.max(0, parseInt(combo.dataset.maxResults || '0', 10) || 0);
     var categorySelect = combo.dataset.categorySelect
       ? document.querySelector(combo.dataset.categorySelect)
       : null;
+    var control = combo.querySelector('.combo__control');
+    var positionFrame = null;
 
-    if (!input || !list) return;
+    if (!input || !list || !control) return;
 
     function positionList(el) {
-      var rect = combo.querySelector('.combo__control').getBoundingClientRect();
+      var rect = control.getBoundingClientRect();
       el.style.top   = (rect.bottom + 4) + 'px';
       el.style.left  = rect.left + 'px';
       el.style.width = rect.width + 'px';
+    }
+
+    function repositionOpenList() {
+      positionFrame = null;
+      if (list.hidden && (!empty || empty.hidden)) return;
+      var rect = control.getBoundingClientRect();
+      var outsideViewport = rect.bottom <= 0 || rect.top >= window.innerHeight ||
+        rect.right <= 0 || rect.left >= window.innerWidth;
+      if (outsideViewport) {
+        close();
+        return;
+      }
+      if (!list.hidden) positionList(list);
+      if (empty && !empty.hidden) positionList(empty);
+    }
+
+    function scheduleReposition() {
+      if (positionFrame !== null || (list.hidden && (!empty || empty.hidden))) return;
+      positionFrame = window.requestAnimationFrame(repositionOpenList);
     }
 
     function open() {
@@ -674,19 +731,25 @@
       options.forEach(function (o) { o.classList.remove('is-active'); });
     }
     function filter() {
-      var q = input.value.trim(), anyVisible = false, visibleCount = 0;
+      var q = input.value.trim(), anyVisible = false;
       var waitingForQuery = q.length < minChars;
+      var matches = [];
       options.forEach(function (o) {
         var categoryMatch = !categorySelect || !categorySelect.value || o.dataset.cat === categorySelect.value;
         var searchable = o.dataset.search || o.dataset.display || o.dataset.value;
-        var match = !waitingForQuery && categoryMatch && matchesSearch(searchable, q);
-        if (match && maxResults && visibleCount >= maxResults) match = false;
-        o.hidden = !match;
-        if (match) {
-          anyVisible = true;
-          visibleCount += 1;
-        }
+        var score = !waitingForQuery && categoryMatch ? searchScore(searchable, q) : -1;
+        o.hidden = true;
+        if (score >= 0) matches.push({ option: o, score: score });
       });
+      matches.sort(function (a, b) {
+        return a.score - b.score || a.option._comboOrder - b.option._comboOrder;
+      });
+      if (maxResults) matches = matches.slice(0, maxResults);
+      matches.forEach(function (match) {
+        match.option.hidden = false;
+        list.appendChild(match.option);
+      });
+      anyVisible = matches.length > 0;
       if (empty) {
         if (!anyVisible) positionList(empty);
         empty.textContent = waitingForQuery
@@ -766,6 +829,8 @@
     document.addEventListener('click', function (e) {
       if (!combo.contains(e.target)) close();
     });
+    document.addEventListener('scroll', scheduleReposition, true);
+    window.addEventListener('resize', scheduleReposition);
   }
 
   // Inicializar todos los combos presentes en la página
