@@ -247,7 +247,7 @@
 
     {% if carrito %}
     <div class="cart__actions action-group">
-      <form method="post" action="{{ url_for('carrito_guardar') }}" data-submit-delay="5000" data-loading-text="Guardando inventario...">
+      <form method="post" action="{{ url_for('carrito_guardar') }}" data-loading-text="Guardando inventario...">
         <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />
         <input type="hidden" name="active_tab" class="js-active-tab" value="{{ active_tab }}" />
         <input type="hidden" name="anchor" value="sec-carrito" />

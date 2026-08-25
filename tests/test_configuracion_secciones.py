@@ -48,6 +48,23 @@ class PruebasConfiguracionSeparada(unittest.TestCase):
         self.assertNotIn("Catalogo de productos", html)
         self.assertNotIn("Agregar producto", html)
 
+    def test_catalogo_unifica_alta_busqueda_precios_y_eliminacion(self):
+        catalogo = (ROOT / "templates" / "admin_precios.html").read_text(
+            encoding="utf-8"
+        )
+        menu = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
+        app = ROOT.joinpath("app.py").read_text(encoding="utf-8")
+
+        self.assertIn("catalog-toolbar", catalogo)
+        self.assertIn("catalog-add-toggle", catalogo)
+        self.assertIn("producto_crear", catalogo)
+        self.assertIn("producto_eliminar", catalogo)
+        self.assertIn("precio_{{ p.id }}", catalogo)
+        self.assertIn("> Catálogo", menu)
+        self.assertNotIn("> Productos", menu)
+        self.assertNotIn("> Precios", menu)
+        self.assertIn('return redirect(url_for("admin_precios", tab=active_tab)', app)
+
 
 if __name__ == "__main__":
     unittest.main()

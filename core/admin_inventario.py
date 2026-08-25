@@ -10,8 +10,9 @@ from typing import Dict, Iterable, List
 from flask import url_for
 
 from core.catalogo import identidad_producto
-from core.models import (ConteoDetalle, InventarioItem, InventarioPeriodo, Producto,
-                         ProductoPrecio, RegistroVencimiento, StockThreshold)
+from core.models import (AjusteInventario, ConteoDetalle, InventarioItem,
+                         InventarioPeriodo, Producto, ProductoPrecio,
+                         RegistroVencimiento, StockThreshold, db)
 from core.seed_data import CATEGORIAS, stock_status
 
 
@@ -81,6 +82,21 @@ def _inventario_agregado(tienda_id: str, cliente_id: str):
         ConteoDetalle.periodo_id.in_(periodo_ids),
         ConteoDetalle.fue_cargado.is_(True),
     ).all()
+    ajustes_por_producto = {
+        (periodo_id, producto): float(total or 0)
+        for periodo_id, producto, total in db.session.query(
+            AjusteInventario.periodo_id,
+            AjusteInventario.producto_nombre,
+            db.func.sum(AjusteInventario.cantidad_ajustada),
+        ).filter(
+            AjusteInventario.cliente_id == cliente_id,
+            AjusteInventario.periodo_id.in_(periodo_ids),
+            AjusteInventario.impacta_stock.is_(True),
+        ).group_by(
+            AjusteInventario.periodo_id,
+            AjusteInventario.producto_nombre,
+        ).all()
+    }
 
     for conteo in conteos:
         key = (conteo.categoria, conteo.producto_nombre)
@@ -90,7 +106,10 @@ def _inventario_agregado(tienda_id: str, cliente_id: str):
             "tiendas": set(),
             "cargado": True,
         })
-        dato["cantidad"] += conteo.total_unidad_base or 0
+        dato["cantidad"] += (
+            float(conteo.total_unidad_base or 0)
+            + ajustes_por_producto.get((conteo.periodo_id, conteo.producto_nombre), 0)
+        )
         dato["tiendas"].add(conteo.tienda_id)
     return inventario
 

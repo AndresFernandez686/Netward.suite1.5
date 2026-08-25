@@ -29,6 +29,22 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn("docPanels.forEach", plantilla)
         self.assertIn("activateDocTab('datos', true)", plantilla)
 
+    def test_facturas_tienen_tabla_compacta_y_encabezado_congelado(self):
+        plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
+            encoding="utf-8"
+        )
+        estilos = (ROOT / "static" / "css" / "admin.css").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("desc-invoice-col-document", plantilla)
+        self.assertIn("desc-invoice-row", plantilla)
+        self.assertIn("Misma factura", plantilla)
+        self.assertIn("Producto facturado", plantilla)
+        self.assertIn(".desc-invoice-table thead th", estilos)
+        self.assertIn("position: sticky", estilos)
+        self.assertIn("table-layout: fixed", estilos)
+
     def test_auditoria_remite_al_unico_importador_y_datetime_es_compatible(self):
         detalle = (ROOT / "templates" / "admin_periodo_detalle.html").read_text(
             encoding="utf-8"

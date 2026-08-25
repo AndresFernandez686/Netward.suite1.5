@@ -7,7 +7,6 @@
   var confirmOverlay = null;
   var confirmPendingForm = null;
   var confirmPendingSubmitter = null;
-  var confirmCountdownTimer = null;
 
   function getPageKey() {
     return window.location.pathname + window.location.search;
@@ -82,12 +81,6 @@
   function saveSidebarScroll(sidebarEl) {
     if (!sidebarEl) return;
     safeSet(SIDEBAR_SCROLL_KEY, String(sidebarEl.scrollTop || 0));
-  }
-
-  function parseDelayMs(value) {
-    var n = parseInt(String(value || ''), 10);
-    if (isNaN(n) || n < 0) return 0;
-    return n;
   }
 
   function setLoadingButtonState(button, loadingText) {
@@ -191,17 +184,11 @@
     unlockUi();
   });
 
-  function initTimedSubmit() {
-    document.querySelectorAll('form[data-submit-delay]').forEach(function (form) {
+  function initSubmitLoading() {
+    document.querySelectorAll('form[data-loading-text]').forEach(function (form) {
       form.addEventListener('submit', function (event) {
         if (event.defaultPrevented) return;
-        if (form.dataset.delayBypassed === '1') return;
         if (form.dataset.confirmMessage && form.dataset.confirmBypassed !== '1') return;
-
-        var delayMs = parseDelayMs(form.dataset.submitDelay);
-        if (delayMs <= 0) return;
-
-        event.preventDefault();
 
         var submitter = event.submitter || null;
         if (!submitter) {
@@ -213,46 +200,8 @@
           form.dataset.loadingText ||
           'Cargando...';
 
-        var countdownLabel = form.dataset.countdownLabel || '';
-        var countdownTimer = null;
-        var initialText = loadingText;
-        if (countdownLabel) {
-          var remainingSeconds = Math.ceil(delayMs / 1000);
-          initialText = countdownLabel + ' ' + remainingSeconds + ' s...';
-          countdownTimer = window.setInterval(function () {
-            remainingSeconds -= 1;
-            var currentText = remainingSeconds > 0
-              ? countdownLabel + ' ' + remainingSeconds + ' s...'
-              : loadingText;
-            if (submitter) submitter.textContent = currentText;
-            lockUi(currentText);
-            if (remainingSeconds <= 0) window.clearInterval(countdownTimer);
-          }, 1000);
-        }
-
-        setLoadingButtonState(submitter, initialText);
-        lockUi(initialText);
-
-        window.setTimeout(function () {
-          try {
-            if (countdownTimer) window.clearInterval(countdownTimer);
-            if (submitter) submitter.textContent = loadingText;
-            lockUi(loadingText);
-            form.dataset.delayBypassed = '1';
-            if (typeof form.requestSubmit === 'function') {
-              form.requestSubmit();
-            } else {
-              form.submit();
-            }
-            window.setTimeout(function () {
-              form.dataset.delayBypassed = '0';
-              form.dataset.confirmBypassed = '0';
-            }, 0);
-          } catch (err) {
-            unlockUi();
-            throw err;
-          }
-        }, delayMs);
+        setLoadingButtonState(submitter, loadingText);
+        lockUi(loadingText);
       }, true);
     });
   }
@@ -316,7 +265,6 @@
 
         var form = confirmPendingForm;
         var submitter = confirmPendingSubmitter;
-        var hasSubmitDelay = parseDelayMs(form.dataset.submitDelay) > 0;
         closeConfirmOverlay();
 
         form.dataset.confirmBypassed = '1';
@@ -325,11 +273,9 @@
         } else {
           form.submit();
         }
-        if (!hasSubmitDelay) {
-          window.setTimeout(function () {
-            form.dataset.confirmBypassed = '0';
-          }, 0);
-        }
+        window.setTimeout(function () {
+          form.dataset.confirmBypassed = '0';
+        }, 0);
       });
     }
 
@@ -345,10 +291,6 @@
   }
 
   function closeConfirmOverlay() {
-    if (confirmCountdownTimer) {
-      window.clearInterval(confirmCountdownTimer);
-      confirmCountdownTimer = null;
-    }
     if (confirmOverlay) {
       confirmOverlay.hidden = true;
       confirmOverlay.style.display = 'none';
@@ -375,29 +317,7 @@
 
     var cancelBtn = overlay.querySelector('[data-confirm-cancel]');
     var acceptBtn = overlay.querySelector('[data-confirm-accept]');
-    var delayMs = parseDelayMs(form.dataset.confirmDelay || '3000');
-
-    if (confirmCountdownTimer) {
-      window.clearInterval(confirmCountdownTimer);
-      confirmCountdownTimer = null;
-    }
-
-    if (acceptBtn && delayMs > 0) {
-      var remainingSeconds = Math.ceil(delayMs / 1000);
-      acceptBtn.disabled = true;
-      acceptBtn.textContent = 'Confirmar (' + remainingSeconds + ' s)';
-      confirmCountdownTimer = window.setInterval(function () {
-        remainingSeconds -= 1;
-        if (remainingSeconds > 0) {
-          acceptBtn.textContent = 'Confirmar (' + remainingSeconds + ' s)';
-          return;
-        }
-        window.clearInterval(confirmCountdownTimer);
-        confirmCountdownTimer = null;
-        acceptBtn.disabled = false;
-        acceptBtn.textContent = 'Confirmar';
-      }, 1000);
-    } else if (acceptBtn) {
+    if (acceptBtn) {
       acceptBtn.disabled = false;
       acceptBtn.textContent = 'Confirmar';
     }
@@ -631,7 +551,7 @@
   }
 
   initCollapsibleCards();
-  initTimedSubmit();
+  initSubmitLoading();
   initFormConfirm();
   initInlineValidation();
 

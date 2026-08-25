@@ -237,10 +237,6 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
     Borra resultados anteriores del período y regenera todos.
     Retorna la lista de AuditoriaResultado creados.
     """
-    # Borrar resultados anteriores
-    AuditoriaResultado.query.filter_by(periodo_id=periodo.id).delete()
-    db.session.flush()
-
     # Obtener Excel del período (el más reciente)
     from .models import ExcelImportado
     excel_imp = (ExcelImportado.query
@@ -248,6 +244,29 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
                  .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
                  .order_by(ExcelImportado.id.desc())
                  .first())
+
+    # Las facturas oficiales son la fuente de Compras. Sincronizarlas justo
+    # antes de auditar impide que un total aplicado anteriormente (por ejemplo,
+    # 5 bultos) sobreviva después de corregir la factura (por ejemplo, 4).
+    if excel_imp:
+        from .factura_ocr import aplicar_compras_facturas
+        from .models import FacturaCompra
+        hay_compras_factura = FacturaCompra.query.filter_by(
+            periodo_id=periodo.id, cliente_id=periodo.cliente_id,
+        ).first() is not None
+        if hay_compras_factura:
+            try:
+                aplicar_compras_facturas(periodo, periodo.cliente_id, "motor_auditoria")
+                db.session.flush()
+            except ValueError:
+                # Las líneas aún pendientes continúan visibles para revisión;
+                # no deben impedir auditar los restantes datos del Excel.
+                pass
+
+    # Borrar resultados anteriores solo después de sincronizar correctamente
+    # las fuentes; un error de factura no debe destruir una auditoría existente.
+    AuditoriaResultado.query.filter_by(periodo_id=periodo.id).delete()
+    db.session.flush()
 
     # Mapa producto → fila Excel (producto_id como clave primaria; nombre como fallback)
     excel_map: dict[str, ExcelDetalle] = {}

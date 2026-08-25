@@ -31,21 +31,21 @@
   <nav class="desc-doc-tabs" role="tablist" aria-label="Secciones de Documentación Oficial" data-active-tab="{{ active_doc_tab }}">
     <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'inventario' else '' }}" data-doc-tab="inventario" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'inventario' else 'false' }}" aria-controls="inventario-oficial-card">
       <span class="desc-doc-tab__icon">{% include 'icons/upload.svg' %}</span>
-      <span>Inventario XLS/XLSX</span>
+      <span class="desc-doc-tab__copy"><strong>Inventario</strong><small>XLS / XLSX oficial</small></span>
     </button>
     <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'facturas' else '' }}" data-doc-tab="facturas" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'facturas' else 'false' }}" aria-controls="facturas-card">
       <span class="desc-doc-tab__icon">{% include 'icons/box.svg' %}</span>
-      <span>Facturas PDF</span>
+      <span class="desc-doc-tab__copy"><strong>Facturas</strong><small>Compras en PDF</small></span>
       {% if facturas_periodo %}<span class="desc-doc-tab__badge">{{ facturas_periodo|length }}</span>{% endif %}
     </button>
     <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'datos' else '' }}" data-doc-tab="datos" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'datos' else 'false' }}" aria-controls="datos-extraidos-card">
       <span class="desc-doc-tab__icon">{% include 'icons/chart.svg' %}</span>
-      <span>Datos extraídos</span>
+      <span class="desc-doc-tab__copy"><strong>Datos extraídos</strong><small>Revisar y editar</small></span>
       {% if excel_detalles %}<span class="desc-doc-tab__badge">{{ excel_detalles|length }}</span>{% endif %}
     </button>
     <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'historial' else '' }}" data-doc-tab="historial" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'historial' else 'false' }}" aria-controls="procesamientos-recientes">
       <span class="desc-doc-tab__icon">{% include 'icons/clock.svg' %}</span>
-      <span>Historial</span>
+      <span class="desc-doc-tab__copy"><strong>Historial</strong><small>Procesamientos anteriores</small></span>
     </button>
   </nav>
 
@@ -137,6 +137,7 @@
       </label>
       <input type="file" id="invoice-files" name="facturas_pdf" accept="application/pdf,.pdf" multiple required hidden>
       <button class="btn btn--primary" type="submit">Leer facturas y detectar compras</button>
+      <div class="desc-invoice-files" id="invoice-file-list" aria-live="polite"></div>
     </form>
     {% else %}
     <div class="empty"><p>Selecciona un período antes de cargar facturas.</p></div>
@@ -150,18 +151,34 @@
     </div>
     <div class="table-wrap desc-invoice-table-wrap">
       <table class="table desc-invoice-table">
+        <caption class="sr-only">Líneas extraídas de las facturas de compra</caption>
+        <colgroup>
+          <col class="desc-invoice-col-document"><col class="desc-invoice-col-source">
+          <col class="desc-invoice-col-product"><col class="desc-invoice-col-number">
+          <col class="desc-invoice-col-number"><col class="desc-invoice-col-total">
+          <col class="desc-invoice-col-status"><col class="desc-invoice-col-action">
+        </colgroup>
         <thead><tr>
-          <th>Factura</th><th>Proveedor</th><th>Producto detectado</th><th>Producto Netward</th>
-          <th>Cant. factura</th><th>Factor UME</th><th>Compra calculada</th><th>Estado</th><th></th>
+          <th>Comprobante</th><th>Producto facturado</th><th>Producto Netward</th>
+          <th class="desc-invoice-number-head">Bultos</th><th class="desc-invoice-number-head">UME</th>
+          <th class="desc-invoice-number-head">Compra</th><th>Validación</th><th>Acción</th>
         </tr></thead>
         <tbody>
           {% for d in factura_detalles %}
           {% set permitidas = ['Impulsivo', 'Por Kilos'] if d.factura.proveedor == 'Helacor' else ['Extras'] %}
-          <tr>
-            <td><a href="{{ url_for('desc.desc_factura_pdf', factura_id=d.factura_id) }}" target="_blank" rel="noopener">{{ d.factura.numero_factura }}</a><small>{{ d.factura.fecha_emision or 'Sin fecha' }}</small></td>
-            <td>{{ d.factura.proveedor }}<small>{{ d.factura.metodo_extraccion }}</small></td>
-            <td><strong>{{ d.descripcion }}</strong><small>{{ d.codigo_proveedor or 'Sin código' }}</small></td>
-            <td>
+          {% set nueva_factura = loop.first or loop.previtem.factura_id != d.factura_id %}
+          <tr class="desc-invoice-row {{ 'is-new-invoice' if nueva_factura }} {{ 'needs-review' if d.estado_vinculacion not in ('vinculado', 'aplicado') else 'is-valid' }}">
+            <td class="desc-invoice-document">
+              {% if nueva_factura %}
+              <a href="{{ url_for('desc.desc_factura_pdf', factura_id=d.factura_id) }}" target="_blank" rel="noopener">{{ d.factura.numero_factura }}</a>
+              <span class="desc-invoice-supplier">{{ d.factura.proveedor }}</span>
+              <small>{{ d.factura.fecha_emision or 'Sin fecha' }} · {{ d.factura.metodo_extraccion|replace('_', ' ') }}</small>
+              {% else %}
+              <span class="desc-invoice-continuation" title="{{ d.factura.numero_factura }}">Misma factura</span>
+              {% endif %}
+            </td>
+            <td class="desc-invoice-source"><strong>{{ d.descripcion }}</strong><small>Cód. {{ d.codigo_proveedor or 'sin código' }}</small></td>
+            <td class="desc-invoice-product">
               <select name="producto_id" form="invoice-line-{{ d.id }}" aria-label="Producto Netward para {{ d.descripcion }}">
                 <option value="">Seleccionar producto…</option>
                 {% for producto in productos_factura if producto.categoria in permitidas %}
@@ -169,11 +186,16 @@
                 {% endfor %}
               </select>
             </td>
-            <td><input name="cantidad_facturada" form="invoice-line-{{ d.id }}" type="number" min="0" step="any" value="{{ d.cantidad_facturada }}" aria-label="Cantidad facturada"></td>
-            <td><input name="factor_conversion" form="invoice-line-{{ d.id }}" type="number" min="0.000001" step="any" value="{{ d.factor_conversion }}" aria-label="Factor de conversión"></td>
-            <td><strong>{{ '%.2f'|format(d.compras_calculadas) }}</strong></td>
-            <td><span class="badge {{ 'badge--green' if d.estado_vinculacion in ('vinculado', 'aplicado') else 'badge--amber' }}">{{ d.estado_vinculacion|replace('_', ' ') }}</span><small>{{ d.observacion }}</small></td>
-            <td><button class="btn btn--ghost btn--sm" form="invoice-line-{{ d.id }}" type="submit" {{ 'disabled' if d.estado_vinculacion == 'fuera_rango' else '' }}>Confirmar</button></td>
+            <td class="desc-invoice-number"><input name="cantidad_facturada" form="invoice-line-{{ d.id }}" type="number" min="0" step="any" value="{{ d.cantidad_facturada }}" aria-label="Cantidad facturada en bultos"></td>
+            <td class="desc-invoice-number"><input name="factor_conversion" form="invoice-line-{{ d.id }}" type="number" min="0.000001" step="any" value="{{ d.factor_conversion }}" aria-label="Factor de conversión UME"></td>
+            <td class="desc-invoice-total"><strong>{{ '%.2f'|format(d.compras_calculadas) }}</strong><small>unidades</small></td>
+            <td class="desc-invoice-status">
+              <span class="badge {{ 'badge--green' if d.estado_vinculacion in ('vinculado', 'aplicado') else 'badge--amber' }}">
+                {{ 'Aplicada' if d.estado_vinculacion == 'aplicado' else ('Lista' if d.estado_vinculacion == 'vinculado' else 'Revisar') }}
+              </span>
+              <small class="desc-invoice-note" title="{{ d.observacion }}">{{ d.observacion }}</small>
+            </td>
+            <td class="desc-invoice-action"><button class="btn btn--ghost btn--sm" form="invoice-line-{{ d.id }}" type="submit" {{ 'disabled' if d.estado_vinculacion == 'fuera_rango' else '' }}>Guardar</button></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -184,7 +206,7 @@
     {% endfor %}
     <form method="post" action="{{ url_for('desc.desc_facturas_aplicar') }}" class="desc-invoice-apply" data-confirm-message="¿Reemplazar la columna Compras del inventario oficial con las compras confirmadas de estas facturas?">
       <input type="hidden" name="periodo_id" value="{{ periodo_seleccionado.id }}">
-      <span>Las filas pendientes o fuera del período no se aplicarán.</span>
+      <span>Las filas pendientes de vinculación no se aplicarán.</span>
       <button class="btn btn--success" type="submit" {{ 'disabled' if not excel_seleccionado else '' }}>Aplicar compras detectadas</button>
     </form>
     {% elif periodo_seleccionado %}
@@ -210,7 +232,7 @@
     </article>
   </section>
 
-  <section class="card card--skip-collapse desc-excel-card" id="datos-extraidos-card"
+  <section class="card card--skip-collapse desc-excel-card {{ 'desc-excel-card--readonly' if excel_historico else '' }}" id="datos-extraidos-card"
            data-doc-panel="datos" {{ 'hidden' if active_doc_tab != 'datos' else '' }}
            {% if excel_seleccionado %}data-save-url="{{ url_for('desc.desc_excel_datos_guardar', excel_id=excel_seleccionado.id) }}"{% endif %}>
     <div class="desc-excel-head">
@@ -218,6 +240,8 @@
         <h3 class="panel__title">Datos extraídos del inventario oficial</h3>
         {% if excel_seleccionado %}
         <p class="muted">{{ excel_seleccionado.nombre_archivo }} · {{ excel_detalles|length }} fila(s). Las modificaciones quedan registradas y serán utilizadas al volver a ejecutar Auditoría.</p>
+        {% elif snapshot_seleccionado %}
+        <p class="muted">Procesamiento del {{ snapshot_seleccionado.fecha_proceso }} · {{ snapshot_detalles|length }} producto(s) conservados en el historial.</p>
         {% endif %}
       </div>
       {% if excel_detalles %}
@@ -225,7 +249,7 @@
       {% endif %}
     </div>
     {% if excel_seleccionado and excel_detalles %}
-    <div class="desc-excel-notice" id="excel-edit-status">Haz clic en cualquier celda para modificarla. Guarda antes de volver a ejecutar Auditoría.</div>
+    <div class="desc-excel-notice" id="excel-edit-status">{% if excel_historico %}Vista histórica de solo lectura. Este archivo fue reemplazado por una importación posterior.{% else %}Haz clic en cualquier celda para modificarla. Guarda antes de volver a ejecutar Auditoría.{% endif %}</div>
     <div class="desc-excel-grid-wrap">
       <table class="desc-excel-grid" id="excel-data-grid">
         <thead><tr>
@@ -239,8 +263,8 @@
           {% for d in excel_detalles %}
           <tr data-row-id="{{ d.id }}" data-search="{{ (d.articulo ~ ' ' ~ d.artdescrip ~ ' ' ~ (d.producto_nombre_interno or ''))|lower|e }}">
             <td class="desc-excel-link"><span class="badge {{ 'badge--green' if d.estado_vinculacion == 'vinculado' else 'badge--amber' }}">{{ d.producto_nombre_interno or d.estado_vinculacion }}</span></td>
-            <td><input data-field="articulo" value="{{ d.articulo|e }}" maxlength="40"></td>
-            <td><input data-field="artdescrip" value="{{ d.artdescrip|e }}" maxlength="255"></td>
+            <td><input data-field="articulo" value="{{ d.articulo|e }}" maxlength="40" {{ 'disabled' if excel_historico else '' }}></td>
+            <td><input data-field="artdescrip" value="{{ d.artdescrip|e }}" maxlength="255" {{ 'disabled' if excel_historico else '' }}></td>
             <td><input data-field="stockinicial" type="number" step="any" value="{{ d.stockinicial or 0 }}"></td>
             <td><input data-field="compras" type="number" step="any" value="{{ d.compras or 0 }}"></td>
             <td><input data-field="otrosingresos" type="number" step="any" value="{{ d.otrosingresos or 0 }}"></td>
@@ -261,10 +285,18 @@
         </tbody>
       </table>
     </div>
-    <div class="desc-excel-actions">
+    <div class="desc-excel-actions" {{ 'hidden' if excel_historico else '' }}>
       <span id="excel-edited-count">Sin cambios pendientes</span>
       <button type="button" class="btn btn--ghost" id="excel-discard" disabled>Descartar cambios</button>
       <button type="button" class="btn btn--primary" id="excel-save" disabled>Guardar modificaciones</button>
+    </div>
+    {% elif snapshot_seleccionado and snapshot_detalles %}
+    <div class="desc-excel-notice">Esta carga antigua conserva el producto y su stock final. Las demás columnas no estaban disponibles en el historial de esa versión.</div>
+    <div class="desc-excel-grid-wrap">
+      <table class="desc-excel-grid desc-snapshot-grid">
+        <thead><tr><th>Producto</th><th>Stock final</th></tr></thead>
+        <tbody>{% for fila in snapshot_detalles %}<tr><td>{{ fila.producto }}</td><td>{{ fila.stock_final }}</td></tr>{% endfor %}</tbody>
+      </table>
     </div>
     {% elif periodo_seleccionado %}
     <div class="empty"><p>Este período todavía no tiene datos extraídos. Selecciona el inventario XLS/XLSX y pulsa “Importar y validar”.</p></div>
@@ -290,11 +322,13 @@
             <td class="muted">{{ s.fecha_proceso }}</td>
             <td>{{ n_prods }}</td>
             <td><span class="badge badge--green">Correcto</span></td>
-            <td>
+            <td><div class="desc-history-actions">
+              {% set vista = historial_vistas.get(s.id, {}) %}
+              <a class="btn btn--sm btn--primary" href="{{ url_for('desc.admin_desc', periodo_id=vista.periodo_id, excel_id=vista.excel_id, snapshot_id=s.id, doc_tab='datos', ver_datos=1) }}#datos-extraidos-card">Ver datos</a>
               <form method="post" action="{{ url_for('desc.desc_snapshot_eliminar', snap_id=s.id) }}" data-confirm-message="¿Eliminar este snapshot? Se perderá la continuidad para este período.">
                 <button class="btn btn--sm btn--danger">Eliminar</button>
               </form>
-            </td>
+            </div></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -365,17 +399,64 @@
     var datosCard = document.getElementById('datos-extraidos-card');
     var invoiceFiles = document.getElementById('invoice-files');
     var invoiceFileLabel = document.getElementById('invoice-file-label');
+    var invoiceFileList = document.getElementById('invoice-file-list');
+    var invoiceUploadForm = document.getElementById('invoice-upload-form');
     var defaultLabel = 'Importar y validar';
 
     if (invoiceFiles && invoiceFileLabel) {
-      invoiceFiles.addEventListener('change', function () {
-        if (!this.files.length) {
-          invoiceFileLabel.textContent = 'Hasta 20 archivos · 15 MB por factura';
+      var selectedInvoiceFiles = [];
+      var fileKey = function(file) {
+        return [file.name, file.size, file.lastModified].join('::');
+      };
+      var syncInvoiceFiles = function() {
+        if (typeof DataTransfer !== 'undefined') {
+          var transfer = new DataTransfer();
+          selectedInvoiceFiles.forEach(function(file) { transfer.items.add(file); });
+          invoiceFiles.files = transfer.files;
+        }
+        invoiceFileLabel.textContent = selectedInvoiceFiles.length
+          ? selectedInvoiceFiles.length + (selectedInvoiceFiles.length === 1 ? ' factura seleccionada' : ' facturas seleccionadas')
+          : 'Hasta 20 archivos · 15 MB por factura';
+        if (!invoiceFileList) return;
+        invoiceFileList.replaceChildren();
+        selectedInvoiceFiles.forEach(function(file, index) {
+          var chip = document.createElement('span');
+          chip.className = 'desc-invoice-file';
+          var name = document.createElement('span');
+          name.textContent = file.name;
+          var remove = document.createElement('button');
+          remove.type = 'button';
+          remove.setAttribute('aria-label', 'Quitar ' + file.name);
+          remove.textContent = '×';
+          remove.addEventListener('click', function() {
+            selectedInvoiceFiles.splice(index, 1);
+            syncInvoiceFiles();
+          });
+          chip.append(name, remove);
+          invoiceFileList.appendChild(chip);
+        });
+      };
+      invoiceFiles.addEventListener('change', function() {
+        var incoming = Array.from(this.files || []);
+        if (typeof DataTransfer === 'undefined') {
+          selectedInvoiceFiles = incoming;
+          syncInvoiceFiles();
           return;
         }
-        invoiceFileLabel.textContent = this.files.length === 1
-          ? this.files[0].name
-          : this.files.length + ' facturas seleccionadas';
+        var existing = new Set(selectedInvoiceFiles.map(fileKey));
+        incoming.forEach(function(file) {
+          if (selectedInvoiceFiles.length < 20 && !existing.has(fileKey(file))) {
+            selectedInvoiceFiles.push(file);
+            existing.add(fileKey(file));
+          }
+        });
+        syncInvoiceFiles();
+      });
+      if (invoiceUploadForm) invoiceUploadForm.addEventListener('submit', function(event) {
+        if (!selectedInvoiceFiles.length) {
+          event.preventDefault();
+          invoiceFiles.click();
+        }
       });
     }
 

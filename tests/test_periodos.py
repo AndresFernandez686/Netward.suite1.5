@@ -8,16 +8,22 @@ from flask import Flask
 
 from core.auditoria import ejecutar_auditoria
 from core.models import (
+    AjusteInventario,
     AuditoriaResultado,
     ConteoDetalle,
     ExcelDetalle,
     ExcelImportado,
     HistorialMovimiento,
+    InventarioItem,
     InventarioPeriodo,
     Producto,
     db,
 )
-from core.periodos import cerrar_periodo
+from core.admin_inventario import _inventario_agregado
+from core.periodos import (
+    asegurar_conteo_admin, cerrar_periodo, registrar_estado_operativo_admin,
+    total_conteo_con_ajustes,
+)
 from core.scheduler import actualizar_estados_periodos
 from core.sync_bridge import retroalimentar_periodo_desde_items
 
@@ -110,6 +116,38 @@ class PruebasPeriodos(unittest.TestCase):
         argumentos = {kw.arg for kw in render.keywords}
         self.assertIn("tiendas_map", argumentos)
 
+    def test_detalle_periodo_envia_productos_y_categorias_a_los_buscadores(self):
+        """Evita renderizar vacíos el autocompletado y selector manual."""
+        codigo = Path(__file__).resolve().parents[1].joinpath("app.py").read_text(encoding="utf-8")
+        arbol = ast.parse(codigo)
+        funcion = next(
+            nodo for nodo in ast.walk(arbol)
+            if isinstance(nodo, ast.FunctionDef) and nodo.name == "admin_periodo_detalle"
+        )
+        render = next(
+            nodo for nodo in ast.walk(funcion)
+            if isinstance(nodo, ast.Call)
+            and isinstance(nodo.func, ast.Name)
+            and nodo.func.id == "render_template"
+        )
+        argumentos = {kw.arg for kw in render.keywords}
+        self.assertIn("productos_catalogo", argumentos)
+        self.assertIn("categorias", argumentos)
+
+    def test_vistas_del_periodo_muestran_nombre_de_tienda_y_no_su_id(self):
+        codigo = Path(__file__).resolve().parents[1].joinpath("app.py").read_text(
+            encoding="utf-8"
+        )
+        plantilla = Path(__file__).resolve().parents[1].joinpath(
+            "templates", "admin_reporte_gerencial.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("def _nombre_tienda_periodo", codigo)
+        self.assertIn('ctx["tienda_nombre"] = _nombre_tienda_periodo(periodo)', codigo)
+        self.assertIn("{{ tienda_nombre }}", plantilla)
+        self.assertNotIn("{{ periodo.tienda_id }}", plantilla)
+        self.assertIn("btn btn--ghost btn--sm", plantilla)
+
     def test_crear_periodo_sin_historial_deja_producto_pendiente(self):
         periodo = self.crear_periodo(1, "2026-08-01", "2026-08-08")
 
@@ -123,6 +161,44 @@ class PruebasPeriodos(unittest.TestCase):
         self.assertFalse(conteo.fue_cargado)
         self.assertEqual(conteo.total_unidad_base, 0)
         self.assertEqual(periodo.estado, "Abierto")
+
+    def test_ajuste_admin_nuevo_producto_impacta_stock_dashboard_e_historial(self):
+        periodo = self.crear_periodo(1, "2026-08-01", "2026-08-08", estado="Cargado")
+        conteo = asegurar_conteo_admin(
+            periodo, producto_nombre=PRODUCTO, categoria="Pruebas", usuario="admin",
+        )
+        db.session.add(AjusteInventario(
+            periodo_id=periodo.id, cliente_id=CLIENTE,
+            producto_nombre=PRODUCTO, usuario_admin="admin",
+            cantidad_ajustada=6, motivo="Producto encontrado luego",
+            impacta_stock=True,
+        ))
+        db.session.flush()
+        total = total_conteo_con_ajustes(periodo.id, PRODUCTO)
+        registrar_estado_operativo_admin(
+            periodo, producto_nombre=PRODUCTO, categoria="Pruebas",
+            cantidad_final=total, usuario="admin", detalle="Ajuste administrativo",
+        )
+        db.session.flush()
+
+        self.assertTrue(conteo.fue_cargado)
+        self.assertEqual(total, 6)
+        self.assertEqual(InventarioItem.query.filter_by(producto=PRODUCTO).one().cantidad, 6)
+        self.assertEqual(HistorialMovimiento.query.filter_by(producto=PRODUCTO).one().cantidad, 6)
+        self.assertEqual(_inventario_agregado(TIENDA, CLIENTE)[("Pruebas", PRODUCTO)]["cantidad"], 6)
+
+    def test_ajuste_sin_impacto_no_se_interpreta_como_stock(self):
+        periodo = self.crear_periodo(1, "2026-08-01", "2026-08-08", estado="Cargado")
+        self.agregar_conteo(periodo, 5)
+        db.session.add(AjusteInventario(
+            periodo_id=periodo.id, cliente_id=CLIENTE,
+            producto_nombre=PRODUCTO, usuario_admin="admin",
+            cantidad_ajustada=3, motivo="Trazabilidad", impacta_stock=False,
+        ))
+        db.session.flush()
+
+        self.assertEqual(total_conteo_con_ajustes(periodo.id, PRODUCTO), 5)
+        self.assertEqual(_inventario_agregado(TIENDA, CLIENTE)[("Pruebas", PRODUCTO)]["cantidad"], 5)
 
     def test_crear_periodo_con_historial_importa_ultima_carga(self):
         db.session.add_all([

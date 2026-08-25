@@ -411,6 +411,8 @@ def admin_desc():
     )
 
     periodo_id_arg = request.args.get("periodo_id", type=int)
+    excel_id_arg = request.args.get("excel_id", type=int)
+    snapshot_id_arg = request.args.get("snapshot_id", type=int)
     active_doc_tab = request.args.get("doc_tab", "inventario")
     if active_doc_tab not in {"inventario", "facturas", "datos", "historial"}:
         active_doc_tab = "inventario"
@@ -422,19 +424,28 @@ def admin_desc():
 
     excel_seleccionado = None
     excel_detalles = []
+    snapshot_seleccionado = None
+    snapshot_detalles = []
     facturas_periodo = []
     factura_detalles = []
     if periodo_seleccionado is not None:
-        excel_seleccionado = (
-            ExcelImportado.query
-            .filter_by(
+        if excel_id_arg:
+            excel_seleccionado = ExcelImportado.query.filter_by(
+                id=excel_id_arg,
                 periodo_id=periodo_seleccionado.id,
                 cliente_id=cliente_id,
+            ).first()
+        else:
+            excel_seleccionado = (
+                ExcelImportado.query
+                .filter_by(
+                    periodo_id=periodo_seleccionado.id,
+                    cliente_id=cliente_id,
+                )
+                .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
+                .order_by(ExcelImportado.id.desc())
+                .first()
             )
-            .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
-            .order_by(ExcelImportado.id.desc())
-            .first()
-        )
         if excel_seleccionado is not None:
             from core.excel_importer import corregir_vinculaciones_empaque
             if corregir_vinculaciones_empaque(excel_seleccionado.id):
@@ -466,8 +477,53 @@ def admin_desc():
 
     # Historial de snapshots para mostrar en la UI
     snapshots = (InventarioDescSnapshot.query
+                 .filter_by(cliente_id=cliente_id)
                  .order_by(InventarioDescSnapshot.creado.desc())
                  .limit(10).all())
+    historial_vistas = {}
+    for snapshot in snapshots:
+        periodo_hist = (
+            InventarioPeriodo.query
+            .filter_by(
+                cliente_id=cliente_id,
+                tienda_id=snapshot.tienda_id,
+                fecha_hasta=snapshot.fecha_proceso,
+            )
+            .order_by(InventarioPeriodo.id.desc())
+            .first()
+        )
+        excel_hist = None
+        if periodo_hist:
+            excel_hist = (
+                ExcelImportado.query
+                .filter_by(periodo_id=periodo_hist.id, cliente_id=cliente_id)
+                .order_by(ExcelImportado.id.desc())
+                .first()
+            )
+        historial_vistas[snapshot.id] = {
+            "periodo_id": periodo_hist.id if periodo_hist else None,
+            "excel_id": excel_hist.id if excel_hist else None,
+        }
+
+    if snapshot_id_arg:
+        snapshot_seleccionado = next(
+            (snapshot for snapshot in snapshots if snapshot.id == snapshot_id_arg), None
+        )
+        if snapshot_seleccionado:
+            try:
+                stock_historico = json.loads(snapshot_seleccionado.stock_final_json or "{}")
+            except (TypeError, ValueError):
+                stock_historico = {}
+            snapshot_detalles = sorted(
+                ({"producto": nombre, "stock_final": valor} for nombre, valor in stock_historico.items()),
+                key=lambda fila: fila["producto"],
+            )
+            vista_snapshot = historial_vistas.get(snapshot_seleccionado.id, {})
+            if not vista_snapshot.get("excel_id"):
+                # No mezclar el snapshot antiguo con el Excel más reciente que
+                # se selecciona por defecto para el período actual.
+                excel_seleccionado = None
+                excel_detalles = []
 
     if request.method == "POST":
         archivo       = request.files.get("archivo")
@@ -594,6 +650,9 @@ def admin_desc():
         active_doc_tab=active_doc_tab,
         excel_seleccionado=excel_seleccionado,
         excel_detalles=excel_detalles,
+        excel_historico=bool(excel_seleccionado and excel_seleccionado.estado_validacion == "reemplazado"),
+        snapshot_seleccionado=snapshot_seleccionado,
+        snapshot_detalles=snapshot_detalles,
         facturas_periodo=facturas_periodo,
         factura_detalles=factura_detalles,
         productos_factura=Producto.query.order_by(Producto.categoria, Producto.nombre).all(),
@@ -604,6 +663,7 @@ def admin_desc():
         estado_sync=estado_sync,
         mostrar_datos=request.args.get("ver_datos") == "1",
         snapshots=snapshots,
+        historial_vistas=historial_vistas,
         inventarios_procesados=InventarioDescSnapshot.query.count(),
         ultimo_snapshot=(snapshots[0] if snapshots else None),
         total_productos=Producto.query.count(),
@@ -718,11 +778,21 @@ def desc_factura_detalle_actualizar(detalle_id):
     detalle.producto_id = producto.id
     detalle.producto_nombre = producto.nombre
     detalle.cantidad_facturada = cantidad
+    from core.factura_ocr import calcular_compras_unidades, factor_conversion_catalogo
+    factor_catalogo = (
+        factor_conversion_catalogo(producto, cliente_id)
+        if detalle.factura.proveedor == "Helacor" and detalle.confianza != "Confirmada"
+        else None
+    )
+    fuente_factor = "Vinculación y conversión confirmadas por administrador"
+    if factor_catalogo is not None:
+        factor, fuente_catalogo = factor_catalogo
+        fuente_factor = f"Conversión automática desde {fuente_catalogo}"
     detalle.factor_conversion = factor
-    detalle.compras_calculadas = cantidad * factor
+    detalle.compras_calculadas = calcular_compras_unidades(cantidad, factor)
     detalle.estado_vinculacion = "fuera_rango" if detalle.factura.estado == "fuera_rango" else "vinculado"
     detalle.confianza = "Confirmada"
-    detalle.observacion = "Vinculación y conversión confirmadas por administrador"
+    detalle.observacion = fuente_factor
     db.session.commit()
     flash(f"Compra de {producto.nombre} actualizada.", "success")
     return redirect(url_for("desc.admin_desc", periodo_id=detalle.factura.periodo_id, doc_tab="facturas") + "#facturas-card")

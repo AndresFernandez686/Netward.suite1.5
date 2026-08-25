@@ -4,12 +4,16 @@
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Reporte Gerencial — Período #{{ periodo.numero }}</h1>
-  <p class="page-sub">{{ periodo.fecha_desde }} → {{ periodo.fecha_hasta }} · {{ periodo.tienda_id }}</p>
+  <p class="page-sub">{{ periodo.fecha_desde }} → {{ periodo.fecha_hasta }} · {{ tienda_nombre }}</p>
 </div>
 
-<div class="d-flex gap-2 mb-3">
-  <a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn-sm btn-secondary">← Auditoría</a>
-  <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn-sm btn-secondary">Exportar Excel completo</a>
+<div class="audit-toolbar report-toolbar" aria-label="Acciones del reporte gerencial">
+  <a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm">
+    <span aria-hidden="true">←</span> Auditoría
+  </a>
+  <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm audit-export">
+    <span aria-hidden="true">↓</span> Exportar Excel completo
+  </a>
 </div>
 
 {# ── Resumen ejecutivo ── #}

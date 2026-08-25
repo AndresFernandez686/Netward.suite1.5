@@ -99,7 +99,6 @@
     {% endif %}
     <form method="post" action="{{ url_for('desc.admin_desc') }}"
           enctype="multipart/form-data" id="periodo-excel-form"
-          data-confirm-delay="0"
           data-confirm-loading-text="{{ 'Reemplazando' if excel_imp else 'Importando' }} inventario oficial..."
           data-confirm-message="{{ '¿Reemplazar el inventario oficial de este período? El archivo anterior quedará en el historial y Auditoría utilizará el nuevo.' if excel_imp else '¿Importar este archivo como inventario oficial del período?' }}">
       <input type="hidden" name="periodo_id" value="{{ periodo.id }}">
@@ -123,6 +122,7 @@
         </div>
       </details>
     </div>
+    <p class="muted periodo-det-form-note">Crea o reemplaza el conteo físico y lo refleja en Inventario, Dashboard, Auditoría e Historial.</p>
     <form method="post" action="{{ url_for('admin_conteo_manual', periodo_id=periodo.id) }}" class="periodo-det-inline-form periodo-det-inline-form--3" data-inline-validation novalidate>
       {{ producto_buscable('manual-producto', 'manualCategoria') }}
       <label class="field field--grow">
@@ -156,6 +156,7 @@
         </details>
       </div>
     </div>
+    <p class="muted periodo-det-form-note">Suma o resta una corrección. Si el producto no estaba contado, lo incorpora desde cero y deja trazabilidad.</p>
     <form method="post" action="{{ url_for('admin_periodo_ajuste', periodo_id=periodo.id) }}" class="periodo-det-inline-form periodo-det-inline-form--adjust" data-inline-validation novalidate>
       {{ producto_buscable('ajuste-producto', 'ajusteCategoria') }}
       <label class="field field--grow">

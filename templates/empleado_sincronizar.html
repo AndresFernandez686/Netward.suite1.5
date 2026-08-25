@@ -53,9 +53,7 @@
   {% endif %}
 
   <form method="post" action="{{ url_for('empleado_sincronizar') }}" id="sync-form"
-        data-submit-delay="10000"
-        data-loading-text="Procesando sincronización..."
-        data-countdown-label="Sincronizando en">
+        data-loading-text="Procesando sincronización...">
 
     <input type="hidden" name="accion" id="accion-hidden" value="{{ 'enviar_recibir' if catalogo_pendiente else 'solo_enviar' }}" />
     {% if periodo_activo %}<input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />{% endif %}

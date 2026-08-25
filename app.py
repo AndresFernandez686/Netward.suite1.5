@@ -53,7 +53,10 @@ from core import empleado as empleado_service
 from core.admin_feedback import set_view_notice, pop_view_notice
 from core.time_utils import today_local_iso, format_utc_naive_to_local
 from core.security import rol_permitido
-from core.periodos import registrar_conteo_admin
+from core.periodos import (
+    asegurar_conteo_admin, registrar_conteo_admin,
+    registrar_estado_operativo_admin, total_conteo_con_ajustes,
+)
 from core.ai_assistant import (AIConfig, build_period_context,
                                build_product_context, explain)
 
@@ -128,6 +131,15 @@ def _periodo_abierto_mas_reciente(cliente_id: str, tienda_id: str):
         .order_by(InventarioPeriodo.id.desc())
         .first()
     )
+
+
+def _nombre_tienda_periodo(periodo: InventarioPeriodo) -> str:
+    """Obtiene el nombre visible de la tienda sin exponer su ID interno."""
+    tienda = Tienda.query.filter_by(
+        cliente_id=periodo.cliente_id,
+        id=periodo.tienda_id,
+    ).first()
+    return tienda.nombre if tienda and tienda.nombre else "Tienda sin nombre"
 
 
 def _notificar_nuevo_periodo(periodo: InventarioPeriodo) -> int:
@@ -267,8 +279,28 @@ def _set_admin_config_notice(section, message, category="info", tab=None):
 
 
 def _set_admin_precios_notice(message, category="info", tab=None):
-    """Guarda un aviso local para /admin/precios sin usar flash global."""
-    set_view_notice(session, "admin_precios_notice", message, category, tab=tab or "tab-0")
+    """Guarda un aviso local para la pantalla unificada de Catálogo."""
+    set_view_notice(
+        session, "admin_precios_notice", message, category,
+        tab=_safe_catalog_tab(tab),
+    )
+
+
+def _safe_catalog_tab(tab_value):
+    tab_value = {
+        "tab-impulsivo": "tab-0",
+        "tab-kilos": "tab-1",
+        "tab-extras": "tab-2",
+    }.get(tab_value, tab_value)
+    validas = {f"tab-{indice}" for indice in range(len(CATEGORIAS))}
+    return tab_value if tab_value in validas else "tab-0"
+
+
+def _catalog_tab_categoria(categoria):
+    try:
+        return f"tab-{CATEGORIAS.index(categoria)}"
+    except ValueError:
+        return "tab-0"
 
 
 def get_cliente_filtro() -> str:
@@ -1770,9 +1802,9 @@ def admin_dashboard():
 @app.route("/admin/precios", methods=["GET", "POST"])
 @login_required(rol="administrador")
 def admin_precios():
-    active_tab = request.args.get("tab") or "tab-0"
+    active_tab = _safe_catalog_tab(request.args.get("tab"))
     if request.method == "POST":
-        active_tab = request.form.get("active_tab") or "tab-0"
+        active_tab = _safe_catalog_tab(request.form.get("active_tab"))
         ids = request.form.getlist("ids")
         for pid in ids:
             try:
@@ -2189,6 +2221,8 @@ def admin_historial():
 @app.route("/admin/configuracion")
 @login_required(rol="administrador")
 def admin_configuracion():
+    if (request.args.get("section") or "productos").strip().lower() != "tiendas":
+        return redirect(url_for("admin_precios", tab=request.args.get("tab")))
     cliente_id = get_cliente_filtro()
     tiendas = Tienda.query.filter_by(cliente_id=cliente_id).all()
     default = next((t.id for t in tiendas if t.es_default), None)
@@ -2262,39 +2296,65 @@ def producto_precio_guardar():
 def producto_crear():
     nombre = (request.form.get("nombre") or "").strip()
     categoria = (request.form.get("categoria") or "").strip()
-    active_tab = _safe_config_tab(request.form.get("active_tab"))
-    if "active_tab" not in request.form and categoria in ("Impulsivo", "Extras", "Por Kilos"):
-        active_tab = {
-            "Impulsivo": "tab-impulsivo",
-            "Extras": "tab-extras",
-            "Por Kilos": "tab-kilos",
-        }[categoria]
+    active_tab = _catalog_tab_categoria(categoria)
 
     if not nombre:
-        _set_admin_config_notice("productos", "El nombre del producto es obligatorio.", "error", active_tab)
-        return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
+        _set_admin_precios_notice("El nombre del producto es obligatorio.", "error", active_tab)
+        return redirect(url_for("admin_precios", tab=active_tab) + "#catalogo-alta")
     if categoria not in ("Impulsivo", "Por Kilos", "Extras"):
-        _set_admin_config_notice("productos", "Categoria no valida.", "error", active_tab)
-        return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
+        _set_admin_precios_notice("Categoría no válida.", "error", active_tab)
+        return redirect(url_for("admin_precios", tab=active_tab) + "#catalogo-alta")
     if Producto.query.filter_by(nombre=nombre, categoria=categoria).first():
-        _set_admin_config_notice("productos", f"Ya existe '{nombre}' en {categoria}.", "warning", active_tab)
-        return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
-    db.session.add(Producto(nombre=nombre, categoria=categoria, visible_empleado=False,
-                            codigo_articulo=(request.form.get("codigo_articulo") or "").strip() or None))
+        _set_admin_precios_notice(f"Ya existe '{nombre}' en {categoria}.", "warning", active_tab)
+        return redirect(url_for("admin_precios", tab=active_tab) + "#catalogo-alta")
+
+    def numero_opcional(campo, *, moneda=False):
+        valor = (request.form.get(campo) or "").strip()
+        if not valor:
+            return None
+        normalizado = valor.replace(".", "") if moneda else valor
+        numero = float(normalizado.replace(",", "."))
+        if numero < 0:
+            raise ValueError
+        return numero
+
+    try:
+        precio = numero_opcional("precio", moneda=True)
+        precio_caja = numero_opcional("precio_caja", moneda=True)
+        unidades_caja = numero_opcional("unidades_por_caja")
+        cajas_bulto = numero_opcional("cajas_por_bulto")
+    except ValueError:
+        _set_admin_precios_notice("Los precios y cantidades deben ser números positivos.", "error", active_tab)
+        return redirect(url_for("admin_precios", tab=active_tab) + "#catalogo-alta")
+
+    producto = Producto(
+        nombre=nombre, categoria=categoria, visible_empleado=False,
+        codigo_articulo=(request.form.get("codigo_articulo") or "").strip() or None,
+    )
+    db.session.add(producto)
+    db.session.flush()
+    if any(valor is not None for valor in (precio, precio_caja, unidades_caja, cajas_bulto)):
+        db.session.add(ProductoPrecio(
+            cliente_id=get_cliente_filtro(), producto_id=producto.id,
+            producto_nombre=producto.nombre, categoria=producto.categoria,
+            precio=precio,
+            precio_por_caja=precio_caja if categoria != "Por Kilos" else None,
+            unidades_por_caja=unidades_caja if categoria != "Por Kilos" else None,
+            unidades_por_bulto=cajas_bulto if categoria != "Por Kilos" else None,
+        ))
     db.session.commit()
-    _set_admin_config_notice(
-        "productos",
+    _set_admin_precios_notice(
         f"Producto '{nombre}' agregado a {categoria}. Aplica la sincronización para vincularlo con el Excel.",
         "success",
         active_tab,
     )
-    return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
+    return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
 
 
 @app.route("/admin/producto/<int:producto_id>/eliminar", methods=["POST"])
 @login_required(rol="administrador")
 def producto_eliminar(producto_id):
-    active_tab = _safe_config_tab(request.form.get("active_tab"))
+    active_tab = _safe_catalog_tab(request.form.get("active_tab"))
     producto = db.session.get(Producto, producto_id)
     if producto is None:
         abort(404)
@@ -2305,8 +2365,8 @@ def producto_eliminar(producto_id):
     nombre = producto.nombre
     db.session.delete(producto)
     db.session.commit()
-    _set_admin_config_notice("productos", f"Producto '{nombre}' eliminado.", "info", active_tab)
-    return redirect(url_for("admin_configuracion", tab=active_tab, section="productos") + "#sec-productos")
+    _set_admin_precios_notice(f"Producto '{nombre}' eliminado.", "info", active_tab)
+    return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
 
 
 @app.route("/admin/tienda/crear", methods=["POST"])
@@ -2696,14 +2756,28 @@ def admin_periodo_detalle(periodo_id):
     auditoria = (AuditoriaResultado.query.filter_by(periodo_id=periodo_id)
                  .order_by(AuditoriaResultado.severidad.desc(),
                             AuditoriaResultado.impacto.desc()).all())
+    productos_catalogo = (
+        Producto.query
+        .order_by(Producto.categoria, Producto.nombre)
+        .all()
+    )
+    # Derivar las categorías del catálogo real evita que el selector quede
+    # vacío o desactualizado cuando se agregan categorías nuevas.
+    categorias_catalogo = sorted({
+        producto.categoria for producto in productos_catalogo
+        if producto.categoria
+    })
 
     return render_template(
         "admin_periodo_detalle.html",
         periodo=periodo,
+        tienda_nombre=_nombre_tienda_periodo(periodo),
         conteos=conteos,
         ajustes=ajustes,
         excel_imp=excel_imp,
         auditoria=auditoria,
+        productos_catalogo=productos_catalogo,
+        categorias=categorias_catalogo,
     )
 
 
@@ -2737,6 +2811,18 @@ def admin_periodo_cerrar(periodo_id):
     return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
 
+def _refrescar_auditoria_por_cambio_admin(periodo):
+    """Recalcula resultados existentes sin borrar justificaciones manuales."""
+    resultados = AuditoriaResultado.query.filter_by(periodo_id=periodo.id).all()
+    if not resultados:
+        return "sin_auditoria"
+    resultado_ids = [resultado.id for resultado in resultados]
+    if Justificacion.query.filter(Justificacion.resultado_id.in_(resultado_ids)).first():
+        return "requiere_revision"
+    ejecutar_auditoria(periodo)
+    return "actualizada"
+
+
 @app.route("/admin/periodos/<int:periodo_id>/ajuste", methods=["POST"])
 @login_required(rol="administrador")
 def admin_periodo_ajuste(periodo_id):
@@ -2746,6 +2832,7 @@ def admin_periodo_ajuste(periodo_id):
         abort(404)
 
     producto_nombre = (request.form.get("producto_nombre") or "").strip()
+    categoria = (request.form.get("categoria") or "").strip()
     try:
         cantidad = float(request.form.get("cantidad", 0))
     except (ValueError, TypeError):
@@ -2753,11 +2840,22 @@ def admin_periodo_ajuste(periodo_id):
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
     motivo = request.form.get("motivo", "Otro")
     observacion = (request.form.get("observacion") or "").strip()
-    impacta_stock = request.form.get("impacta_stock", "1") != "0"
+    impacta_stock = request.form.get("impacta_stock") == "1"
 
     if not producto_nombre:
         flash("Seleccioná un producto.", "warning")
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+    producto = Producto.query.filter_by(nombre=producto_nombre, categoria=categoria).first()
+    if producto is None:
+        flash("Seleccioná un producto válido del catálogo.", "warning")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
+    if impacta_stock:
+        asegurar_conteo_admin(
+            periodo, producto_nombre=producto_nombre, categoria=categoria,
+            usuario=session["usuario"],
+        )
 
     aj = AjusteInventario(
         periodo_id=periodo_id,
@@ -2770,8 +2868,28 @@ def admin_periodo_ajuste(periodo_id):
         impacta_stock=impacta_stock,
     )
     db.session.add(aj)
+    db.session.flush()
+    cantidad_final = total_conteo_con_ajustes(periodo.id, producto_nombre)
+    if impacta_stock:
+        try:
+            registrar_estado_operativo_admin(
+                periodo, producto_nombre=producto_nombre, categoria=categoria,
+                cantidad_final=cantidad_final, usuario=session["usuario"],
+                detalle=f"Ajuste administrativo {cantidad:+g}: {motivo}. {observacion}".strip(),
+            )
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), "warning")
+            return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+    estado_auditoria = (
+        _refrescar_auditoria_por_cambio_admin(periodo)
+        if impacta_stock else "sin_cambio"
+    )
     db.session.commit()
-    flash(f"Ajuste de {cantidad:+.1f} agregado a '{producto_nombre}'.", "success")
+    impacto = f" Stock final: {cantidad_final:g} unidades." if impacta_stock else " Sin impacto en stock."
+    flash(f"Ajuste de {cantidad:+.1f} agregado a '{producto_nombre}'.{impacto}", "success")
+    if estado_auditoria == "requiere_revision":
+        flash("La Auditoría tiene justificaciones manuales: revisálas antes de re-ejecutarla.", "warning")
     return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
 
@@ -2938,6 +3056,7 @@ def admin_auditoria(periodo_id):
     return render_template(
         "admin_auditoria.html",
         periodo=periodo,
+        tienda_nombre=_nombre_tienda_periodo(periodo),
         resultados=resultados,
         filtro=filtro,
         total_impacto=total_impacto,
@@ -3097,6 +3216,7 @@ def admin_reporte_gerencial(periodo_id):
     if not periodo or periodo.cliente_id != cliente_id:
         abort(404)
     ctx = build_reporte_gerencial(periodo)
+    ctx["tienda_nombre"] = _nombre_tienda_periodo(periodo)
     return render_template("admin_reporte_gerencial.html", **ctx)
 
 
@@ -3230,6 +3350,11 @@ def admin_conteo_manual(periodo_id):
         flash("Seleccioná un producto.", "warning")
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
+    producto = Producto.query.filter_by(nombre=producto_nombre, categoria=categoria).first()
+    if producto is None:
+        flash("Seleccioná un producto válido del catálogo.", "warning")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+
     try:
         tipo_registro, _ = registrar_conteo_admin(
             periodo,
@@ -3242,9 +3367,22 @@ def admin_conteo_manual(periodo_id):
     except ValueError as exc:
         flash(str(exc), "warning")
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+    try:
+        registrar_estado_operativo_admin(
+            periodo, producto_nombre=producto_nombre, categoria=categoria,
+            cantidad_final=cantidad, usuario=session["usuario"],
+            detalle="Conteo manual registrado por administrador.",
+        )
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "warning")
+        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
+    estado_auditoria = _refrescar_auditoria_por_cambio_admin(periodo)
     db.session.commit()
     mensaje = "Ajuste histórico trazable" if tipo_registro == "ajuste" else "Conteo"
     flash(f"{mensaje} de '{producto_nombre}': {cantidad:.1f} unidades guardado.", "success")
+    if estado_auditoria == "requiere_revision":
+        flash("La Auditoría tiene justificaciones manuales: revisálas antes de re-ejecutarla.", "warning")
     return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
 

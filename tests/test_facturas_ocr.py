@@ -1,5 +1,6 @@
 from pathlib import Path
 import ast
+from datetime import date
 import unittest
 
 from flask import Flask
@@ -7,7 +8,7 @@ from flask import Flask
 from core.factura_ocr import aplicar_compras_facturas, extraer_factura, importar_factura
 from core.models import (
     Cliente, ExcelDetalle, ExcelDetalleEdicion, ExcelImportado, FacturaCompra,
-    FacturaCompraDetalle, InventarioPeriodo, Producto, Tienda, db,
+    FacturaCompraDetalle, InventarioPeriodo, Producto, ProductoPrecio, Tienda, db,
 )
 
 
@@ -79,16 +80,17 @@ class PruebasFacturasOCR(unittest.TestCase):
         self.assertEqual(helacor.fecha_emision.isoformat(), "2026-08-17")
         self.assertEqual(fane.fecha_emision.isoformat(), "2026-07-20")
 
-    def test_factura_fuera_del_periodo_no_se_puede_aplicar(self):
+    def test_factura_asignada_al_periodo_se_aplica_con_advertencia_de_fecha(self):
         periodo = self._periodo()
         nombre, contenido = self._pdf("fane")
-        factura, _avisos = importar_factura(
+        factura, avisos = importar_factura(
             periodo=periodo, cliente_id="C001", usuario="admin",
             nombre_archivo=nombre, contenido=contenido,
         )
         db.session.commit()
-        self.assertEqual(factura.estado, "fuera_rango")
-        self.assertTrue(all(d.estado_vinculacion == "fuera_rango" for d in factura.detalles))
+        self.assertEqual(factura.estado, "procesada")
+        self.assertFalse(any(d.estado_vinculacion == "fuera_rango" for d in factura.detalles))
+        self.assertTrue(any("fecha de emisión" in aviso for aviso in avisos))
 
     def test_aplica_compras_convertidas_y_registra_trazabilidad(self):
         periodo = self._periodo()
@@ -124,6 +126,75 @@ class PruebasFacturasOCR(unittest.TestCase):
         self.assertIn('"origen": "facturas_pdf"', ExcelDetalleEdicion.query.one().cambios_json)
         self.assertGreater(len(avisos), 0)  # líneas sin vínculo seguro quedan para revisión
 
+    def test_helacor_usa_presentacion_especifica_de_cada_producto(self):
+        """2 bultos de 6 unidades/caja y 6 cajas/bulto son 72, no 96."""
+        periodo = self._periodo()
+        cookies = Producto.query.filter_by(
+            nombre="Alfajor Bombon Cookies and Crema"
+        ).one()
+        db.session.add(ProductoPrecio(
+            cliente_id="C001", producto_id=cookies.id,
+            producto_nombre=cookies.nombre, categoria=cookies.categoria,
+            unidades_por_caja=6, unidades_por_bulto=6,
+        ))
+        nombre, contenido = self._pdf("helacor")
+
+        factura, _avisos = importar_factura(
+            periodo=periodo, cliente_id="C001", usuario="admin",
+            nombre_archivo=nombre, contenido=contenido,
+        )
+        linea = FacturaCompraDetalle.query.filter_by(
+            factura_id=factura.id, codigo_proveedor="4000833",
+        ).one()
+
+        self.assertEqual(linea.cantidad_facturada, 2)
+        self.assertEqual(linea.factor_conversion, 36)
+        self.assertEqual(linea.compras_calculadas, 72)
+        self.assertIn("6 unidades/caja × 6 cajas/bulto", linea.observacion)
+
+    def test_aplicar_recalcula_todos_los_productos_desde_cantidad_y_factor(self):
+        """Una copia cacheada vieja no puede llegar a Auditoría ni al Excel."""
+        periodo = self._periodo()
+        escoces = Producto(nombre="Alfajor Bombon Escoces", categoria="Impulsivo")
+        db.session.add(escoces)
+        db.session.flush()
+        excel = ExcelImportado(
+            periodo_id=periodo.id, cliente_id="C001", nombre_archivo="inventario.xls",
+            usuario_importador="admin", estado_validacion="ok",
+        )
+        db.session.add(excel)
+        db.session.flush()
+        detalle_excel = ExcelDetalle(
+            excel_id=excel.id, articulo="24", artdescrip="Bombon escoces x unidad",
+            producto_id=escoces.id, producto_nombre_interno=escoces.nombre,
+            estado_vinculacion="vinculado", compras=240,
+        )
+        factura = FacturaCompra(
+            periodo_id=periodo.id, cliente_id="C001", proveedor="Helacor",
+            numero_factura="001-001-0051204", fecha_emision=date(2026, 8, 17),
+            nombre_archivo="helacor.pdf", sha256="regresion-4-bultos",
+            archivo_pdf=b"%PDF", metodo_extraccion="texto_pdf", estado="procesada",
+            usuario_importador="admin",
+        )
+        db.session.add_all((detalle_excel, factura))
+        db.session.flush()
+        linea = FacturaCompraDetalle(
+            factura_id=factura.id, codigo_proveedor="4000116",
+            descripcion="PACK6 CAJAS BOMBON ESCOCES X8 GRIDO EXPO",
+            cantidad_facturada=4, factor_conversion=48,
+            # Simula el valor viejo que produjo 240 antes de corregir a 4 bultos.
+            compras_calculadas=240, producto_id=escoces.id,
+            producto_nombre=escoces.nombre, estado_vinculacion="vinculado",
+        )
+        db.session.add(linea)
+        db.session.flush()
+
+        aplicar_compras_facturas(periodo, "C001", "admin")
+        db.session.flush()
+
+        self.assertEqual(linea.compras_calculadas, 192)
+        self.assertEqual(detalle_excel.compras, 192)
+
     def test_no_duplica_la_misma_factura_aunque_cambie_el_nombre(self):
         periodo = self._periodo()
         nombre, contenido = self._pdf("helacor")
@@ -140,6 +211,19 @@ class PruebasFacturasOCR(unittest.TestCase):
         self.assertIsNone(segunda)
         self.assertEqual(FacturaCompra.query.count(), 1)
         self.assertIn("duplicada", avisos[0])
+
+    def test_facturas_distintas_se_acumulan_en_el_mismo_periodo(self):
+        periodo = self._periodo()
+        for fragmento in ("helacor", "fane"):
+            nombre, contenido = self._pdf(fragmento)
+            factura, _avisos = importar_factura(
+                periodo=periodo, cliente_id="C001", usuario="admin",
+                nombre_archivo=nombre, contenido=contenido,
+            )
+            self.assertIsNotNone(factura)
+            db.session.flush()
+
+        self.assertEqual(FacturaCompra.query.filter_by(periodo_id=periodo.id).count(), 2)
 
     def test_todas_las_rutas_de_facturas_exigen_administrador(self):
         codigo = (ROOT / "core" / "inventario.py").read_text(encoding="utf-8-sig")

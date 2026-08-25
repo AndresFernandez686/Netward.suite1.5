@@ -11,6 +11,7 @@ from datetime import date, datetime
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import unicodedata
@@ -18,7 +19,7 @@ from typing import Iterable
 
 from .models import (
     db, ExcelDetalle, ExcelDetalleEdicion, ExcelImportado, FacturaCompra,
-    FacturaCompraDetalle, InventarioPeriodo, Producto,
+    FacturaCompraDetalle, InventarioPeriodo, Producto, ProductoPrecio,
 )
 
 
@@ -251,9 +252,6 @@ _CODIGOS_PROVEEDOR = {
 def _factor_conversion(proveedor: str, linea: LineaExtraida) -> tuple[float, str]:
     normal = _norm(linea.descripcion)
     if proveedor == "Helacor":
-        factores_conocidos = {"4000833": 48.0}
-        if linea.codigo in factores_conocidos:
-            return factores_conocidos[linea.codigo], "conversión verificada por código"
         pack = re.search(r"\bpack\s*x?\s*(\d+)\b", normal)
         factor = float(pack.group(1)) if pack else 1.0
         if "caj" in normal:
@@ -276,11 +274,86 @@ def _factor_conversion(proveedor: str, linea: LineaExtraida) -> tuple[float, str
     return 1.0, "unidad facturada"
 
 
+def factor_conversion_catalogo(
+    producto: Producto | None, cliente_id: str,
+) -> tuple[float, str] | None:
+    """Devuelve unidades por bulto desde la presentación real del producto.
+
+    En ``ProductoPrecio``, ``unidades_por_bulto`` conserva el nombre histórico
+    de la columna, pero la interfaz lo define como *cajas por bulto*. Por ello,
+    la UME correcta es unidades/caja × cajas/bulto. No se usan valores fijos por
+    código: cada producto puede tener una presentación diferente.
+    """
+    if producto is None or producto.categoria not in {"Impulsivo", "Extras"}:
+        return None
+    precio = ProductoPrecio.query.filter_by(
+        cliente_id=cliente_id, producto_id=producto.id,
+    ).first()
+    if precio is None:
+        precio = ProductoPrecio.query.filter(
+            ProductoPrecio.cliente_id == cliente_id,
+            db.func.lower(ProductoPrecio.producto_nombre) == producto.nombre.strip().lower(),
+        ).first()
+    if precio is None:
+        return None
+    unidades_caja = float(precio.unidades_por_caja or 0)
+    cajas_bulto = float(precio.unidades_por_bulto or 0)
+    if (
+        not math.isfinite(unidades_caja) or not math.isfinite(cajas_bulto)
+        or unidades_caja <= 0 or cajas_bulto <= 0
+    ):
+        return None
+    return (
+        unidades_caja * cajas_bulto,
+        f"catálogo: {unidades_caja:g} unidades/caja × {cajas_bulto:g} cajas/bulto",
+    )
+
+
+def _resolver_factor_conversion(
+    proveedor: str, linea: LineaExtraida, producto: Producto | None, cliente_id: str,
+) -> tuple[float, str]:
+    # Helacor factura estos artículos por bulto. Una vez vinculado el producto,
+    # su presentación configurada es más confiable que el texto variable del PDF.
+    if proveedor == "Helacor":
+        factor_catalogo = factor_conversion_catalogo(producto, cliente_id)
+        if factor_catalogo is not None:
+            return factor_catalogo
+    return _factor_conversion(proveedor, linea)
+
+
+def calcular_compras_unidades(cantidad_facturada: float, factor_conversion: float) -> float:
+    """Calcula la compra en unidades desde los dos datos editables de la factura.
+
+    ``compras_calculadas`` se conserva en la base de datos para mostrarla en la
+    pantalla, pero no debe convertirse en una segunda fuente de verdad: si el
+    administrador corrige la cantidad o el factor, una copia anterior puede
+    quedar desactualizada. Por eso todos los consumidores usan esta función.
+    """
+    cantidad = float(cantidad_facturada or 0)
+    factor = float(factor_conversion or 0)
+    if not math.isfinite(cantidad) or not math.isfinite(factor):
+        raise FacturaError("La cantidad y el factor de conversión deben ser números válidos.")
+    if cantidad < 0 or factor <= 0:
+        raise FacturaError("La cantidad no puede ser negativa y el factor debe ser mayor que cero.")
+    return cantidad * factor
+
+
 def _buscar_producto(proveedor: str, linea: LineaExtraida) -> tuple[Producto | None, str]:
     nombre = _CODIGOS_PROVEEDOR.get(proveedor, {}).get(linea.codigo)
     if nombre:
         producto = Producto.query.filter_by(nombre=nombre).first()
-        return producto, "código de proveedor" if producto else "producto no existe en catálogo"
+        if producto:
+            return producto, "código de proveedor"
+        # Algunas instalaciones conservan como nombre interno el alias usado
+        # por el inventario oficial (p. ej. "Bombon escoces x unidad") en vez
+        # del nombre del catálogo base. El código del proveedor sigue siendo
+        # inequívoco, por lo que también se resuelve contra ese alias.
+        from .inventario import RENOMBRAR_CATALOGO
+        alias = RENOMBRAR_CATALOGO.get(nombre)
+        if alias:
+            producto = Producto.query.filter_by(nombre=alias).first()
+            if producto:
+                return producto, "código de proveedor y alias del inventario"
 
     normal = _norm(linea.descripcion)
     reglas = [
@@ -340,7 +413,10 @@ def importar_factura(
         periodo_id=periodo.id, cliente_id=cliente_id, proveedor=extraida.proveedor,
         numero_factura=extraida.numero, fecha_emision=extraida.fecha_emision,
         nombre_archivo=nombre_archivo[:255], sha256=digest, archivo_pdf=contenido,
-        metodo_extraccion=extraida.metodo, estado="procesada" if en_rango else "fuera_rango",
+        # El administrador elige expresamente el período al cargar la factura.
+        # La fecha se valida y advierte, pero no debe hacer que Auditoría ignore
+        # silenciosamente una compra confirmada dentro de ese período.
+        metodo_extraccion=extraida.metodo, estado="procesada",
         total_factura=extraida.total, usuario_importador=usuario,
         texto_extraido=extraida.texto[:100_000],
     )
@@ -349,9 +425,16 @@ def importar_factura(
 
     permitidas = {"Impulsivo", "Por Kilos"} if extraida.proveedor == "Helacor" else {"Extras"}
     avisos = []
+    if not en_rango:
+        avisos.append(
+            f"{nombre_archivo}: la fecha de emisión no coincide con el rango del período; "
+            "se aplicará al período seleccionado."
+        )
     for linea in extraida.lineas:
         producto, motivo = _buscar_producto(extraida.proveedor, linea)
-        factor, fuente_factor = _factor_conversion(extraida.proveedor, linea)
+        factor, fuente_factor = _resolver_factor_conversion(
+            extraida.proveedor, linea, producto, cliente_id,
+        )
         estado = "vinculado" if producto else "pendiente"
         if producto and producto.categoria not in permitidas:
             estado = "categoria_invalida"
@@ -359,9 +442,7 @@ def importar_factura(
         if extraida.proveedor == "Fane" and linea.codigo == "7840263015693":
             estado = "pendiente_conversion"
             motivo = "la presentación de servilletas requiere confirmar el factor UME"
-        if not en_rango:
-            estado = "fuera_rango"
-        calculadas = linea.cantidad * factor
+        calculadas = calcular_compras_unidades(linea.cantidad, factor)
         db.session.add(FacturaCompraDetalle(
             factura_id=factura.id, codigo_proveedor=linea.codigo[:40],
             descripcion=linea.descripcion[:255], cantidad_facturada=linea.cantidad,
@@ -386,10 +467,56 @@ def aplicar_compras_facturas(periodo: InventarioPeriodo, cliente_id: str, usuari
     if not excel:
         raise FacturaError("Primero importa el inventario XLS/XLSX del período.")
 
+    # Reparar importaciones creadas con versiones anteriores: una fecha de
+    # emisión distinta dejaba todas las líneas fuera de rango y los catálogos
+    # que usan alias quedaban sin producto. La asignación explícita al período
+    # y el código del proveedor permiten reconciliarlas de forma determinista.
+    facturas = FacturaCompra.query.filter_by(
+        periodo_id=periodo.id, cliente_id=cliente_id,
+    ).all()
+    for factura in facturas:
+        if factura.estado == "fuera_rango":
+            factura.estado = "procesada"
+        permitidas = {"Impulsivo", "Por Kilos"} if factura.proveedor == "Helacor" else {"Extras"}
+        for detalle in factura.detalles:
+            if detalle.producto_id is None and detalle.estado_vinculacion in ("pendiente", "fuera_rango"):
+                producto, motivo = _buscar_producto(
+                    factura.proveedor,
+                    LineaExtraida(
+                        codigo=detalle.codigo_proveedor,
+                        descripcion=detalle.descripcion,
+                        cantidad=detalle.cantidad_facturada,
+                        precio_unitario=detalle.precio_unitario,
+                        importe=detalle.importe,
+                    ),
+                )
+                if producto and producto.categoria in permitidas:
+                    detalle.producto_id = producto.id
+                    detalle.producto_nombre = producto.nombre
+                    detalle.confianza = "Alta"
+                    detalle.observacion = f"{motivo}; reconciliada al aplicar compras"[:255]
+            if detalle.estado_vinculacion == "fuera_rango":
+                detalle.estado_vinculacion = "vinculado" if detalle.producto_id else "pendiente"
+            # Repara factores heredados o extraídos del PDF. Las correcciones
+            # que un administrador confirmó expresamente se conservan.
+            if (
+                factura.proveedor == "Helacor"
+                and detalle.producto_id is not None
+                and detalle.confianza != "Confirmada"
+            ):
+                producto = db.session.get(Producto, detalle.producto_id)
+                factor_catalogo = factor_conversion_catalogo(producto, cliente_id)
+                if factor_catalogo is not None:
+                    detalle.factor_conversion, fuente = factor_catalogo
+                    detalle.compras_calculadas = calcular_compras_unidades(
+                        detalle.cantidad_facturada, detalle.factor_conversion,
+                    )
+                    detalle.observacion = f"{fuente}; conversión sincronizada"[:255]
+    db.session.flush()
+
     filas = (
         FacturaCompraDetalle.query.join(FacturaCompra)
         .filter(FacturaCompra.periodo_id == periodo.id, FacturaCompra.cliente_id == cliente_id,
-                FacturaCompra.estado != "fuera_rango",
                 FacturaCompraDetalle.estado_vinculacion.in_(("vinculado", "aplicado")),
                 FacturaCompraDetalle.producto_id.isnot(None)).all()
     )
@@ -398,7 +525,14 @@ def aplicar_compras_facturas(periodo: InventarioPeriodo, cliente_id: str, usuari
 
     totales: dict[int, float] = {}
     for fila in filas:
-        totales[fila.producto_id] = totales.get(fila.producto_id, 0.0) + float(fila.compras_calculadas or 0)
+        # Recalcular siempre desde los campos que ve y confirma el usuario. Así
+        # Auditoría nunca reutiliza un total cacheado antes de una corrección.
+        cantidad = calcular_compras_unidades(
+            fila.cantidad_facturada, fila.factor_conversion,
+        )
+        if abs(float(fila.compras_calculadas or 0) - cantidad) > 1e-9:
+            fila.compras_calculadas = cantidad
+        totales[fila.producto_id] = totales.get(fila.producto_id, 0.0) + cantidad
 
     detalles_excel = ExcelDetalle.query.filter_by(excel_id=excel.id).all()
     vinculados_excel = {d.producto_id: d for d in detalles_excel if d.producto_id}

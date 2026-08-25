@@ -1,7 +1,7 @@
 {% extends 'admin_base.html' %}
-{% block title %}Precios - {{ app_nombre }}{% endblock %}
-{% block heading %}Precios{% endblock %}
-{% block subheading %}Carga manual de precios por producto (opcional){% endblock %}
+{% block title %}Catálogo - {{ app_nombre }}{% endblock %}
+{% block heading %}Catálogo{% endblock %}
+{% block subheading %}Productos, precios y presentaciones en un solo lugar{% endblock %}
 
 {% block content %}
 <div id="precios-tabs"></div>
@@ -13,18 +13,58 @@
   </div>
 </div>
 
-<div class="card card--skip-collapse" style="margin-bottom:16px;">
-  <div class="form-row" style="align-items:end;">
-    <label class="field field--grow">
+<section class="card card--skip-collapse catalog-management" id="catalogo-alta">
+  <div class="catalog-toolbar">
+    <label class="field catalog-toolbar__search">
       <span class="field__label">Buscar producto</span>
       <input type="text" id="buscar-precio-producto" placeholder="Escribe el nombre del producto..." />
     </label>
-    <div class="inv-form__action">
+    <div class="catalog-toolbar__actions">
       <button type="button" class="btn btn--ghost" id="limpiar-busqueda-precios">Limpiar búsqueda</button>
+      <button type="button" class="btn btn--primary" id="catalog-add-toggle" aria-expanded="false" aria-controls="catalog-add-panel">
+        + Añadir producto
+      </button>
     </div>
   </div>
-  <p class="muted" style="margin:10px 0 0;font-size:.85rem;">La búsqueda filtra los productos visibles en todas las categorías.</p>
-</div>
+
+  <div class="catalog-add-panel" id="catalog-add-panel" hidden>
+    <div class="catalog-add-panel__head">
+      <div><h3>Nuevo producto</h3><p>Puede cargar también su precio y presentación inicial.</p></div>
+      <button type="button" class="btn btn--ghost btn--sm" id="catalog-add-close">Cerrar</button>
+    </div>
+    <form method="post" action="{{ url_for('producto_crear') }}" class="catalog-add-form">
+      <label class="field catalog-add-form__name">
+        <span class="field__label">Nombre *</span>
+        <input type="text" name="nombre" placeholder="Nombre del producto" required />
+      </label>
+      <label class="field">
+        <span class="field__label">Categoría *</span>
+        <select name="categoria" id="catalog-new-category" required>
+          {% for cat in categorias %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label" id="catalog-new-price-label">Precio unitario</span>
+        <input type="text" inputmode="numeric" name="precio" placeholder="Opcional" />
+      </label>
+      <label class="field catalog-package-field">
+        <span class="field__label">Precio por caja</span>
+        <input type="text" inputmode="numeric" name="precio_caja" placeholder="Opcional" />
+      </label>
+      <label class="field catalog-package-field">
+        <span class="field__label">Unidades/caja</span>
+        <input type="number" min="0" step="any" name="unidades_por_caja" placeholder="Opcional" />
+      </label>
+      <label class="field catalog-package-field">
+        <span class="field__label">Cajas/bulto</span>
+        <input type="number" min="0" step="any" name="cajas_por_bulto" placeholder="Opcional" />
+      </label>
+      <div class="catalog-add-form__submit">
+        <button type="submit" class="btn btn--primary">Crear producto</button>
+      </div>
+    </form>
+  </div>
+</section>
 
 {% if local_notice %}
 <div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">
@@ -45,7 +85,7 @@
 {% for cat in categorias %}
 {% set tab_id = 'tab-' ~ loop.index0 %}
 <section class="panel admin-tabpanel" id="{{ tab_id }}" {{ '' if active_tab == tab_id else 'hidden' }}>
-  <form method="post" action="{{ url_for('admin_precios') }}" data-submit-delay="5000" data-loading-text="Guardando cambios...">
+  <form method="post" action="{{ url_for('admin_precios') }}" data-loading-text="Guardando cambios...">
     <input type="hidden" name="active_tab" value="{{ active_tab }}" class="js-admin-precios-tab" />
     <div class="table-wrap">
       <table class="mini-table">
@@ -59,12 +99,13 @@
             <th>Unidades/Caja</th>
             <th>Cajas/Bulto</th>
             {% endif %}
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
           {% for p in productos_por_cat[cat] %}
           {% set pr = precios_map.get(p.nombre) %}
-          <tr>
+          <tr class="catalog-product-row" data-product-name="{{ p.nombre }}">
             <td><strong>{{ p.nombre }}</strong>
               <input type="hidden" name="ids" value="{{ p.id }}" />
             </td>
@@ -93,9 +134,12 @@
                      value="{{ '%g'|format(pr.unidades_por_bulto) if pr and pr.unidades_por_bulto else '' }}" placeholder="—" />
             </td>
             {% endif %}
+            <td>
+              <button type="submit" class="btn btn--sm btn--danger" form="catalog-delete-{{ p.id }}">Eliminar</button>
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="{{ 3 if cat == 'Por Kilos' else 6 }}" class="muted">No hay productos en esta categoría.</td></tr>
+          <tr><td colspan="{{ 4 if cat == 'Por Kilos' else 7 }}" class="muted">No hay productos en esta categoría.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -104,6 +148,12 @@
       <button type="submit" class="btn btn--primary">Guardar cambios de {{ cat }}</button>
     </div>
   </form>
+  {% for p in productos_por_cat[cat] %}
+  <form id="catalog-delete-{{ p.id }}" method="post" action="{{ url_for('producto_eliminar', producto_id=p.id) }}"
+        data-confirm-message="¿Eliminar {{ p.nombre }}? Esta acción no se puede deshacer.">
+    <input type="hidden" name="active_tab" value="{{ active_tab }}" class="js-admin-precios-tab" />
+  </form>
+  {% endfor %}
 </section>
 {% endfor %}
 
@@ -130,6 +180,10 @@
     var activeTab = '{{ active_tab|default("tab-0") }}';
     var searchInput = document.getElementById('buscar-precio-producto');
     var clearButton = document.getElementById('limpiar-busqueda-precios');
+    var addToggle = document.getElementById('catalog-add-toggle');
+    var addClose = document.getElementById('catalog-add-close');
+    var addPanel = document.getElementById('catalog-add-panel');
+    var newCategory = document.getElementById('catalog-new-category');
 
     function syncTabInForms() {
       document.querySelectorAll('input.js-admin-precios-tab').forEach(function (input) {
@@ -160,7 +214,7 @@
     function applySearch() {
       var query = norm(searchInput ? searchInput.value : '');
       document.querySelectorAll('.admin-tabpanel').forEach(function (panel) {
-        var rows = Array.prototype.slice.call(panel.querySelectorAll('tbody tr'));
+        var rows = Array.prototype.slice.call(panel.querySelectorAll('.catalog-product-row'));
         var visibleCount = 0;
 
         rows.forEach(function (row) {
@@ -207,8 +261,35 @@
       });
     }
 
+    function setAddPanel(open) {
+      if (!addPanel || !addToggle) return;
+      addPanel.hidden = !open;
+      addToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) {
+        var nameInput = addPanel.querySelector('input[name="nombre"]');
+        if (nameInput) nameInput.focus();
+      }
+    }
+
+    if (addToggle) addToggle.addEventListener('click', function () {
+      setAddPanel(addPanel ? addPanel.hidden : true);
+    });
+    if (addClose) addClose.addEventListener('click', function () { setAddPanel(false); });
+
+    function syncNewProductFields() {
+      if (!newCategory) return;
+      var isKilos = newCategory.value === 'Por Kilos';
+      document.querySelectorAll('.catalog-package-field').forEach(function (field) {
+        field.hidden = isKilos;
+      });
+      var label = document.getElementById('catalog-new-price-label');
+      if (label) label.textContent = isKilos ? 'Precio por kg' : 'Precio unitario';
+    }
+    if (newCategory) newCategory.addEventListener('change', syncNewProductFields);
+
     setActiveTab(activeTab);
     applySearch();
+    syncNewProductFields();
   })();
 </script>
 {% endblock %}
