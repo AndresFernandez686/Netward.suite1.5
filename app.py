@@ -2421,6 +2421,97 @@ def producto_crear():
     return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
 
 
+@app.route("/admin/producto/<int:producto_id>/editar", methods=["POST"])
+@login_required(rol="administrador")
+def producto_editar(producto_id):
+    active_tab = _safe_catalog_tab(request.form.get("active_tab"))
+    producto = db.session.get(Producto, producto_id)
+    if producto is None:
+        abort(404)
+
+    nombre_nuevo = (request.form.get("nombre") or "").strip()
+    nombre_anterior = producto.nombre
+    if not nombre_nuevo:
+        _set_admin_precios_notice("El nombre del producto es obligatorio.", "error", active_tab)
+        return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
+    if len(nombre_nuevo) > 160:
+        _set_admin_precios_notice("El nombre no puede superar 160 caracteres.", "error", active_tab)
+        return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
+
+    duplicado = (
+        Producto.query
+        .filter(
+            Producto.id != producto.id,
+            Producto.categoria == producto.categoria,
+            db.func.lower(Producto.nombre) == nombre_nuevo.lower(),
+        )
+        .first()
+    )
+    if duplicado:
+        _set_admin_precios_notice(
+            f"Ya existe '{nombre_nuevo}' en {producto.categoria}.", "warning", active_tab
+        )
+        return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
+
+    if nombre_nuevo == nombre_anterior:
+        _set_admin_precios_notice("El producto ya tiene ese nombre.", "info", active_tab)
+        return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
+
+    # Las tablas operativas conservan algunos nombres descriptivos aunque ya
+    # tengan una FK estable. Mantenerlos alineados evita que el producto
+    # aparezca duplicado tras editarlo.
+    InventarioItem.query.filter_by(
+        producto=nombre_anterior, categoria=producto.categoria
+    ).update({"producto": nombre_nuevo}, synchronize_session=False)
+
+    precio = ProductoPrecio.query.filter_by(producto_id=producto.id).first()
+    if precio is None:
+        precio = ProductoPrecio.query.filter_by(producto_nombre=nombre_anterior).first()
+    if precio is not None:
+        precio.producto_id = producto.id
+        precio.producto_nombre = nombre_nuevo
+
+    StockThreshold.query.filter(
+        (StockThreshold.producto_id == producto.id)
+        | (StockThreshold.producto == nombre_anterior)
+    ).update(
+        {"producto_id": producto.id, "producto": nombre_nuevo},
+        synchronize_session=False,
+    )
+    ExcelDetalle.query.filter_by(producto_id=producto.id).update(
+        {"producto_nombre_interno": nombre_nuevo}, synchronize_session=False
+    )
+    FacturaCompraDetalle.query.filter_by(producto_id=producto.id).update(
+        {"producto_nombre": nombre_nuevo}, synchronize_session=False
+    )
+    ProductoRelacionado.query.filter_by(producto_principal=nombre_anterior).update(
+        {"producto_principal": nombre_nuevo}, synchronize_session=False
+    )
+    ProductoRelacionado.query.filter_by(producto_relacionado=nombre_anterior).update(
+        {"producto_relacionado": nombre_nuevo}, synchronize_session=False
+    )
+
+    producto.nombre = nombre_nuevo
+    producto.catalogo_version = int(
+        db.session.query(db.func.max(Producto.catalogo_version)).scalar() or 0
+    ) + 1
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        _set_admin_precios_notice(
+            "No se pudo cambiar el nombre porque ya está usado en datos del inventario.",
+            "error",
+            active_tab,
+        )
+        return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
+
+    _set_admin_precios_notice(
+        f"Producto '{nombre_anterior}' renombrado a '{nombre_nuevo}'.", "success", active_tab
+    )
+    return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
+
+
 @app.route("/admin/producto/<int:producto_id>/eliminar", methods=["POST"])
 @login_required(rol="administrador")
 def producto_eliminar(producto_id):
@@ -3492,7 +3583,7 @@ def admin_config_autoclose():
     if request.method == "POST":
         try:
             horas = float(request.form.get("horas", 24))
-            if horas < 1:
+            if horas < 1 or horas > 720:
                 raise ValueError
         except (ValueError, TypeError):
             flash("Ingresá un valor válido mayor a 0.", "error")

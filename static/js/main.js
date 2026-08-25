@@ -227,7 +227,9 @@
           'Procesando solicitud...';
 
         setLoadingButtonState(submitter, loadingTitle);
-        lockUi(loadingTitle, loadingSubtitle);
+        if (form.dataset.buttonLoadingOnly !== '1') {
+          lockUi(loadingTitle, loadingSubtitle);
+        }
       });
     });
   }
@@ -376,11 +378,21 @@
 
   function initInlineValidation() {
     document.querySelectorAll('form[data-inline-validation]').forEach(function (form) {
+      function fieldHost(field) {
+        return field && field.closest(
+          '.field, .desc-invoice-product, .desc-invoice-number, [data-validation-field]'
+        );
+      }
+
       function clearFieldError(host) {
         if (!host) return;
         host.classList.remove('has-error');
         var error = host.querySelector('.field-error-message');
         if (error) error.remove();
+        var control = host.querySelector('select, input:not([type="hidden"]), textarea');
+        if (control && control.validity && control.validity.valid) {
+          control.setAttribute('aria-invalid', 'false');
+        }
       }
 
       function validationMessage(field) {
@@ -399,14 +411,18 @@
         if (field.validity && field.validity.rangeUnderflow) {
           return 'La cantidad no puede ser menor que ' + field.min + '.';
         }
+        if (field.validity && field.validity.rangeOverflow) {
+          return 'La cantidad no puede ser mayor que ' + field.max + '.';
+        }
         return '';
       }
 
       function showFieldError(field, message) {
-        var host = field.closest('.field') || field.parentElement;
+        var host = fieldHost(field) || field.parentElement;
         if (!host) return;
         clearFieldError(host);
         host.classList.add('has-error');
+        field.setAttribute('aria-invalid', 'true');
         var error = document.createElement('span');
         error.className = 'field-error-message';
         error.setAttribute('role', 'alert');
@@ -416,7 +432,9 @@
 
       form.addEventListener('submit', function (event) {
         var firstInvalid = null;
-        form.querySelectorAll('[required]').forEach(function (field) {
+        Array.prototype.filter.call(form.elements, function (field) {
+          return field.required;
+        }).forEach(function (field) {
           var message = validationMessage(field);
           if (!message && field.validity && !field.validity.valid) {
             message = 'Revisa el valor ingresado.';
@@ -425,23 +443,25 @@
             showFieldError(field, message);
             if (!firstInvalid) firstInvalid = field;
           } else {
-            clearFieldError(field.closest('.field'));
+            clearFieldError(fieldHost(field));
           }
         });
 
         if (!firstInvalid) return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        var host = firstInvalid.closest('.field');
+        var host = fieldHost(firstInvalid);
         var focusTarget = host && host.querySelector('.combo__input, select, input:not([type="hidden"])');
         if (focusTarget) focusTarget.focus();
       }, true);
 
-      form.addEventListener('input', function (event) {
-        clearFieldError(event.target.closest('.field'));
-      });
-      form.addEventListener('change', function (event) {
-        clearFieldError(event.target.closest('.field'));
+      Array.prototype.forEach.call(form.elements, function (field) {
+        field.addEventListener('input', function () {
+          clearFieldError(fieldHost(field));
+        });
+        field.addEventListener('change', function () {
+          clearFieldError(fieldHost(field));
+        });
       });
     });
   }
@@ -627,6 +647,8 @@
     var empty   = combo.querySelector('.combo__empty');
     var clear   = combo.querySelector('.combo__clear');
     var options = Array.prototype.slice.call(combo.querySelectorAll('.combo__option'));
+    var minChars = Math.max(0, parseInt(combo.dataset.minChars || '0', 10) || 0);
+    var maxResults = Math.max(0, parseInt(combo.dataset.maxResults || '0', 10) || 0);
     var categorySelect = combo.dataset.categorySelect
       ? document.querySelector(combo.dataset.categorySelect)
       : null;
@@ -652,15 +674,24 @@
       options.forEach(function (o) { o.classList.remove('is-active'); });
     }
     function filter() {
-      var q = input.value.trim(), anyVisible = false;
+      var q = input.value.trim(), anyVisible = false, visibleCount = 0;
+      var waitingForQuery = q.length < minChars;
       options.forEach(function (o) {
         var categoryMatch = !categorySelect || !categorySelect.value || o.dataset.cat === categorySelect.value;
-        var match = categoryMatch && matchesSearch(o.dataset.value, q);
+        var searchable = o.dataset.search || o.dataset.display || o.dataset.value;
+        var match = !waitingForQuery && categoryMatch && matchesSearch(searchable, q);
+        if (match && maxResults && visibleCount >= maxResults) match = false;
         o.hidden = !match;
-        if (match) anyVisible = true;
+        if (match) {
+          anyVisible = true;
+          visibleCount += 1;
+        }
       });
       if (empty) {
         if (!anyVisible) positionList(empty);
+        empty.textContent = waitingForQuery
+          ? (empty.dataset.prompt || 'Escribe para buscar.')
+          : (empty.dataset.noResults || 'Sin resultados.');
         empty.hidden = anyVisible;
       }
       options.forEach(function (o) { o.classList.remove('is-active'); });
@@ -668,6 +699,8 @@
     }
     function select(opt) {
       hidden.value = opt.dataset.value;
+      hidden.dispatchEvent(new Event('input', { bubbles: true }));
+      hidden.dispatchEvent(new Event('change', { bubbles: true }));
       if (hidCat) hidCat.value = opt.dataset.cat || '';
       if (categorySelect && opt.dataset.cat) {
         categorySelect.value = opt.dataset.cat;
@@ -682,6 +715,8 @@
     input.addEventListener('focus', filter);
     input.addEventListener('input', function () {
       hidden.value = '';
+      hidden.dispatchEvent(new Event('input', { bubbles: true }));
+      hidden.dispatchEvent(new Event('change', { bubbles: true }));
       combo.classList.remove('has-value');
       if (clear) clear.hidden = input.value === '';
       filter();
@@ -708,6 +743,8 @@
     if (clear) {
       clear.addEventListener('click', function () {
         hidden.value = ''; input.value = ''; clear.hidden = true;
+        hidden.dispatchEvent(new Event('input', { bubbles: true }));
+        hidden.dispatchEvent(new Event('change', { bubbles: true }));
         combo.classList.remove('has-value');
         options.forEach(function (o) { o.hidden = false; });
         input.focus();

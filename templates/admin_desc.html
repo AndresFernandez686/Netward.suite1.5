@@ -129,9 +129,14 @@
           <span class="desc-document-analysis__eyebrow">Documento y análisis</span>
           <h4>Revisar factura cargada</h4>
         </div>
-        {% if facturas_periodo|length > 1 %}
+      </div>
+
+      <div class="desc-document-actions">
+        <button class="btn desc-document-view" id="invoice-view-document" type="button">
+          <span aria-hidden="true">📄</span> Ver documento
+        </button>
         <label class="desc-document-select">
-          <span>Factura</span>
+          <span>Facturas cargadas</span>
           <select id="invoice-analysis-select" aria-label="Seleccionar factura para revisar">
             {% for factura in facturas_periodo %}
             <option value="{{ factura.id }}"
@@ -143,21 +148,6 @@
             {% endfor %}
           </select>
         </label>
-        {% else %}
-        {% set factura = facturas_periodo[0] %}
-        <select id="invoice-analysis-select" hidden aria-label="Factura seleccionada">
-          <option value="{{ factura.id }}" selected
-                  data-pdf-url="{{ url_for('desc.desc_factura_pdf', factura_id=factura.id) }}"
-                  data-analysis-url="{{ url_for('desc.desc_factura_analisis', factura_id=factura.id) }}"
-                  data-filename="{{ factura.nombre_archivo|e }}">{{ factura.nombre_archivo }}</option>
-        </select>
-        {% endif %}
-      </div>
-
-      <div class="desc-document-actions">
-        <button class="btn desc-document-view" id="invoice-view-document" type="button">
-          <span aria-hidden="true">📄</span> Ver documento
-        </button>
       </div>
       <div class="desc-document-inline" id="invoice-document-inline" hidden>
         <div class="desc-document-inline__head">
@@ -172,16 +162,13 @@
           <span class="desc-analysis-icon" aria-hidden="true">✦</span>
           <div><strong>Análisis de Nexa</strong><small id="invoice-analysis-mode">{{ azure_document_status.label }}</small></div>
         </div>
-        <button class="btn desc-analysis-button" id="invoice-analyze" type="button">
-          ↻ {{ 'Analizar' if azure_document_status.enabled else 'Analizar con OCR' }}
-        </button>
       </div>
 
       <div class="desc-analysis-output" id="invoice-analysis-output" aria-live="polite">
         <div class="desc-analysis-empty" id="invoice-analysis-empty">
           <span aria-hidden="true">🤖</span>
-          <p>Haz clic en <strong>Analizar</strong> para procesar el documento.</p>
-          <small>{{ 'Azure devolverá los campos y su porcentaje de precisión.' if azure_document_status.enabled else 'Azure está desactivado; se mostrará el resultado del OCR local.' }}</small>
+          <p>El documento se analiza automáticamente al cargarlo.</p>
+          <small>El resultado quedará guardado junto a la factura.</small>
         </div>
         <div class="desc-analysis-result" id="invoice-analysis-result" hidden>
           <div class="desc-analysis-result__bar">
@@ -238,15 +225,33 @@
             </td>
             <td class="desc-invoice-source"><strong>{{ d.descripcion }}</strong><small>Cód. {{ d.codigo_proveedor or 'sin código' }}</small></td>
             <td class="desc-invoice-product">
-              <select name="producto_id" form="invoice-line-{{ d.id }}" required
-                      class="{{ 'is-empty' if not d.producto_id else '' }}"
-                      aria-invalid="{{ 'true' if not d.producto_id else 'false' }}"
-                      aria-label="Producto Netward para {{ d.descripcion }}">
-                <option value="">Seleccionar producto…</option>
+              <div class="combo desc-invoice-product-combo {{ 'has-value' if d.producto_id else '' }}"
+                   data-combo data-min-chars="2" data-max-results="8">
+                <input type="hidden" class="combo__value" name="producto_id"
+                       form="invoice-line-{{ d.id }}" value="{{ d.producto_id or '' }}" required
+                       data-required-message="Busca y selecciona un producto de la lista." />
+                <div class="combo__control">
+                  <svg class="combo__icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  <input type="text" class="combo__input"
+                         value="{{ d.producto_nombre or '' }}"
+                         placeholder="Buscar producto..." autocomplete="off"
+                         role="combobox" aria-expanded="false" aria-autocomplete="list"
+                         aria-label="Buscar producto Netward para {{ d.descripcion }}" />
+                  <button type="button" class="combo__clear" aria-label="Limpiar selección" {{ 'hidden' if not d.producto_id else '' }}>&times;</button>
+                </div>
+                <ul class="combo__list" role="listbox" hidden>
                 {% for producto in productos_factura if producto.categoria in permitidas %}
-                <option value="{{ producto.id }}" {{ 'selected' if d.producto_id == producto.id else '' }}>{{ producto.nombre }} · {{ producto.categoria }}</option>
+                  <li class="combo__option" role="option"
+                      data-value="{{ producto.id }}"
+                      data-display="{{ producto.nombre|e }}"
+                      data-search="{{ (producto.nombre ~ ' ' ~ producto.categoria)|lower|e }}">
+                    <span>{{ producto.nombre }}</span><small>{{ producto.categoria }}</small>
+                  </li>
                 {% endfor %}
-              </select>
+                </ul>
+                <p class="combo__empty" data-prompt="Escribe al menos 2 letras para buscar."
+                   data-no-results="No encontramos coincidencias. Prueba otro nombre o agrégalo desde Catálogo." hidden></p>
+              </div>
             </td>
             <td class="desc-invoice-number"><input name="cantidad_facturada" form="invoice-line-{{ d.id }}" type="number" min="0" step="any" required value="{{ d.cantidad_facturada }}" aria-label="Cantidad facturada en bultos"></td>
             <td class="desc-invoice-number"><input name="factor_conversion" form="invoice-line-{{ d.id }}" type="number" min="0.000001" step="any" required value="{{ d.factor_conversion }}" aria-label="Factor de conversión UME"></td>
@@ -265,6 +270,7 @@
     </div>
     {% for d in factura_detalles %}
     <form id="invoice-line-{{ d.id }}" method="post" action="{{ url_for('desc.desc_factura_detalle_actualizar', detalle_id=d.id) }}"
+          data-inline-validation novalidate
           data-loading-title="Guardando factura..." data-loading-subtitle="Actualizando producto y conversión..."></form>
     {% endfor %}
     <form method="post" action="{{ url_for('desc.desc_facturas_aplicar') }}" class="desc-invoice-apply" data-confirm-message="¿Reemplazar la columna Compras del inventario oficial con las compras confirmadas de estas facturas?"
@@ -294,10 +300,13 @@
       </div>
       <div class="desc-excel-head-actions">
         {% if facturas_periodo %}
-        <a class="btn btn--primary" id="datos-ver-facturas"
-           href="{{ url_for('desc.admin_desc', periodo_id=periodo_seleccionado.id, doc_tab='facturas') }}#invoice-analysis-panel">
+        <button class="btn btn--primary" id="datos-ver-facturas" type="button">
           📄 {{ 'Ver factura' if facturas_periodo|length == 1 else 'Ver facturas' }}
           <span class="badge">{{ facturas_periodo|length }}</span>
+        </button>
+        <a class="btn btn--ghost" id="datos-descargar-facturas"
+           href="{{ url_for('desc.desc_facturas_periodo_descargar', periodo_id=periodo_seleccionado.id) }}">
+          ↓ {{ 'Descargar factura' if facturas_periodo|length == 1 else 'Descargar todas' }}
         </a>
         {% endif %}
         {% if excel_detalles %}
@@ -305,6 +314,34 @@
         {% endif %}
       </div>
     </div>
+    {% if facturas_periodo %}
+    <div class="desc-document-inline desc-data-invoices" id="datos-facturas-inline" hidden>
+      <div class="desc-document-inline__head">
+        {% if facturas_periodo|length > 1 %}
+        <label class="desc-data-invoices__select">
+          <span>Factura</span>
+          <select id="datos-factura-select" aria-label="Seleccionar factura para visualizar">
+            {% for factura in facturas_periodo %}
+            <option data-pdf-url="{{ url_for('desc.desc_factura_pdf', factura_id=factura.id) }}"
+                    data-filename="{{ factura.nombre_archivo|e }}">
+              {{ factura.proveedor }} · {{ factura.numero_factura }} · {{ factura.nombre_archivo }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        {% else %}
+        {% set factura = facturas_periodo[0] %}
+        <strong id="datos-factura-title">{{ factura.nombre_archivo }}</strong>
+        <select id="datos-factura-select" hidden aria-label="Factura seleccionada">
+          <option selected data-pdf-url="{{ url_for('desc.desc_factura_pdf', factura_id=factura.id) }}"
+                  data-filename="{{ factura.nombre_archivo|e }}">{{ factura.nombre_archivo }}</option>
+        </select>
+        {% endif %}
+        <button class="btn btn--ghost btn--sm" id="datos-cerrar-facturas" type="button">Cerrar</button>
+      </div>
+      <iframe id="datos-factura-frame" title="Vista previa de la factura PDF"></iframe>
+    </div>
+    {% endif %}
     {% if excel_seleccionado and excel_detalles %}
     <div class="desc-excel-notice" id="excel-edit-status">{% if excel_historico %}Vista histórica de solo lectura. Este archivo fue reemplazado por una importación posterior.{% else %}Haz clic en cualquier celda para modificarla. Guarda antes de volver a ejecutar Auditoría.{% endif %}</div>
     <div class="desc-excel-grid-wrap">
@@ -364,41 +401,6 @@
 
   <section class="card card--skip-collapse" id="procesamientos-recientes" data-doc-panel="historial" {{ 'hidden' if active_doc_tab != 'historial' else '' }}>
     <h3 class="panel__title">Historial de documentación</h3>
-    {% if facturas_historial %}
-    <div class="desc-history-section">
-      <h4>Facturas cargadas por período</h4>
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr><th>Tienda</th><th>Período</th><th>Fechas</th><th>Facturas</th><th></th></tr>
-          </thead>
-          <tbody>
-            {% for periodo_factura, cantidad_facturas in facturas_historial %}
-            <tr>
-              <td>{{ tiendas_map.get(periodo_factura.tienda_id, periodo_factura.tienda_id) }}</td>
-              <td>Período #{{ periodo_factura.numero }}</td>
-              <td class="muted">{{ periodo_factura.fecha_desde }} → {{ periodo_factura.fecha_hasta }}</td>
-              <td><span class="badge badge--green">{{ cantidad_facturas }} factura(s)</span></td>
-              <td><div class="desc-history-actions">
-                <details class="desc-history-downloads">
-                  <summary class="btn btn--sm btn--ghost">Descargar</summary>
-                  <div class="desc-history-downloads__menu">
-                    {% for factura_hist in facturas_historial_archivos.get(periodo_factura.id, []) %}
-                    <a href="{{ url_for('desc.desc_factura_descargar', factura_id=factura_hist.id) }}"
-                       title="Descargar {{ factura_hist.nombre_archivo|e }}">
-                      <span aria-hidden="true">↓</span> {{ factura_hist.nombre_archivo }}
-                    </a>
-                    {% endfor %}
-                  </div>
-                </details>
-              </div></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    {% endif %}
     <div class="desc-history-section">
       <h4>Archivos de inventario</h4>
     {% if snapshots %}
@@ -492,13 +494,18 @@
     var periodoSelect = document.getElementById('periodo-select');
     var btnVerDatos = document.getElementById('btn-ver-datos');
     var datosCard = document.getElementById('datos-extraidos-card');
+    var datosVerFacturas = document.getElementById('datos-ver-facturas');
+    var datosFacturasInline = document.getElementById('datos-facturas-inline');
+    var datosFacturaSelect = document.getElementById('datos-factura-select');
+    var datosFacturaFrame = document.getElementById('datos-factura-frame');
+    var datosFacturaTitle = document.getElementById('datos-factura-title');
+    var datosCerrarFacturas = document.getElementById('datos-cerrar-facturas');
     var invoiceFiles = document.getElementById('invoice-files');
     var invoiceFileLabel = document.getElementById('invoice-file-label');
     var invoiceFileList = document.getElementById('invoice-file-list');
     var invoiceUploadForm = document.getElementById('invoice-upload-form');
     var invoiceAnalysisSelect = document.getElementById('invoice-analysis-select');
     var invoiceViewDocument = document.getElementById('invoice-view-document');
-    var invoiceAnalyze = document.getElementById('invoice-analyze');
     var invoiceAnalysisMode = document.getElementById('invoice-analysis-mode');
     var invoiceAnalysisEmpty = document.getElementById('invoice-analysis-empty');
     var invoiceAnalysisResult = document.getElementById('invoice-analysis-result');
@@ -522,6 +529,34 @@
       if (!invoiceAnalysisSelect) return null;
       return invoiceAnalysisSelect.options[invoiceAnalysisSelect.selectedIndex] || null;
     }
+
+    function selectedDataInvoiceOption() {
+      if (!datosFacturaSelect) return null;
+      return datosFacturaSelect.options[datosFacturaSelect.selectedIndex] || null;
+    }
+
+    function showDataInvoice() {
+      var option = selectedDataInvoiceOption();
+      if (!option || !datosFacturasInline || !datosFacturaFrame) return;
+      datosFacturaFrame.src = option.dataset.pdfUrl;
+      if (datosFacturaTitle) datosFacturaTitle.textContent = option.dataset.filename || 'Factura';
+      datosFacturasInline.hidden = false;
+      datosFacturasInline.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    if (datosVerFacturas) datosVerFacturas.addEventListener('click', function() {
+      if (datosFacturasInline && !datosFacturasInline.hidden) {
+        datosFacturasInline.hidden = true;
+        if (datosFacturaFrame) datosFacturaFrame.removeAttribute('src');
+        return;
+      }
+      showDataInvoice();
+    });
+    if (datosFacturaSelect) datosFacturaSelect.addEventListener('change', showDataInvoice);
+    if (datosCerrarFacturas) datosCerrarFacturas.addEventListener('click', function() {
+      datosFacturasInline.hidden = true;
+      datosFacturaFrame.removeAttribute('src');
+    });
 
     function setAnalysisMessage(message, detail, isError) {
       if (!invoiceAnalysisEmpty || !invoiceAnalysisResult) return;
@@ -588,12 +623,38 @@
           } else if (response.data.resultado) {
             drawAnalysisResult(response.data.resultado, 'Análisis guardado');
           } else {
-            setAnalysisMessage('Este documento todavía no fue analizado.', 'Pulsa Analizar para obtener los datos extraídos.', false);
+            runAutomaticAnalysis(option, requestVersion);
           }
         })
         .catch(function() {
           if (requestVersion === analysisRequestVersion) {
             setAnalysisMessage('No se pudo consultar el análisis.', 'Revisa la conexión e inténtalo nuevamente.', true);
+          }
+        });
+    }
+
+    function runAutomaticAnalysis(option, requestVersion) {
+      setAnalysisMessage('Analizando factura…', 'El resultado se guardará automáticamente.', false);
+      fetch(option.dataset.analysisUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+      })
+        .then(function(response) {
+          return response.json().then(function(data) { return { ok: response.ok, data: data }; });
+        })
+        .then(function(response) {
+          if (requestVersion !== analysisRequestVersion) return;
+          updateAnalysisMode(response.data.configuracion);
+          if (!response.ok || response.data.ok === false) {
+            setAnalysisMessage('No se pudo analizar el documento.', response.data.error || '', true);
+            return;
+          }
+          drawAnalysisResult(response.data.resultado, 'Análisis automático completado');
+        })
+        .catch(function() {
+          if (requestVersion === analysisRequestVersion) {
+            setAnalysisMessage('No se pudo analizar el documento.', 'Revisa la conexión e inténtalo nuevamente.', true);
           }
         });
     }
@@ -624,48 +685,6 @@
         invoiceDocumentFrame.removeAttribute('src');
         invoiceViewDocument.innerHTML = '<span aria-hidden="true">📄</span> Ver documento';
       }
-    });
-
-    if (invoiceAnalyze) invoiceAnalyze.addEventListener('click', function() {
-      var option = selectedInvoiceOption();
-      if (!option) return;
-      var originalText = invoiceAnalyze.textContent;
-      var requestVersion = ++analysisRequestVersion;
-      invoiceAnalyze.disabled = true;
-      invoiceAnalyze.setAttribute('aria-busy', 'true');
-      invoiceAnalyze.textContent = 'Analizando…';
-      setAnalysisMessage('Procesando el documento…', 'Espera mientras se extraen los campos de la factura.', false);
-      if (window.NetwardProcessing) {
-        window.NetwardProcessing.show('Analizando factura...', 'Extrayendo y validando los datos del documento...');
-      }
-      fetch(option.dataset.analysisUrl, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Accept': 'application/json' }
-      })
-        .then(function(response) {
-          return response.json().then(function(data) { return { ok: response.ok, data: data }; });
-        })
-        .then(function(response) {
-          if (requestVersion !== analysisRequestVersion) return;
-          updateAnalysisMode(response.data.configuracion);
-          if (!response.ok || response.data.ok === false) {
-            setAnalysisMessage('No se pudo analizar el documento.', response.data.error || '', true);
-            return;
-          }
-          drawAnalysisResult(response.data.resultado, 'Análisis completado');
-        })
-        .catch(function() {
-          if (requestVersion === analysisRequestVersion) {
-            setAnalysisMessage('No se pudo analizar el documento.', 'Revisa la conexión e inténtalo nuevamente.', true);
-          }
-        })
-        .finally(function() {
-          if (window.NetwardProcessing) window.NetwardProcessing.hide();
-          invoiceAnalyze.disabled = false;
-          invoiceAnalyze.removeAttribute('aria-busy');
-          invoiceAnalyze.textContent = originalText;
-        });
     });
 
     document.querySelectorAll('.desc-invoice-row').forEach(function(row) {

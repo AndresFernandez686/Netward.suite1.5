@@ -37,7 +37,8 @@
         {% endif %}
       {% endwith %}
 
-      <form method="post" action="{{ url_for('login') }}" class="form">
+      <form method="post" action="{{ url_for('login') }}" class="form"
+            data-button-loading-only="1" data-loading-text="Ingresando...">
         <label class="field">
           <span class="field__label">Usuario</span>
           <input type="text" name="usuario" list="usuarios-list" placeholder="Ej: admin" required autofocus />

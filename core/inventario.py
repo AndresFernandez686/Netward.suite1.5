@@ -18,12 +18,14 @@ import io
 import json
 import math
 import unicodedata
+import zipfile
 from datetime import date, datetime
 from typing import Optional, Tuple
 
 import openpyxl
 from flask import (Blueprint, abort, flash, redirect, render_template,
                    request, session, url_for, jsonify, send_file as send_pdf_response)
+from werkzeug.utils import secure_filename
 
 desc_bp = Blueprint("desc", __name__)
 
@@ -428,7 +430,6 @@ def admin_desc():
     snapshot_detalles = []
     facturas_periodo = []
     factura_detalles = []
-    facturas_historial = []
     if periodo_seleccionado is not None:
         if excel_id_arg:
             excel_seleccionado = ExcelImportado.query.filter_by(
@@ -479,36 +480,6 @@ def admin_desc():
                 )
                 .all()
             )
-
-    facturas_historial = (
-        db.session.query(InventarioPeriodo, db.func.count(FacturaCompra.id))
-        .join(FacturaCompra, FacturaCompra.periodo_id == InventarioPeriodo.id)
-        .filter(
-            InventarioPeriodo.cliente_id == cliente_id,
-            FacturaCompra.cliente_id == cliente_id,
-        )
-        .group_by(InventarioPeriodo.id)
-        .order_by(InventarioPeriodo.id.desc())
-        .limit(20)
-        .all()
-    )
-    facturas_historial_archivos = {}
-    ids_periodos_factura = [periodo.id for periodo, _cantidad in facturas_historial]
-    if ids_periodos_factura:
-        for factura_hist in (
-            FacturaCompra.query
-            .filter(
-                FacturaCompra.cliente_id == cliente_id,
-                FacturaCompra.periodo_id.in_(ids_periodos_factura),
-            )
-            .order_by(
-                FacturaCompra.periodo_id.desc(),
-                FacturaCompra.orden_carga.asc(),
-                FacturaCompra.id.asc(),
-            )
-            .all()
-        ):
-            facturas_historial_archivos.setdefault(factura_hist.periodo_id, []).append(factura_hist)
 
     # Historial de snapshots para mostrar en la UI
     snapshots = (InventarioDescSnapshot.query
@@ -691,8 +662,6 @@ def admin_desc():
         snapshot_seleccionado=snapshot_seleccionado,
         snapshot_detalles=snapshot_detalles,
         facturas_periodo=facturas_periodo,
-        facturas_historial=facturas_historial,
-        facturas_historial_archivos=facturas_historial_archivos,
         azure_document_status=AzureDocumentConfig.from_env().public_status(),
         factura_detalles=factura_detalles,
         productos_factura=Producto.query.order_by(Producto.categoria, Producto.nombre).all(),
@@ -713,6 +682,31 @@ def admin_desc():
         hoy=date.today().isoformat(),
         primer_dia=date.today().replace(day=1).isoformat(),
     )
+
+
+def _guardar_analisis_automatico(factura):
+    """Analiza una factura y deja el resultado listo para el commit actual."""
+    from core.azure_document import (
+        AzureDocumentConfig, AzureDocumentError, analyze_pdf, local_ocr_result,
+    )
+    from core.models import utc_now
+
+    config = AzureDocumentConfig.from_env()
+    if config.configured:
+        resultado = analyze_pdf(factura.archivo_pdf, config)
+    elif not config.enabled:
+        resultado = local_ocr_result(factura)
+    else:
+        raise AzureDocumentError(
+            "Azure AI está activado, pero faltan el endpoint o la clave de Document Intelligence."
+        )
+    precision = (resultado.get("precision") or {}).get("porcentaje")
+    factura.analisis_json = json.dumps(resultado, ensure_ascii=False)
+    factura.analisis_motor = str(resultado.get("motor") or "")[:40]
+    factura.analisis_precision = float(precision) if precision is not None else None
+    factura.analisis_estado = str(resultado.get("estado") or "completado")[:30]
+    factura.analisis_fecha = utc_now()
+    return resultado, config
 
 
 @desc_bp.route("/admin/documentacion/facturas/importar", methods=["POST"])
@@ -778,6 +772,15 @@ def desc_facturas_importar():
             )
             importadas += int(factura is not None)
             avisos.extend(advertencias)
+            if factura is not None:
+                db.session.flush()
+                try:
+                    _guardar_analisis_automatico(factura)
+                except Exception as exc:
+                    factura.analisis_estado = "error"
+                    avisos.append(
+                        f"{nombre}: la factura fue cargada, pero el análisis automático no pudo completarse."
+                    )
         db.session.commit()
     except FacturaError as exc:
         db.session.rollback()
@@ -922,16 +925,59 @@ def desc_factura_descargar(factura_id):
     return response
 
 
+@desc_bp.route("/admin/documentacion/periodos/<int:periodo_id>/facturas/descargar")
+def desc_facturas_periodo_descargar(periodo_id):
+    """Descarga la factura del período o un ZIP cuando contiene varias."""
+    _requiere_admin()
+    from core.models import FacturaCompra, InventarioPeriodo
+
+    cliente_id = session.get("cliente_id", "C001")
+    periodo = InventarioPeriodo.query.filter_by(
+        id=periodo_id, cliente_id=cliente_id,
+    ).first()
+    if periodo is None:
+        abort(404)
+    facturas = (
+        FacturaCompra.query
+        .filter_by(periodo_id=periodo.id, cliente_id=cliente_id)
+        .order_by(FacturaCompra.orden_carga.asc(), FacturaCompra.id.asc())
+        .all()
+    )
+    if not facturas:
+        abort(404)
+    if len(facturas) == 1:
+        factura = facturas[0]
+        response = send_pdf_response(
+            io.BytesIO(factura.archivo_pdf),
+            mimetype="application/pdf",
+            download_name=factura.nombre_archivo,
+            as_attachment=True,
+        )
+    else:
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archivo_zip:
+            for posicion, factura in enumerate(facturas, start=1):
+                nombre = secure_filename(factura.nombre_archivo) or f"factura-{factura.id}.pdf"
+                archivo_zip.writestr(f"{posicion:02d}-{nombre}", factura.archivo_pdf)
+        stream.seek(0)
+        response = send_pdf_response(
+            stream,
+            mimetype="application/zip",
+            download_name=f"facturas-periodo-{periodo.numero}.zip",
+            as_attachment=True,
+        )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @desc_bp.route(
     "/admin/documentacion/facturas/<int:factura_id>/analisis",
     methods=["GET", "POST"],
 )
 def desc_factura_analisis(factura_id):
     _requiere_admin()
-    from core.azure_document import (
-        AzureDocumentConfig, AzureDocumentError, analyze_pdf, local_ocr_result,
-    )
-    from core.models import FacturaCompra, db, utc_now
+    from core.azure_document import AzureDocumentConfig, AzureDocumentError
+    from core.models import FacturaCompra, db
 
     factura = FacturaCompra.query.filter_by(
         id=factura_id, cliente_id=session.get("cliente_id", "C001")
@@ -967,20 +1013,8 @@ def desc_factura_analisis(factura_id):
         )
 
     try:
-        if config.configured:
-            resultado = analyze_pdf(factura.archivo_pdf, config)
-        elif not config.enabled:
-            resultado = local_ocr_result(factura)
-        else:
-            raise AzureDocumentError(
-                "Azure AI está activado, pero faltan el endpoint o la clave de Document Intelligence."
-            )
-        precision = (resultado.get("precision") or {}).get("porcentaje")
-        factura.analisis_json = json.dumps(resultado, ensure_ascii=False)
-        factura.analisis_motor = str(resultado.get("motor") or "")[:40]
-        factura.analisis_precision = float(precision) if precision is not None else None
-        factura.analisis_estado = str(resultado.get("estado") or "completado")[:30]
-        factura.analisis_fecha = utc_now()
+        resultado, config = _guardar_analisis_automatico(factura)
+        public_status = config.public_status()
         db.session.commit()
         return jsonify(
             ok=True,

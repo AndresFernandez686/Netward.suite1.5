@@ -13,7 +13,7 @@
 
 <section class="card card--skip-collapse">
   <h3 class="panel__title">Filtros</h3>
-  <form method="get" action="{{ url_for('admin_vencimientos') }}#vencimientos-filtros" class="filters" data-loading-text="Filtrando...">
+  <form method="get" action="{{ url_for('admin_vencimientos') }}#vencimientos-filtros" class="filters" data-loading-text="Filtrando..." data-button-loading-only="1">
     <label class="field">
       <span class="field__label">Tienda</span>
       <select name="tienda">

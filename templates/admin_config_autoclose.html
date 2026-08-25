@@ -2,58 +2,92 @@
 {% block title %}Configurar auto-cierre — {{ app_nombre }}{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <h1 class="page-title">Cierre automático de períodos</h1>
-  <p class="page-sub">
-    El sistema cierra automáticamente cualquier período cuya fecha de fin ya pasó
-    hace más del tiempo configurado abajo.
-    El job de revisión corre cada 30 minutos.
-  </p>
-</div>
-
-<a href="{{ url_for('admin_periodos') }}" class="btn btn-sm btn-secondary btn--back mb-3">← Volver a períodos</a>
-
-<div class="card" style="max-width:480px">
-  <div class="card__header"><h2 class="card__title">Configuración actual</h2></div>
-  <div class="card__body">
+<section class="autoclose-page">
+  <header class="autoclose-header">
+    <span class="autoclose-header__eyebrow">Automatización</span>
+    <h1>Cierre automático de períodos</h1>
     <p>
-      Valor actual:
-      <strong>{{ horas_actual | int if horas_actual == horas_actual | int else horas_actual }} hora(s)</strong>
-      tras la fecha fin del período.
+      Define cuánto tiempo debe pasar desde la fecha de fin para cerrar un período.
+      El sistema revisa los períodos cada 30 minutos.
     </p>
+  </header>
 
-    <form method="post" action="{{ url_for('admin_config_autoclose') }}" class="mt-3">
-      <div class="form-group">
-        <label class="form-label">Horas tras fecha de fin para cerrar automáticamente</label>
-        <input
-          type="number"
-          name="horas"
-          class="form-control"
-          min="1"
-          max="720"
-          step="1"
-          value="{{ horas_actual | int }}"
-          required
-          style="max-width:160px"
-        >
-        <small class="text-muted">
-          Mínimo 1 h · Máximo 720 h (30 días) · Default: 24 h
-        </small>
+  <div class="autoclose-panel">
+    <div class="autoclose-current">
+      <span class="autoclose-current__icon" aria-hidden="true">◷</span>
+      <div>
+        <small>Configuración actual</small>
+        <strong>{{ horas_actual | int if horas_actual == horas_actual | int else horas_actual }} hora(s)</strong>
+        <span>después de la fecha de fin</span>
       </div>
+    </div>
 
-      <div class="mt-3">
-        <button type="submit" class="btn btn-primary">Guardar configuración</button>
-      </div>
+    <form method="post" action="{{ url_for('admin_config_autoclose') }}"
+          class="autoclose-form" data-inline-validation novalidate>
+      <label class="field" data-validation-field>
+        <span class="field__label">Horas de espera</span>
+        <div class="autoclose-input-wrap">
+          <input type="number" id="autoclose-hours" name="horas" min="1" max="720" step="1"
+                 value="{{ horas_actual | int }}" required
+                 data-required-message="Ingresa la cantidad de horas." />
+          <span>horas</span>
+        </div>
+        <small class="autoclose-help">Entre 1 hora y 720 horas (30 días).</small>
+      </label>
+
+      <button type="submit" class="btn btn--primary autoclose-save">Guardar configuración</button>
     </form>
 
-    <hr class="mt-4">
-    <h3 class="card__title mt-3">Ejemplos habituales</h3>
-    <table class="table" style="font-size:.85em;max-width:340px">
-      <tr><td>Cierre el mismo día de fin</td><td><strong>0 h</strong> — no recomendado</td></tr>
-      <tr><td>Cierre al día siguiente</td><td><strong>24 h</strong></td></tr>
-      <tr><td>Cierre a los 2 días</td><td><strong>48 h</strong></td></tr>
-      <tr><td>Cierre a la semana</td><td><strong>168 h</strong></td></tr>
-    </table>
+    <div class="autoclose-divider"></div>
+
+    <div class="autoclose-presets">
+      <div class="autoclose-presets__head">
+        <strong>Opciones rápidas</strong>
+        <span>Selecciona una para completar las horas</span>
+      </div>
+      <div class="autoclose-options" role="group" aria-label="Opciones habituales de auto-cierre">
+        <button type="button" class="autoclose-option" data-hours="1">
+          <strong>1 h</strong><span>Lo antes posible</span>
+        </button>
+        <button type="button" class="autoclose-option" data-hours="24">
+          <strong>24 h</strong><span>Al día siguiente</span>
+        </button>
+        <button type="button" class="autoclose-option" data-hours="48">
+          <strong>48 h</strong><span>A los 2 días</span>
+        </button>
+        <button type="button" class="autoclose-option" data-hours="168">
+          <strong>168 h</strong><span>A la semana</span>
+        </button>
+      </div>
+    </div>
   </div>
-</div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    var input = document.getElementById('autoclose-hours');
+    var options = document.querySelectorAll('.autoclose-option');
+
+    function refreshSelected() {
+      options.forEach(function (option) {
+        var selected = input && String(input.value) === option.dataset.hours;
+        option.classList.toggle('is-selected', selected);
+        option.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+    }
+
+    options.forEach(function (option) {
+      option.addEventListener('click', function () {
+        input.value = option.dataset.hours;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        refreshSelected();
+        input.focus();
+      });
+    });
+    if (input) input.addEventListener('input', refreshSelected);
+    refreshSelected();
+  })();
+</script>
 {% endblock %}

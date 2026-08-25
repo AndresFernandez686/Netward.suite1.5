@@ -106,7 +106,12 @@
           {% for p in productos_por_cat[cat] %}
           {% set pr = precios_map.get(p.nombre) %}
           <tr class="catalog-product-row" data-product-name="{{ p.nombre }}">
-            <td><strong>{{ p.nombre }}</strong>
+            <td>
+              <div class="catalog-product-name">
+                <input type="text" name="nombre" value="{{ p.nombre }}" maxlength="160" required
+                       aria-label="Nombre de {{ p.nombre }}" form="catalog-edit-{{ p.id }}" />
+                <button type="submit" class="btn btn--ghost btn--sm" form="catalog-edit-{{ p.id }}">Editar nombre</button>
+              </div>
               <input type="hidden" name="ids" value="{{ p.id }}" />
             </td>
             <td>
@@ -149,6 +154,10 @@
     </div>
   </form>
   {% for p in productos_por_cat[cat] %}
+  <form id="catalog-edit-{{ p.id }}" method="post" action="{{ url_for('producto_editar', producto_id=p.id) }}"
+        data-loading-text="Guardando nombre...">
+    <input type="hidden" name="active_tab" value="{{ active_tab }}" class="js-admin-precios-tab" />
+  </form>
   <form id="catalog-delete-{{ p.id }}" method="post" action="{{ url_for('producto_eliminar', producto_id=p.id) }}"
         data-confirm-message="¿Eliminar {{ p.nombre }}? Esta acción no se puede deshacer.">
     <input type="hidden" name="active_tab" value="{{ active_tab }}" class="js-admin-precios-tab" />
@@ -218,7 +227,7 @@
         var visibleCount = 0;
 
         rows.forEach(function (row) {
-          var text = norm(row.textContent);
+          var text = norm((row.dataset.productName || '') + ' ' + row.textContent);
           var match = !query || text.indexOf(query) !== -1;
           row.hidden = !match;
           if (match) visibleCount += 1;
