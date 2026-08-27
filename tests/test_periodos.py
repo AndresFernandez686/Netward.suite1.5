@@ -200,6 +200,19 @@ class PruebasPeriodos(unittest.TestCase):
         self.assertEqual(total_conteo_con_ajustes(periodo.id, PRODUCTO), 5)
         self.assertEqual(_inventario_agregado(TIENDA, CLIENTE)[("Pruebas", PRODUCTO)]["cantidad"], 5)
 
+    def test_ajuste_por_merma_ya_registrada_no_impacta_aunque_llegue_marcado(self):
+        periodo = self.crear_periodo(1, "2026-08-01", "2026-08-08", estado="Cargado")
+        self.agregar_conteo(periodo, 5)
+        db.session.add(AjusteInventario(
+            periodo_id=periodo.id, cliente_id=CLIENTE,
+            producto_nombre=PRODUCTO, usuario_admin="admin",
+            cantidad_ajustada=-2, motivo="Merma o averiado ya registrado",
+            impacta_stock=True,
+        ))
+        db.session.flush()
+
+        self.assertEqual(total_conteo_con_ajustes(periodo.id, PRODUCTO), 5)
+
     def test_crear_periodo_con_historial_importa_ultima_carga(self):
         db.session.add_all([
             HistorialMovimiento(

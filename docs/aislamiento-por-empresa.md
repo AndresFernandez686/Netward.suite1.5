@@ -9,8 +9,7 @@ Cada instancia necesita recursos independientes:
 
 - proceso o servicio web;
 - `SECRET_KEY`;
-- base de datos indicada por `DATABASE_URL`, `DATABASE_URL_EMPLEADO` y
-  `DATABASE_URL_ADMIN`;
+- base de datos unica indicada por `DATABASE_URL`;
 - copias de seguridad y registros de aplicación;
 - recurso, endpoint y clave de Azure Document Intelligence;
 - dominio o subdominio, si la aplicación se publica en Internet.
@@ -25,8 +24,6 @@ TENANT_ISOLATION_MODE=true
 ISOLATED_TENANT_ID=C001
 
 DATABASE_URL=postgresql+psycopg2://usuario_privado:clave@host/base_empresa
-DATABASE_URL_EMPLEADO=postgresql+psycopg2://usuario_privado:clave@host/base_empresa
-DATABASE_URL_ADMIN=postgresql+psycopg2://usuario_privado:clave@host/base_empresa
 
 AI_ENABLED=true
 AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://recurso-exclusivo.cognitiveservices.azure.com/

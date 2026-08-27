@@ -127,7 +127,7 @@
         <summary aria-label="Ayuda sobre el conteo manual" title="Ver ayuda">?</summary>
         <div class="periodo-det-help__popover">
           <strong>¿Cómo funciona?</strong>
-          <p>Busca un producto, confirma su categoría e ingresa el conteo físico. Usa enteros para Impulsivo/Extras y decimales para Por Kilos.</p>
+          <p>Busca un producto, confirma su categoría e ingresa el conteo físico. Usa enteros para Impulsivo/Fanee y decimales para Por Kilos.</p>
         </div>
       </details>
     </div>
@@ -181,11 +181,13 @@
       </label>
       <label class="field field--grow">
         <span class="field__label">Motivo</span>
-        <select name="motivo">
+        <select name="motivo" id="ajusteMotivo">
           <option>Producto encontrado luego del conteo</option>
           <option>Caja no contada inicialmente</option>
           <option>Corrección de carga</option>
           <option>Producto mal ubicado</option>
+          <option>Merma o averiado ya registrado</option>
+          <option>Producto vencido ya registrado</option>
           <option>Otro</option>
         </select>
       </label>
@@ -194,8 +196,9 @@
         <input type="text" name="observacion" maxlength="200" placeholder="Escribe una observación...">
       </label>
       <label class="periodo-det-check">
-        <input type="checkbox" name="impacta_stock" value="1" checked>
-        Impacta stock (desmarcar si ya está explicado por merma o vencido)
+        <input type="checkbox" name="impacta_stock" id="ajusteImpactaStock" value="1" checked>
+        <span>Impacta stock</span>
+        <small id="ajusteImpactaAyuda">Desmarca únicamente si el ajuste es solo trazabilidad.</small>
       </label>
       <div class="periodo-det-inline-form__action">
         <button type="submit" class="btn btn--primary">Agregar ajuste</button>
@@ -394,6 +397,27 @@
 
     configurarCantidad('manualCategoria', 'manualCantidad');
     configurarCantidad('ajusteCategoria', 'ajusteCantidad');
+
+    var ajusteMotivo = document.getElementById('ajusteMotivo');
+    var ajusteImpacta = document.getElementById('ajusteImpactaStock');
+    var ajusteImpactaAyuda = document.getElementById('ajusteImpactaAyuda');
+    var motivosBajaRegistrada = [
+      'Merma o averiado ya registrado',
+      'Producto vencido ya registrado'
+    ];
+    function configurarImpactoAjuste() {
+      if (!ajusteMotivo || !ajusteImpacta) return;
+      var esBajaRegistrada = motivosBajaRegistrada.indexOf(ajusteMotivo.value) !== -1;
+      ajusteImpacta.disabled = esBajaRegistrada;
+      if (esBajaRegistrada) ajusteImpacta.checked = false;
+      if (ajusteImpactaAyuda) {
+        ajusteImpactaAyuda.textContent = esBajaRegistrada
+          ? 'Sin impacto automático: esta baja ya fue descontada de la venta teórica.'
+          : 'Desmarca únicamente si el ajuste es solo trazabilidad.';
+      }
+    }
+    if (ajusteMotivo) ajusteMotivo.addEventListener('change', configurarImpactoAjuste);
+    configurarImpactoAjuste();
 
     document.addEventListener('click', function (event) {
       document.querySelectorAll('.periodo-det-help[open]').forEach(function (help) {

@@ -17,19 +17,28 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 import sqlite3
 import sys
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.database_maintenance import _rows_digest
+from migracion.migrate_sqlite_to_postgres import BOOL_COLS
+
 TABLAS = [
-    "clientes", "tiendas", "usuarios", "productos",
+    "clientes", "tiendas", "usuarios", "notificaciones_usuario", "productos",
     "stock_thresholds", "producto_precios", "delivery_productos",
     "inventario_items", "historial", "inventario_snapshots",
     "inventario_desc_snapshots", "delivery_ventas",
     "registros_averiados", "registros_vencimiento", "sincronizacion_log",
-    "inventario_periodos", "conteo_detalle", "ajustes_inventario",
+    "inventario_periodos", "inventario_borradores", "conteo_detalle", "ajustes_inventario",
     "excel_importados", "excel_detalles", "excel_detalle_ediciones",
     "facturas_compra", "facturas_compra_detalles", "auditoria_resultados",
     "asistente_ia_consultas", "justificaciones", "productos_relacionados",
+    "configuracion_sistema",
 ]
 
 SERIAL_TABLES = [
@@ -67,6 +76,8 @@ COLUMNAS_CRITICAS = {
         "factura_id", "cantidad_facturada", "factor_conversion", "compras_calculadas",
         "producto_id", "estado_vinculacion", "confianza",
     },
+    "inventario_desc_snapshots": {"stock_final_json"},
+    "inventario_borradores": {"contenido_json"},
 }
 
 CLAVES_CRITICAS = (
@@ -138,11 +149,27 @@ def verificar(sqlite_path: str, pg_url: str) -> bool:
             fila_count_pg = cur_p.fetchone()
             count_pg = fila_count_pg[0] if fila_count_pg else 0
 
-            ok = count_pg >= count_sqlite
-            estado = "✓ OK" if ok else f"✗ FALTAN {count_sqlite - count_pg}"
+            ok = count_pg == count_sqlite
+            estado = "✓ OK" if ok else f"✗ DIFERENCIA {count_pg - count_sqlite:+d}"
             if not ok:
                 errores += 1
             print(f"  {tabla:<33} {count_sqlite:>8} {count_pg:>10}  {estado}")
+            if ok:
+                cur_s.execute(f'SELECT * FROM "{tabla}"')
+                columns = [item[0] for item in cur_s.description]
+                bool_columns = BOOL_COLS.get(tabla, set())
+                sqlite_rows = [
+                    tuple(
+                        bool(value) if column in bool_columns and value is not None else value
+                        for column, value in zip(columns, row)
+                    )
+                    for row in cur_s.fetchall()
+                ]
+                selected = ", ".join(f'"{column}"' for column in columns)
+                cur_p.execute(f'SELECT {selected} FROM "{tabla}"')
+                if _rows_digest(sqlite_rows) != _rows_digest(cur_p.fetchall()):
+                    print(f"  {tabla:<33} {'':>8} {'':>10}  HASH DISTINTO")
+                    errores += 1
         except Exception as e:
             print(f"  {tabla:<33} {count_sqlite:>8} {'ERROR':>10}  ✗ {e}")
             errores += 1
@@ -189,8 +216,11 @@ def verificar(sqlite_path: str, pg_url: str) -> bool:
     for tabla in SERIAL_TABLES:
         try:
             cur_p.execute(
-                f"SELECT last_value FROM pg_sequences WHERE sequencename = "
-                f"(SELECT pg_get_serial_sequence('{tabla}', 'id'))"
+                "SELECT last_value FROM pg_sequences "
+                "WHERE schemaname=current_schema() "
+                "AND format('%I.%I', schemaname, sequencename)="
+                "pg_get_serial_sequence(%s, 'id')",
+                (tabla,),
             )
             row = cur_p.fetchone()
             seq_val = row[0] if row else "—"

@@ -33,7 +33,7 @@
         <select id="nuevo-producto-categoria" name="categoria" required>
           <option value="Impulsivo">Impulsivo</option>
           <option value="Por Kilos">Por Kilos</option>
-          <option value="Extras">Extras</option>
+          <option value="Fanee">Fanee</option>
         </select>
       </label>
       <div class="inv-form__action">
@@ -47,7 +47,7 @@
       Impulsivo <span class="badge badge--neutral">{{ productos_impulsivo|length }}</span>
     </button>
     <button type="button" class="tab" data-tab="tab-extras">
-      Extras <span class="badge badge--neutral">{{ productos_extras|length }}</span>
+      Fanee <span class="badge badge--neutral">{{ productos_extras|length }}</span>
     </button>
     <button type="button" class="tab" data-tab="tab-kilos">
       Por Kilos <span class="badge badge--neutral">{{ productos_kilos|length }}</span>
@@ -214,7 +214,7 @@
       categoriaSelect.addEventListener('change', function () {
         var map = {
           'Impulsivo': 'tab-impulsivo',
-          'Extras': 'tab-extras',
+          'Fanee': 'tab-extras',
           'Por Kilos': 'tab-kilos'
         };
         activeTab = map[categoriaSelect.value] || activeTab;

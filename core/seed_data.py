@@ -35,7 +35,7 @@ PRODUCTOS_BASE = {
         "Marroc Grido", "Mascarpone con Frutos del Bosque", "Menta Granizada",
         "Naranja Helado al Agua", "Pistacho", "Super Gridito", "Tiramisu", "Tramontana", "Candy",
     ],
-    "Extras": [
+    "Fanee": [
         "Cinta Grido", "Cobertura Chocolate", "Bolsa 40x50", "Cobertura Frutilla",
         "Cobertura Dulce de Leche", "Leche", "Cuchara Sunday", "Cucharita Grido",
         "Cucurucho Biscoito Dulce x300", "Cucurucho Cascao x120", "Cucurucho Nacional x54",
@@ -46,7 +46,9 @@ PRODUCTOS_BASE = {
     ],
 }
 
-CATEGORIAS = ["Impulsivo", "Por Kilos", "Extras"]
+CATEGORIA_FANEE = "Fanee"
+CATEGORIAS_FANEE_COMPATIBLES = {CATEGORIA_FANEE, "Extras"}
+CATEGORIAS = ["Impulsivo", "Por Kilos", CATEGORIA_FANEE]
 TIPOS_INVENTARIO = ["Diario", "Semanal"]
 OPCIONES_UME = ["Unidad", "Caja", "Tira"]
 ESTADOS_BALDE = ["Lleno", "Medio lleno", "Vacio"]

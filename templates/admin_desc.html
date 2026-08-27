@@ -105,7 +105,7 @@
     <div class="panel__head desc-invoice-head">
       <div>
         <h3 class="panel__title">Facturas de compras</h3>
-        <p class="muted">Carga una o varias facturas PDF. Helacor se valida contra Impulsivo/Por Kilos y Fane contra Extras.</p>
+        <p class="muted">Carga una o varias facturas PDF. Puedes buscar y vincular productos de Impulsivo, Por Kilos y Fanee.</p>
       </div>
       {% if facturas_periodo %}<span class="badge badge--green">{{ facturas_periodo|length }} factura(s)</span>{% endif %}
     </div>
@@ -199,6 +199,9 @@
       Los campos marcados en rojo son obligatorios. Completa y guarda cada línea antes de aplicar las compras.
     </div>
     {% endif %}
+    <form id="invoice-lines-form" method="post" action="{{ url_for('desc.desc_facturas_detalles_guardar') }}"
+          data-loading-title="Guardando facturas..." data-loading-subtitle="Persistiendo todas las líneas editadas...">
+      <input type="hidden" name="periodo_id" value="{{ periodo_seleccionado.id }}">
     <div class="table-wrap desc-invoice-table-wrap">
       <table class="table desc-invoice-table">
         <caption class="sr-only">Líneas extraídas de las facturas de compra</caption>
@@ -206,19 +209,19 @@
           <col class="desc-invoice-col-document"><col class="desc-invoice-col-source">
           <col class="desc-invoice-col-product"><col class="desc-invoice-col-number">
           <col class="desc-invoice-col-number"><col class="desc-invoice-col-total">
-          <col class="desc-invoice-col-status"><col class="desc-invoice-col-action">
+          <col class="desc-invoice-col-status">
         </colgroup>
         <thead><tr>
           <th>Comprobante</th><th>Producto facturado</th><th>Producto Netward</th>
           <th class="desc-invoice-number-head">Bultos</th><th class="desc-invoice-number-head">UME</th>
-          <th class="desc-invoice-number-head">Compra</th><th>Validación</th><th>Acción</th>
+          <th class="desc-invoice-number-head">Compra</th><th>Validación</th>
         </tr></thead>
         <tbody>
           {% for d in factura_detalles %}
-          {% set permitidas = ['Impulsivo', 'Por Kilos'] if d.factura.proveedor == 'Helacor' else ['Extras'] %}
           {% set nueva_factura = loop.first or loop.previtem.factura_id != d.factura_id %}
           <tr class="desc-invoice-row {{ 'is-new-invoice' if nueva_factura }} {{ 'needs-review' if d.estado_vinculacion not in ('vinculado', 'aplicado') else 'is-valid' }}">
             <td class="desc-invoice-document">
+              <input type="hidden" name="detalle_ids" value="{{ d.id }}">
               {% if nueva_factura %}
               <a href="{{ url_for('desc.desc_factura_pdf', factura_id=d.factura_id) }}" target="_blank" rel="noopener">{{ d.factura.numero_factura }}</a>
               <span class="desc-invoice-supplier">{{ d.factura.proveedor }}</span>
@@ -231,8 +234,8 @@
             <td class="desc-invoice-product">
               <div class="combo desc-invoice-product-combo {{ 'has-value' if d.producto_id else '' }}"
                    data-combo data-min-chars="2" data-max-results="8">
-                <input type="hidden" class="combo__value" name="producto_id"
-                       form="invoice-line-{{ d.id }}" value="{{ d.producto_id or '' }}" required
+                <input type="hidden" class="combo__value" name="producto_id_{{ d.id }}"
+                       value="{{ d.producto_id or '' }}"
                        data-required-message="Busca y selecciona un producto de la lista." />
                 <div class="combo__control">
                   <svg class="combo__icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -244,7 +247,7 @@
                   <button type="button" class="combo__clear" aria-label="Limpiar selección" {{ 'hidden' if not d.producto_id else '' }}>&times;</button>
                 </div>
                 <ul class="combo__list" role="listbox" hidden>
-                {% for producto in productos_factura if producto.categoria in permitidas %}
+                {% for producto in productos_factura %}
                   <li class="combo__option" role="option"
                       data-value="{{ producto.id }}"
                       data-display="{{ producto.nombre|e }}"
@@ -257,8 +260,8 @@
                    data-no-results="No encontramos coincidencias. Prueba otro nombre o agrégalo desde Catálogo." hidden></p>
               </div>
             </td>
-            <td class="desc-invoice-number"><input name="cantidad_facturada" form="invoice-line-{{ d.id }}" type="number" min="0" step="any" required value="{{ d.cantidad_facturada }}" aria-label="Cantidad facturada en bultos"></td>
-            <td class="desc-invoice-number"><input name="factor_conversion" form="invoice-line-{{ d.id }}" type="number" min="0.000001" step="any" required value="{{ d.factor_conversion }}" aria-label="Factor de conversión UME"></td>
+            <td class="desc-invoice-number"><input name="cantidad_facturada_{{ d.id }}" type="number" min="0" step="any" required value="{{ d.cantidad_facturada }}" aria-label="Cantidad facturada en bultos"></td>
+            <td class="desc-invoice-number"><input name="factor_conversion_{{ d.id }}" type="number" min="0.000001" step="any" required value="{{ d.factor_conversion }}" aria-label="Factor de conversión UME"></td>
             <td class="desc-invoice-total"><strong>{{ '%.2f'|format(d.compras_calculadas) }}</strong><small>unidades</small></td>
             <td class="desc-invoice-status">
               <span class="badge {{ 'badge--green' if d.estado_vinculacion in ('vinculado', 'aplicado') else 'badge--amber' }}">
@@ -266,17 +269,16 @@
               </span>
               <small class="desc-invoice-note" title="{{ d.observacion }}">{{ d.observacion }}</small>
             </td>
-            <td class="desc-invoice-action"><button class="btn btn--ghost btn--sm" form="invoice-line-{{ d.id }}" type="submit" {{ 'disabled' if d.estado_vinculacion == 'fuera_rango' else '' }}>Guardar</button></td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    {% for d in factura_detalles %}
-    <form id="invoice-line-{{ d.id }}" method="post" action="{{ url_for('desc.desc_factura_detalle_actualizar', detalle_id=d.id) }}"
-          data-inline-validation novalidate
-          data-loading-title="Guardando factura..." data-loading-subtitle="Actualizando producto y conversión..."></form>
-    {% endfor %}
+    <div class="desc-invoice-save-all">
+      <span>Guarda en una sola operación los productos y cantidades editados.</span>
+      <button class="btn btn--primary" type="submit">Guardar todos en PDF</button>
+    </div>
+    </form>
     <form method="post" action="{{ url_for('desc.desc_facturas_aplicar') }}" class="desc-invoice-apply" data-confirm-message="¿Reemplazar la columna Compras del inventario oficial con las compras confirmadas de estas facturas?"
           data-confirm-loading-text="Aplicando compras..." data-loading-subtitle="Actualizando el inventario oficial...">
       <input type="hidden" name="periodo_id" value="{{ periodo_seleccionado.id }}">
@@ -367,9 +369,9 @@
             <td><input data-field="otrosingresos" type="number" step="any" value="{{ d.otrosingresos or 0 }}"></td>
             <td><input data-field="otrassalidas" type="number" step="any" value="{{ d.otrassalidas or 0 }}"></td>
             <td><input data-field="stockfinal" type="number" step="any" value="{{ d.stockfinal or 0 }}"></td>
-            <td><input data-field="ventateorica" type="number" step="any" value="{{ d.ventateorica or 0 }}"></td>
+            <td><input data-field="ventateorica" type="number" step="any" value="{{ d.ventateorica or 0 }}" readonly title="Se recalcula automáticamente"></td>
             <td><input data-field="ventareal" type="number" step="any" value="{{ d.ventareal or 0 }}"></td>
-            <td><input data-field="diferencia" type="number" step="any" value="{{ d.diferencia or 0 }}"></td>
+            <td><input data-field="diferencia" type="number" step="any" value="{{ d.diferencia or 0 }}" readonly title="Venta teórica menos venta real"></td>
             <td class="desc-excel-check"><input data-field="excluido_auditoria" type="checkbox" {{ 'checked' if d.excluido_auditoria else '' }}></td>
             <td><input data-field="motivo_exclusion" value="{{ (d.motivo_exclusion or '')|e }}" maxlength="120"></td>
           </tr>
@@ -846,13 +848,39 @@
       if (save) save.disabled = rows === 0;
       if (discard) discard.disabled = rows === 0;
     }
+    function numeroFila(row, field) {
+      var input = row.querySelector('input[data-field="' + field + '"]');
+      var value = input ? Number(input.value) : 0;
+      return Number.isFinite(value) ? value : 0;
+    }
+    function actualizarDerivado(row, field, value) {
+      var input = row.querySelector('input[data-field="' + field + '"]');
+      if (!input) return;
+      var rounded = Math.round((value + Number.EPSILON) * 1000) / 1000;
+      input.value = String(rounded);
+      input.classList.toggle('is-edited', input.value !== input.dataset.original);
+    }
+    function recalcularFila(row) {
+      var ventaTeorica = numeroFila(row, 'stockinicial')
+        + numeroFila(row, 'compras')
+        + numeroFila(row, 'otrosingresos')
+        - numeroFila(row, 'stockfinal')
+        - numeroFila(row, 'otrassalidas');
+      actualizarDerivado(row, 'ventateorica', ventaTeorica);
+      actualizarDerivado(row, 'diferencia', ventaTeorica - numeroFila(row, 'ventareal'));
+      row.classList.toggle('has-edits', row.querySelector('.is-edited') !== null);
+    }
     if (grid) {
       grid.querySelectorAll('tbody input[data-field]').forEach(function(input) {
         input.dataset.original = input.type === 'checkbox' ? String(input.checked) : input.value;
         input.addEventListener('input', function() {
           var current = input.type === 'checkbox' ? String(input.checked) : input.value;
           input.classList.toggle('is-edited', current !== input.dataset.original);
-          input.closest('tr').classList.toggle('has-edits', input.closest('tr').querySelector('.is-edited') !== null);
+          var row = input.closest('tr');
+          if (['stockinicial', 'compras', 'otrosingresos', 'stockfinal', 'otrassalidas', 'ventareal'].indexOf(input.dataset.field) !== -1) {
+            recalcularFila(row);
+          }
+          row.classList.toggle('has-edits', row.querySelector('.is-edited') !== null);
           refreshEditedState();
         });
         input.addEventListener('change', function() { input.dispatchEvent(new Event('input')); });
@@ -883,6 +911,14 @@
       fetch(datosCard.dataset.saveUrl, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({filas: filas})})
         .then(function(response) { return response.json().then(function(data) { if (!response.ok) throw new Error(data.error || 'No se pudieron guardar los cambios.'); return data; }); })
         .then(function(data) {
+          (data.resultados || []).forEach(function(resultado) {
+            var row = grid.querySelector('tr[data-row-id="' + resultado.id + '"]');
+            if (!row) return;
+            ['ventateorica', 'diferencia'].forEach(function(field) {
+              var input = row.querySelector('input[data-field="' + field + '"]');
+              if (input && resultado[field] !== undefined) input.value = String(resultado[field]);
+            });
+          });
           grid.querySelectorAll('input.is-edited').forEach(function(input) { input.dataset.original = input.type === 'checkbox' ? String(input.checked) : input.value; input.classList.remove('is-edited'); });
           grid.querySelectorAll('tr.has-edits').forEach(function(row) { row.classList.remove('has-edits'); });
           editStatus.textContent = data.message; editStatus.classList.add('is-success');

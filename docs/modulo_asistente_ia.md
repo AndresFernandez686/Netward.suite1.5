@@ -85,7 +85,7 @@ Para un producto puede recibir:
 
 - período, tienda y producto;
 - stock inicial, compras, ingresos, ventas, delivery y salidas;
-- mermas, vencimientos, stock esperado y conteo final;
+- mermas, vencimientos, stock final físico y venta teórica;
 - diferencia, precio interno, impacto y fuente del precio;
 - causa, confianza, severidad, continuidad y diferencia anterior;
 - usuario del conteo y justificaciones recientes.
@@ -96,7 +96,8 @@ se envían claves, contraseñas ni acceso directo a la base de datos.
 ## Reglas de explicación
 
 - Una fila **Sin datos** no se presenta como diferencia real confirmada.
-- Un stock esperado negativo se señala como posible incoherencia de movimientos.
+- La diferencia se explica siempre como venta teórica menos venta real.
+- Una diferencia positiva es faltante y una negativa es sobrante.
 - El impacto económico se explica usando exclusivamente el precio interno del
   sistema.
 - Un producto **Sin costo** se presenta con impacto no calculable, no como pérdida

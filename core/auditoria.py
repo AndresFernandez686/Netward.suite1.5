@@ -18,6 +18,7 @@ from .models import (
     ProductoRelacionado,
 )
 from .excel_importer import empaques_compatibles
+from .ajustes import ajuste_es_baja_no_imputable
 
 # ─── Constantes ──────────────────────────────────────────────────────────────
 CAUSAS = [
@@ -298,8 +299,10 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
     ajuste_fecha_map: dict[str, str] = {}
     for aj in ajustes_raw:
         k = _norm(aj.producto_nombre)
-        # Solo los ajustes con impacta_stock=True modifican el conteo_final
-        if getattr(aj, "impacta_stock", True):
+        # Una merma/avería o un vencido ya registrado se descuenta en el stock
+        # esperado. El ajuste administrativo equivalente es solo trazabilidad.
+        baja_ya_aplicada = ajuste_es_baja_no_imputable(aj.motivo)
+        if getattr(aj, "impacta_stock", True) and not baja_ya_aplicada:
             ajustes_map[k] = ajustes_map.get(k, 0) + (aj.cantidad_ajustada or 0)
         ajuste_usuario_map[k] = aj.usuario_admin
         ajuste_fecha_map[k] = aj.fecha_ajuste.strftime("%Y-%m-%d") if aj.fecha_ajuste else ""
@@ -396,18 +399,25 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         # 3. Mermas y vencidos registrados
         total_merma, total_venc = _mermas_vencidos(periodo, nombre, periodo.tienda_id)
 
-        # 4. Stock esperado
+        # 4. Stock esperado físico. Se conserva para trazabilidad y continuidad.
         stock_esperado = (
             stock_inicial + compras + otros_ingresos
             - ventas - otras_salidas
             - total_merma - total_venc
         )
 
-        # 5. Diferencia: conteo_final vs stock_esperado
-        diferencia = conteo_final - stock_esperado
+        # 5. Venta teórica y diferencia oficial.
+        # El conteo cargado (más ajustes que impactan) es el stock final físico.
+        # Las bajas no imputables se descuentan una sola vez como salidas.
+        venta_teorica = (
+            stock_inicial + compras + otros_ingresos
+            - conteo_final - otras_salidas
+            - total_merma - total_venc
+        )
+        diferencia = venta_teorica - ventas
         if abs(diferencia) < 0.01:
             tipo_diferencia = "correcto"
-        elif diferencia < 0:
+        elif diferencia > 0:
             tipo_diferencia = "faltante"
         else:
             tipo_diferencia = "sobrante"
@@ -456,7 +466,7 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
 
         if abs(diferencia) < 0.01:
             causa = "Sin diferencia"
-            evidencia = "El conteo final coincide con el stock esperado."
+            evidencia = "La venta teórica coincide con la venta real."
             confianza = "Alto"
         elif compensacion_total:
             causa = "Compensación entre períodos"
@@ -492,28 +502,14 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
                 causa = "Error de conteo"
                 evidencia = comp_evidencia
                 confianza = "Alto" if "casi exactamente" in comp_evidencia else "Medio"
-            elif total_venc > 0 or total_merma > 0:
-                faltante_restante = abs(diferencia) - total_merma - total_venc
-                if faltante_restante <= 0:
-                    causa = "Producto vencido" if total_venc >= total_merma else "Merma o averiado"
-                    evidencia = (
-                        f"Merma registrada: {total_merma:.1f} unidades. "
-                        f"Vencidos registrados: {total_venc:.1f} unidades. "
-                        f"Explica la diferencia completa."
-                    )
-                    confianza = "Alto"
-                else:
-                    causa = "Merma o averiado"
-                    evidencia = (
-                        f"Merma: {total_merma:.1f}, Vencidos: {total_venc:.1f}. "
-                        f"Diferencia pendiente sin justificar: {faltante_restante:.1f} unidades."
-                    )
-                    confianza = "Medio"
             else:
                 causa = "Pendiente de revisión"
                 evidencia = (
-                    "No se encontraron registros de merma, vencimiento, "
+                    "La diferencia residual no está explicada por las bajas ya aplicadas, "
                     "compras sospechosas ni compensaciones claras. Requiere revisión manual."
+                    if tiene_merma_o_vencido else
+                    "No se encontraron registros de merma, vencimiento, compras sospechosas "
+                    "ni compensaciones claras. Requiere revisión manual."
                 )
                 confianza = "Bajo"
 
@@ -524,13 +520,28 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             evidencia = rel_alertas
             confianza = "Medio"
 
+        # Estas bajas ya redujeron la venta teórica. Se informan por separado,
+        # pero nunca vuelven a justificar ni a reducir la diferencia residual.
+        if tiene_merma_o_vencido:
+            detalle_bajas = (
+                f"Bajas no imputables al empleado: averiados/merma {total_merma:.1f}, "
+                f"vencidos {total_venc:.1f}. Ya fueron descontadas una sola vez del "
+                "cálculo de venta teórica."
+            )
+            if abs(diferencia) >= 0.01:
+                detalle_bajas += (
+                    f" La diferencia residual de {diferencia:+.1f} unidades es independiente "
+                    "de esas bajas y requiere evidencia adicional."
+                )
+            evidencia = (detalle_bajas + " | " + evidencia) if evidencia else detalle_bajas
+
         # Advertir posible doble descuento (ajuste negativo + merma/vencidos)
         if alerta_doble_descuento:
             aviso = (
                 f"⚠ Posible doble descuento: existe un ajuste negativo ({ajuste:+.1f}) "
                 f"y mermas/vencidos registrados ({total_merma + total_venc:.1f} unidades). "
-                f"Si el ajuste justifica la misma baja que las mermas, "
-                f"marcá el ajuste con 'No impacta stock'."
+                f"Si el ajuste documenta la misma baja, usa el motivo de baja ya registrada; "
+                f"el sistema lo tratará automáticamente como 'No impacta stock'."
             )
             evidencia = (aviso + " | " + evidencia) if evidencia else aviso
 
@@ -617,6 +628,7 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             otras_salidas=otras_salidas,
             stock_final_excel=stock_final_excel,
             stock_esperado=round(stock_esperado, 2),
+            venta_teorica=round(venta_teorica, 2),
             conteo_empleado=round(conteo_empleado, 2),
             ajuste_admin=round(ajuste, 2),
             conteo_final=round(conteo_final, 2),

@@ -12,10 +12,12 @@ Estructura:
 import io
 import os
 import re
+import sqlite3
 from datetime import datetime, date, timedelta, timezone
 from functools import wraps
 import secrets
-from sqlalchemy import inspect, text
+from sqlalchemy import event, inspect, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
 from flask import (Flask, render_template, request, redirect, url_for,
@@ -35,6 +37,7 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     NotificacionUsuario, AsistenteIAConsulta)
 from core.auditoria import (ejecutar_auditoria, build_reporte_gerencial,
                             marcar_resultado_revisado)
+from core.ajustes import ajuste_es_baja_no_imputable
 from core.excel_importer import importar_excel_transaccional
 from core.sync_bridge import (propagar_conteo_a_periodo, retroalimentar_periodo_desde_items,
                               sincronizar_transaccional)
@@ -92,12 +95,18 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)  # Sesion expira e
 app.config["SESSION_COOKIE_HTTPONLY"] = True    # JS no puede leer la cookie de sesion
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # Proteccion CSRF basica
 # ─────────────────────────────────────────────────────────────────────────────
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL_EMPLEADO", "sqlite:///netward_empleado.db"))
-app.config["SQLALCHEMY_BINDS"] = {
-    "empleado": os.getenv("DATABASE_URL_EMPLEADO", "sqlite:///netward_empleado.db"),
-    "administrador": os.getenv("DATABASE_URL_ADMIN", "sqlite:///netward_admin.db"),
-}
+database_url = os.getenv("DATABASE_URL", "sqlite:///netward_empleado.db")
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+
+@event.listens_for(Engine, "connect")
+def _habilitar_claves_foraneas_sqlite(dbapi_connection, _connection_record):
+    """SQLite desactiva las FK por conexion; Netward siempre las exige."""
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 db.init_app(app)
 app.register_blueprint(desc_bp)
@@ -115,10 +124,8 @@ app.jinja_env.filters["strip_unidad"] = _strip_unidad
 
 
 def set_database_bind(bind_name):
-    """Selecciona la base de datos activa para la sesion actual."""
-    db.session.remove()
-    db.session.bind = bind_name
-    return bind_name
+    """Compatibilidad con llamadas antiguas; todos los roles usan una sola BD."""
+    return "default"
 
 
 def get_productos_db():
@@ -127,13 +134,8 @@ def get_productos_db():
 
 
 def get_active_bind():
-    """Devuelve el bind de base de datos segun el rol activo.
-
-    Centralizado: el administrador SIEMPRE lee del bind "empleado" para los
-    datos de inventario (los empleados escriben ahi). Ya no es necesario
-    llamar set_database_bind("empleado") manualmente en cada ruta admin.
-    """
-    return "empleado"
+    """Todos los roles comparten la base aislada de la empresa."""
+    return "default"
 
 
 def _periodo_abierto_mas_reciente(cliente_id: str, tienda_id: str):
@@ -506,6 +508,7 @@ def ensure_multitenant_schema():
                 ("cantidad_vencida REAL NOT NULL DEFAULT 0",               "cantidad_vencida"),
                 ("cantidad_averiada REAL NOT NULL DEFAULT 0",              "cantidad_averiada"),
                 ("ventas_delivery REAL NOT NULL DEFAULT 0",                "ventas_delivery"),
+                ("venta_teorica REAL NOT NULL DEFAULT 0",                  "venta_teorica"),
             ]:
                 _add_column_if_missing(conn, "auditoria_resultados", col_sql, col_name)
             for col_sql, col_name in [
@@ -518,19 +521,59 @@ def ensure_multitenant_schema():
             ]:
                 _add_column_if_missing(conn, "facturas_compra", col_sql, col_name)
 
+            # Renombre de categoría conservando instalaciones existentes.
+            # Se actualizan todas las tablas que almacenan la categoría como texto.
+            tablas_categoria = {
+                "productos", "inventario_items", "historial", "producto_precios",
+                "registros_averiados", "registros_vencimiento", "conteo_detalle",
+                "auditoria_resultados",
+            }
+            tablas_existentes = set(inspect(conn).get_table_names())
+            for tabla in sorted(tablas_categoria & tablas_existentes):
+                columnas = {columna["name"] for columna in inspect(conn).get_columns(tabla)}
+                if "categoria" in columnas:
+                    conn.exec_driver_sql(
+                        f"UPDATE {tabla} SET categoria = 'Fanee' WHERE categoria = 'Extras'"
+                    )
+            if "inventario_borradores" in tablas_existentes:
+                if conn.dialect.name == "postgresql":
+                    conn.exec_driver_sql(
+                        "UPDATE inventario_borradores "
+                        "SET contenido_json = REPLACE(contenido_json::text, "
+                        "'\"Extras\"', '\"Fanee\"')::jsonb "
+                        "WHERE contenido_json::text LIKE '%\"Extras\"%'"
+                    )
+                else:
+                    conn.exec_driver_sql(
+                        "UPDATE inventario_borradores "
+                        "SET contenido_json = REPLACE(contenido_json, '\"Extras\"', '\"Fanee\"') "
+                        "WHERE contenido_json LIKE '%\"Extras\"%'"
+                    )
+
 
 # --------------------------------------------------------------------------- #
 #  Inicializacion / seed de base de datos
 # --------------------------------------------------------------------------- #
 def init_db():
     """Crea las tablas e inserta los datos iniciales si la BD esta vacia."""
-    # Usar checkfirst=True explícito para evitar errores con tablas ya existentes
-    # (ocurre cuando SQLALCHEMY_BINDS apunta al mismo archivo que el default)
-    for engine in _get_all_db_engines():
-        with engine.begin() as conn:
-            db.metadata.create_all(bind=conn, checkfirst=True)
-
-    ensure_multitenant_schema()
+    # En SQLite se conserva compatibilidad con instalaciones locales existentes.
+    if db.engine.dialect.name == "postgresql":
+        inspector = inspect(db.engine)
+        if "alembic_version" not in inspector.get_table_names():
+            raise RuntimeError(
+                "PostgreSQL no esta migrado. Ejecuta `alembic upgrade head` antes de iniciar Netward."
+            )
+        with db.engine.connect() as connection:
+            version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        if version != "20260827_02":
+            raise RuntimeError(
+                f"Esquema PostgreSQL desactualizado ({version or 'sin version'}). "
+                "Ejecuta `alembic upgrade head`."
+            )
+    else:
+        # SQLite conserva arranque automatico para desarrollo e instalaciones locales.
+        db.metadata.create_all(bind=db.engine, checkfirst=True)
+        ensure_multitenant_schema()
     assert_isolated_databases()
 
     if Cliente.query.count() == 0:
@@ -1903,7 +1946,7 @@ def admin_precios():
             elif rec.producto_id is None:
                 rec.producto_id = producto.id
             rec.precio = precio_val
-            if producto.categoria in ("Impulsivo", "Extras"):
+            if producto.categoria in ("Impulsivo", "Fanee", "Extras"):
                 rec.precio_por_caja = precio_caja_val
                 rec.unidades_por_caja = caja_val
                 rec.unidades_por_bulto = bulto_val
@@ -2306,7 +2349,9 @@ def admin_configuracion():
         or "tab-impulsivo"
     )
     productos_impulsivo = Producto.query.filter_by(categoria="Impulsivo").order_by(Producto.nombre).all()
-    productos_extras = Producto.query.filter_by(categoria="Extras").order_by(Producto.nombre).all()
+    productos_extras = Producto.query.filter(
+        Producto.categoria.in_(("Fanee", "Extras"))
+    ).order_by(Producto.nombre).all()
     productos_kilos = Producto.query.filter_by(categoria="Por Kilos").order_by(Producto.nombre).all()
     precios_map = {p.producto_nombre: p for p in ProductoPrecio.query.all()}
     return render_template("admin_configuracion.html",
@@ -2331,7 +2376,7 @@ def producto_precio_guardar():
         except ValueError:
             continue
         producto = db.session.get(Producto, pid_int)
-        if producto is None or producto.categoria not in ("Impulsivo", "Extras"):
+        if producto is None or producto.categoria not in ("Impulsivo", "Fanee", "Extras"):
             continue
         precio_val = request.form.get(f"precio_{pid}") or None
         precio_caja_val = request.form.get(f"precio_caja_{pid}") or None
@@ -2371,7 +2416,7 @@ def producto_crear():
     if not nombre:
         _set_admin_precios_notice("El nombre del producto es obligatorio.", "error", active_tab)
         return redirect(url_for("admin_precios", tab=active_tab) + "#catalogo-alta")
-    if categoria not in ("Impulsivo", "Por Kilos", "Extras"):
+    if categoria not in ("Impulsivo", "Por Kilos", "Fanee"):
         _set_admin_precios_notice("Categoría no válida.", "error", active_tab)
         return redirect(url_for("admin_precios", tab=active_tab) + "#catalogo-alta")
     if Producto.query.filter_by(nombre=nombre, categoria=categoria).first():
@@ -3012,6 +3057,8 @@ def admin_periodo_ajuste(periodo_id):
     motivo = request.form.get("motivo", "Otro")
     observacion = (request.form.get("observacion") or "").strip()
     impacta_stock = request.form.get("impacta_stock") == "1"
+    if ajuste_es_baja_no_imputable(motivo):
+        impacta_stock = False
 
     if not producto_nombre:
         flash("Seleccioná un producto.", "warning")
@@ -3440,8 +3487,8 @@ def admin_auditoria_exportar(periodo_id):
         "Stock Inicial Anterior", "Stock Inicial Excel", "Alerta Continuidad",
         "Compras", "Promedio Compras Histórico", "Factor Desvío Compra",
         "Ventas (inventario oficial)", "Ventas Delivery (info)", "Otros Ingresos", "Otras Salidas", "Stock Final oficial",
-        "Stock Esperado Sistema", "Conteo Empleado", "Ajuste Admin",
-        "Conteo Final", "Diferencia", "Tipo Diferencia", "Severidad",
+        "Stock Esperado Sistema", "Venta Teórica", "Conteo Empleado", "Ajuste Admin",
+        "Stock Final Físico", "Diferencia (VT - VR)", "Tipo Diferencia", "Severidad",
         "Costo Unitario", "Fuente Costo", "Impacto",
         "Cantidad Merma", "Cantidad Vencida", "Diferencia Anterior Compensada",
         "Posible Causa Principal", "Evidencia", "Nivel de Confianza",
@@ -3474,7 +3521,7 @@ def admin_auditoria_exportar(periodo_id):
             "SÍ" if r.alerta_continuidad else "No",
             r.compras, r.promedio_compras_historico, r.factor_desvio_compra,
             r.ventas, r.ventas_delivery, r.otros_ingresos, r.otras_salidas, r.stock_final_excel,
-            r.stock_esperado, r.conteo_empleado, r.ajuste_admin,
+            r.stock_esperado, r.venta_teorica, r.conteo_empleado, r.ajuste_admin,
             r.conteo_final, r.diferencia, r.tipo_diferencia, r.severidad,
             r.costo_unitario, r.fuente_costo, r.impacto,
             r.cantidad_merma, r.cantidad_vencida, r.diferencia_anterior_compensada,

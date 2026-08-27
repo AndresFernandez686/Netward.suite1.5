@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import date
 
 from flask import Flask
 
@@ -11,6 +12,8 @@ from core.models import (
     ExcelDetalle,
     ExcelDetalleEdicion,
     ExcelImportado,
+    FacturaCompra,
+    FacturaCompraDetalle,
     InventarioPeriodo,
     Producto,
     db,
@@ -94,10 +97,14 @@ class PruebasEditorExcel(unittest.TestCase):
         db.session.expire_all()
         detalle = db.session.get(ExcelDetalle, self.detalle.id)
         self.assertEqual(detalle.compras, 5)
+        self.assertEqual(detalle.ventateorica, 7)
+        self.assertEqual(detalle.diferencia, 5)
         edicion = ExcelDetalleEdicion.query.one()
         cambios = json.loads(edicion.cambios_json)
         self.assertEqual(edicion.usuario, "admin-editor")
         self.assertEqual(cambios["compras"], {"anterior": 0.0, "nuevo": 5.0})
+        self.assertEqual(cambios["ventateorica"], {"anterior": 0.0, "nuevo": 7.0})
+        self.assertEqual(cambios["diferencia"], {"anterior": 0.0, "nuevo": 5.0})
 
         resultados = ejecutar_auditoria(self.periodo)
         resultado = next(r for r in resultados if r.producto_nombre == "Alfajor")
@@ -154,6 +161,53 @@ class PruebasEditorExcel(unittest.TestCase):
         self.assertEqual(respuesta.status_code, 409)
         self.assertEqual(db.session.get(ExcelDetalle, self.detalle.id).compras, 8)
         self.assertEqual(ExcelDetalleEdicion.query.count(), 0)
+
+    def test_guardar_todas_las_lineas_pdf_persiste_fanee_y_campos_pendientes(self):
+        fanee = Producto(nombre="Servilleta Fanee", categoria="Fanee")
+        factura = FacturaCompra(
+            periodo_id=self.periodo.id, cliente_id="C-EDIT", proveedor="Fane",
+            numero_factura="001", fecha_emision=date(2026, 8, 20),
+            nombre_archivo="fane.pdf", sha256="bulk-pdf-test",
+            archivo_pdf=b"%PDF", metodo_extraccion="texto_pdf",
+            estado="procesada", usuario_importador="admin",
+        )
+        db.session.add_all((fanee, factura))
+        db.session.flush()
+        vinculada = FacturaCompraDetalle(
+            factura_id=factura.id, descripcion="Servilleta", cantidad_facturada=1,
+            factor_conversion=1, estado_vinculacion="pendiente",
+        )
+        pendiente = FacturaCompraDetalle(
+            factura_id=factura.id, descripcion="Producto desconocido", cantidad_facturada=1,
+            factor_conversion=1, estado_vinculacion="pendiente",
+        )
+        db.session.add_all((vinculada, pendiente))
+        db.session.commit()
+
+        respuesta = self.client.post(
+            "/admin/documentacion/facturas/detalles/guardar",
+            data={
+                "periodo_id": str(self.periodo.id),
+                "detalle_ids": [str(vinculada.id), str(pendiente.id)],
+                f"producto_id_{vinculada.id}": str(fanee.id),
+                f"cantidad_facturada_{vinculada.id}": "3",
+                f"factor_conversion_{vinculada.id}": "10",
+                f"producto_id_{pendiente.id}": "",
+                f"cantidad_facturada_{pendiente.id}": "4",
+                f"factor_conversion_{pendiente.id}": "2",
+            },
+        )
+
+        self.assertEqual(respuesta.status_code, 302)
+        db.session.expire_all()
+        self.assertEqual(vinculada.producto_id, fanee.id)
+        self.assertEqual(vinculada.estado_vinculacion, "vinculado")
+        self.assertEqual(vinculada.compras_calculadas, 30)
+        self.assertIsNone(pendiente.producto_id)
+        self.assertEqual(pendiente.estado_vinculacion, "pendiente")
+        self.assertEqual(pendiente.cantidad_facturada, 4)
+        self.assertEqual(pendiente.factor_conversion, 2)
+        self.assertEqual(pendiente.compras_calculadas, 8)
 
 
 if __name__ == "__main__":

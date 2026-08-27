@@ -3,10 +3,46 @@ Modelos de base de datos (SQLAlchemy) para el Sistema Netward.
 Migracion desde el sistema Streamlit original a Flask + SQLite.
 """
 from datetime import datetime, date, timezone
+import json
 from typing import Any
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import Text, TypeDecorator
 
 db = SQLAlchemy()
+
+
+class PortableJSONText(TypeDecorator):
+    """JSON validado con API de texto y almacenamiento nativo en PostgreSQL.
+
+    El codigo historico de Netward serializa/deserializa JSON explicitamente.
+    Este tipo conserva esa API (siempre devuelve ``str``), usa TEXT en SQLite
+    y JSONB en PostgreSQL para obtener validacion e indexacion nativas.
+    """
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(JSONB())
+        return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        is_text = isinstance(value, str)
+        parsed = json.loads(value) if is_text else value
+        if dialect.name == "postgresql":
+            return parsed
+        if is_text:
+            return value
+        return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
+
+    def process_result_value(self, value, dialect):
+        if value is None or isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def utc_now():
@@ -98,7 +134,7 @@ class Producto(BaseModel):
 
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(160), nullable=False)
-    categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Por Kilos | Extras
+    categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Por Kilos | Fanee
     visible_empleado = db.Column(db.Boolean, default=True, nullable=False)
     # Código estable del sistema externo — clave principal con el inventario oficial
     codigo_articulo = db.Column(db.String(40), nullable=True, index=True)
@@ -152,7 +188,7 @@ class HistorialMovimiento(BaseModel):
     snapshot_id = db.Column(db.Integer, db.ForeignKey("inventario_snapshots.id"), nullable=True, index=True)
     periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=True, index=True)
     tipo_movimiento = db.Column(db.String(30), default="original", nullable=False)
-    usuario_anterior = db.Column(db.String(80), default="")
+    usuario_anterior = db.Column(db.String(80), nullable=False, default="")
     cantidad_anterior = db.Column(db.Float, nullable=True)
     version = db.Column(db.Integer, default=1, nullable=False)
     creado = db.Column(db.DateTime, default=utc_now)
@@ -226,7 +262,7 @@ class StockThreshold(BaseModel):
 
 
 class ProductoPrecio(BaseModel):
-    """Precio y cantidades de empaque para productos Impulsivo y Extras."""
+    """Precio y cantidades de empaque para productos Impulsivo y Fanee."""
     __tablename__ = "producto_precios"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -234,7 +270,7 @@ class ProductoPrecio(BaseModel):
     producto_nombre = db.Column(db.String(160), unique=True, nullable=False)
     # FK opcional; permite lookup por ID además del match por nombre
     producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=True, index=True)
-    categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Extras
+    categoria = db.Column(db.String(40), nullable=False)     # Impulsivo | Fanee
     precio = db.Column(db.Float, nullable=True)
     precio_por_caja = db.Column(db.Float, nullable=True)
     unidades_por_caja = db.Column(db.Float, nullable=True)
@@ -250,7 +286,7 @@ class InventarioDescSnapshot(BaseModel):
     tienda_id = db.Column(db.String(10), nullable=False)
     mes = db.Column(db.String(7), nullable=False)           # YYYY-MM
     fecha_proceso = db.Column(db.String(20), nullable=False)
-    stock_final_json = db.Column(db.Text, nullable=False)   # JSON {nombre_lower: float}
+    stock_final_json = db.Column(PortableJSONText(), nullable=False)  # JSON {nombre_lower: float}
     creado = db.Column(db.DateTime, default=utc_now)
 
     __table_args__ = (
@@ -373,7 +409,7 @@ class ConteoDetalle(BaseModel):
     primera_carga = db.Column(db.DateTime, default=utc_now)  # jamás se sobreescribe
     fecha_carga = db.Column(db.DateTime, default=utc_now)     # última sincronización
     # Regla: último gana. Este contador registra cuántas veces se sincronizó en el período.
-    veces_sincronizado = db.Column(db.Integer, default=1)
+    veces_sincronizado = db.Column(db.Integer, nullable=False, default=1)
     fue_sobreescrito = db.Column(db.Boolean, default=False, nullable=False)
     version_ultima_carga = db.Column(db.Integer, default=1, nullable=False)
 
@@ -392,7 +428,7 @@ class InventarioBorrador(BaseModel):
     periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=False, index=True)
     tienda_id = db.Column(db.String(10), nullable=False, index=True)
     usuario = db.Column(db.String(80), nullable=False, index=True)
-    contenido_json = db.Column(db.Text, nullable=False, default="[]")
+    contenido_json = db.Column(PortableJSONText(), nullable=False, default="[]")
     actualizado = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     __table_args__ = (
@@ -417,7 +453,7 @@ class AjusteInventario(BaseModel):
     motivo = db.Column(db.String(80), default="Otro")
     observacion = db.Column(db.String(500), default="")
     # False = solo trazabilidad; no modifica conteo_final (evita doble descuento con mermas/vencidos)
-    impacta_stock = db.Column(db.Boolean, default=True)
+    impacta_stock = db.Column(db.Boolean, nullable=False, default=True)
     fecha_ajuste = db.Column(db.DateTime, default=utc_now)
 
 
@@ -444,6 +480,7 @@ class ExcelDetalle(BaseModel):
     __tablename__ = "excel_detalles"
 
     id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     excel_id = db.Column(db.Integer, db.ForeignKey("excel_importados.id"), nullable=False)
     articulo = db.Column(db.String(40), nullable=False)     # código estable del sistema externo
     artdescrip = db.Column(db.String(255), default="")
@@ -464,9 +501,9 @@ class ExcelDetalle(BaseModel):
     producto_nombre_interno = db.Column(db.String(160), nullable=True)  # descriptivo
     producto_id = db.Column(db.Integer, db.ForeignKey("productos.id"), nullable=True, index=True)
     # vinculado | pendiente | sin_producto | excluido
-    estado_vinculacion = db.Column(db.String(20), default="pendiente")
+    estado_vinculacion = db.Column(db.String(20), nullable=False, default="pendiente")
     # Fila excluida de la auditoría (canjes, congelados, etc.)
-    excluido_auditoria = db.Column(db.Boolean, default=False)
+    excluido_auditoria = db.Column(db.Boolean, nullable=False, default=False)
     motivo_exclusion = db.Column(db.String(120), nullable=True)
 
 
@@ -486,7 +523,7 @@ class ExcelDetalleEdicion(BaseModel):
         db.Integer, db.ForeignKey("excel_detalles.id"), nullable=False, index=True
     )
     usuario = db.Column(db.String(80), nullable=False)
-    cambios_json = db.Column(db.Text, nullable=False, default="{}")
+    cambios_json = db.Column(PortableJSONText(), nullable=False, default="{}")
     creado = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)
 
 
@@ -513,7 +550,7 @@ class FacturaCompra(BaseModel):
     usuario_importador = db.Column(db.String(80), nullable=False)
     texto_extraido = db.Column(db.Text, nullable=False, default="")
     orden_carga = db.Column(db.Integer, nullable=False, default=0)
-    analisis_json = db.Column(db.Text, nullable=True)
+    analisis_json = db.Column(PortableJSONText(), nullable=True)
     analisis_motor = db.Column(db.String(40), nullable=True)
     analisis_precision = db.Column(db.Float, nullable=True)
     analisis_estado = db.Column(db.String(30), nullable=True)
@@ -578,6 +615,7 @@ class AuditoriaResultado(BaseModel):
     otras_salidas = db.Column(db.Float, default=0)
     stock_final_excel = db.Column(db.Float, default=0)
     stock_esperado = db.Column(db.Float, default=0)
+    venta_teorica = db.Column(db.Float, nullable=False, default=0)
     conteo_empleado = db.Column(db.Float, default=0)
     ajuste_admin = db.Column(db.Float, default=0)
     conteo_final = db.Column(db.Float, default=0)
@@ -598,15 +636,15 @@ class AuditoriaResultado(BaseModel):
     # Pendiente | Sugerido | Justificado | Revisado | Sin diferencia | Sin diferencia real
     estado_auditoria = db.Column(db.String(20), default="Pendiente")
     # Precio interno | Sin costo
-    fuente_costo = db.Column(db.String(20), default="Sin costo")
+    fuente_costo = db.Column(db.String(20), nullable=False, default="Sin costo")
     # Evidencia estructurada (datos crudos que construyen el texto de evidencia)
-    factor_desvio_compra = db.Column(db.Float, default=0)            # compras / promedio
-    diferencia_anterior_compensada = db.Column(db.Float, default=0)  # dif. período anterior
-    cantidad_merma = db.Column(db.Float, default=0)                  # de registros_averiados
-    cantidad_vencida = db.Column(db.Float, default=0)                # de registros_vencimiento
-    cantidad_averiada = db.Column(db.Float, default=0)               # alias de cantidad_merma
+    factor_desvio_compra = db.Column(db.Float, nullable=False, default=0)            # compras / promedio
+    diferencia_anterior_compensada = db.Column(db.Float, nullable=False, default=0)  # dif. período anterior
+    cantidad_merma = db.Column(db.Float, nullable=False, default=0)                  # de registros_averiados
+    cantidad_vencida = db.Column(db.Float, nullable=False, default=0)                # de registros_vencimiento
+    cantidad_averiada = db.Column(db.Float, nullable=False, default=0)               # alias de cantidad_merma
     # Ventas del módulo delivery usadas para reemplazar ventareal cuando son mayores que cero
-    ventas_delivery = db.Column(db.Float, default=0)
+    ventas_delivery = db.Column(db.Float, nullable=False, default=0)
     usuario_conteo = db.Column(db.String(80), default="")
     usuario_ajuste = db.Column(db.String(80), default="")
     fecha_ajuste = db.Column(db.String(20), default="")
@@ -645,7 +683,7 @@ class AsistenteIAConsulta(BaseModel):
     respuesta = db.Column(db.Text, nullable=False)
     proveedor = db.Column(db.String(40), nullable=False, default="local")
     modelo = db.Column(db.String(120), nullable=False, default="reglas-locales")
-    contexto_json = db.Column(db.Text, nullable=False, default="{}")
+    contexto_json = db.Column(PortableJSONText(), nullable=False, default="{}")
     estado = db.Column(db.String(20), nullable=False, default="ok")
     error = db.Column(db.String(500), nullable=False, default="")
     creado = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)

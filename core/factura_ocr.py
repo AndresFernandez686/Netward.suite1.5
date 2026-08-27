@@ -289,7 +289,7 @@ def factor_conversion_catalogo(
     la UME correcta es unidades/caja × cajas/bulto. No se usan valores fijos por
     código: cada producto puede tener una presentación diferente.
     """
-    if producto is None or producto.categoria not in {"Impulsivo", "Extras"}:
+    if producto is None or producto.categoria not in {"Impulsivo", "Fanee", "Extras"}:
         return None
     precio = ProductoPrecio.query.filter_by(
         cliente_id=cliente_id, producto_id=producto.id,
@@ -375,7 +375,7 @@ def _buscar_producto(proveedor: str, linea: LineaExtraida) -> tuple[Producto | N
     # mejor coincidencia compatible con la presentación xN.
     from .excel_importer import empaques_compatibles
     from .inventario import RENOMBRAR_CATALOGO
-    permitidas = {"Impulsivo", "Por Kilos"} if proveedor == "Helacor" else {"Extras"}
+    permitidas = {"Impulsivo", "Por Kilos", "Fanee", "Extras"}
     stop = {"grido", "unidad", "unid", "pack", "caja", "cajas", "expo", "py"}
     candidatos = []
     for producto in Producto.query.filter(Producto.categoria.in_(permitidas)).all():
@@ -428,7 +428,7 @@ def importar_factura(
     db.session.add(factura)
     db.session.flush()
 
-    permitidas = {"Impulsivo", "Por Kilos"} if extraida.proveedor == "Helacor" else {"Extras"}
+    permitidas = {"Impulsivo", "Por Kilos", "Fanee", "Extras"}
     avisos = []
     if not en_rango:
         avisos.append(
@@ -482,7 +482,7 @@ def aplicar_compras_facturas(periodo: InventarioPeriodo, cliente_id: str, usuari
     for factura in facturas:
         if factura.estado == "fuera_rango":
             factura.estado = "procesada"
-        permitidas = {"Impulsivo", "Por Kilos"} if factura.proveedor == "Helacor" else {"Extras"}
+        permitidas = {"Impulsivo", "Por Kilos", "Fanee", "Extras"}
         for detalle in factura.detalles:
             if detalle.producto_id is None and detalle.estado_vinculacion in ("pendiente", "fuera_rango"):
                 producto, motivo = _buscar_producto(

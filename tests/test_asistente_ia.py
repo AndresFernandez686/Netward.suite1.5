@@ -50,8 +50,10 @@ class PruebasAsistenteIA(unittest.TestCase):
         db.session.flush()
         self.resultado = AuditoriaResultado(
             periodo_id=self.periodo.id, cliente_id="IA1", producto_nombre="Alfajor",
-            categoria="Impulsivo", articulo_codigo="A-1", stock_esperado=23,
-            conteo_empleado=3, conteo_final=3, diferencia=-20,
+            categoria="Impulsivo", articulo_codigo="A-1", stock_inicial_excel=10,
+            compras=20, otros_ingresos=5, ventas=8, otras_salidas=2,
+            cantidad_merma=1, cantidad_vencida=1, stock_esperado=23,
+            venta_teorica=28, conteo_empleado=3, conteo_final=3, diferencia=20,
             tipo_diferencia="faltante", costo_unitario=1000, impacto=20000,
             causa_sugerida="Error de conteo", nivel_confianza="Medio",
             severidad="Revisar", estado_auditoria="Pendiente", evidencia="Conteo menor al esperado",
@@ -126,6 +128,55 @@ class PruebasAsistenteIA(unittest.TestCase):
         self.assertTrue(respuesta["ok"])
         self.assertTrue(respuesta["fallback"])
         self.assertIn("Alfajor", respuesta["answer"])
+        self.assertIn("Fórmula: stock inicial + compras", respuesta["answer"])
+        self.assertIn("10 + 20 + 5 - 3 - 2 - 1 - 1 = 28", respuesta["answer"])
+        self.assertIn("28 - 8 = +20", respuesta["answer"])
+        self.assertIn("|+20| × 1.000 = 20.000 Gs.", respuesta["answer"])
+
+    def test_contexto_incluye_formulas_y_fuentes_del_resultado(self):
+        contexto = build_product_context(self.periodo, self.resultado)
+
+        self.assertEqual(contexto["calculo"]["stock_inicial_aplicado"], 10)
+        self.assertEqual(
+            contexto["calculo"]["fuente_stock_inicial"],
+            "stock inicial del Excel oficial",
+        )
+        self.assertEqual(
+            contexto["calculo"]["fuente_ventas"],
+            "venta real del Excel oficial",
+        )
+        self.assertEqual(
+            contexto["formulas"]["diferencia"],
+            "venta teórica - venta real",
+        )
+
+    def test_explicacion_usa_venta_teorica_menos_venta_real(self):
+        self.resultado.stock_inicial_excel = 136
+        self.resultado.compras = 48
+        self.resultado.otros_ingresos = 0
+        self.resultado.ventas = 256
+        self.resultado.otras_salidas = 0
+        self.resultado.cantidad_merma = 0
+        self.resultado.cantidad_vencida = 0
+        self.resultado.stock_esperado = -72
+        self.resultado.conteo_empleado = 5
+        self.resultado.conteo_final = 5
+        self.resultado.venta_teorica = 179
+        self.resultado.diferencia = -77
+        self.resultado.tipo_diferencia = "sobrante"
+        self.resultado.impacto = 77000
+        db.session.commit()
+
+        contexto = build_product_context(self.periodo, self.resultado)
+        respuesta = explain(
+            "¿Cómo se calculó la diferencia?",
+            contexto,
+            self.config(enabled=False, api_key="", local_fallback_enabled=True),
+        )["answer"]
+
+        self.assertIn("136 + 48 + 0 - 5 - 0 - 0 - 0 = 179", respuesta)
+        self.assertIn("179 - 256 = -77", respuesta)
+        self.assertIn("El signo negativo indica sobrante", respuesta)
 
     def test_contexto_de_producto_solo_busca_anterior_de_misma_empresa_y_tienda(self):
         otro_periodo = InventarioPeriodo(

@@ -204,8 +204,10 @@ class PruebasPermisosSeguridad(unittest.TestCase):
         self.assertTrue(hoja.cell(2, 5).value.startswith("'="))
         self.assertEqual(hoja.cell(2, 4).data_type, "s")
         self.assertTrue(hoja.cell(2, 4).value.startswith("'+"))
-        self.assertEqual(hoja.cell(2, 39).data_type, "s")
-        self.assertTrue(hoja.cell(2, 39).value.startswith("'@"))
+        encabezados = [celda.value for celda in hoja[1]]
+        columna_observacion = encabezados.index("Observación") + 1
+        self.assertEqual(hoja.cell(2, columna_observacion).data_type, "s")
+        self.assertTrue(hoja.cell(2, columna_observacion).value.startswith("'@"))
         libro.close()
 
 

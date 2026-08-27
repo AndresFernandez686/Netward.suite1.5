@@ -799,11 +799,73 @@ def desc_facturas_importar():
     return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
 
 
+_CATEGORIAS_PDF = {"Impulsivo", "Por Kilos", "Fanee", "Extras"}
+
+
+def _actualizar_linea_factura(
+    detalle, *, cliente_id: str, producto_id, cantidad_raw, factor_raw,
+    exigir_producto: bool,
+):
+    """Actualiza una línea PDF sin hacer commit para permitir guardado atómico."""
+    from core.models import db, Producto
+    from core.factura_ocr import calcular_compras_unidades, factor_conversion_catalogo
+
+    try:
+        producto_id = int(producto_id) if str(producto_id or "").strip() else None
+    except (TypeError, ValueError):
+        raise ValueError("El producto seleccionado no es válido.")
+    producto = db.session.get(Producto, producto_id) if producto_id else None
+    try:
+        cantidad = float(cantidad_raw)
+        factor = float(factor_raw)
+    except (TypeError, ValueError):
+        raise ValueError("Cantidad o factor de conversión inválidos.")
+    if not math.isfinite(cantidad) or not math.isfinite(factor) or cantidad < 0 or factor <= 0:
+        raise ValueError("Utiliza valores de cantidad y conversión válidos.")
+    if exigir_producto and producto is None:
+        raise ValueError("Selecciona un producto del catálogo.")
+    if producto is not None and producto.categoria not in _CATEGORIAS_PDF:
+        raise ValueError("La categoría del producto no está habilitada para compras PDF.")
+
+    detalle.cantidad_facturada = cantidad
+    factor_catalogo = (
+        factor_conversion_catalogo(producto, cliente_id)
+        if producto is not None
+        and detalle.factura.proveedor == "Helacor"
+        and detalle.confianza != "Confirmada"
+        else None
+    )
+    if factor_catalogo is not None:
+        factor, fuente_catalogo = factor_catalogo
+        fuente_factor = f"Conversión automática desde {fuente_catalogo}"
+    else:
+        fuente_factor = "Conversión confirmada por administrador"
+    detalle.factor_conversion = factor
+    detalle.compras_calculadas = calcular_compras_unidades(cantidad, factor)
+    if producto is None:
+        detalle.producto_id = None
+        detalle.producto_nombre = None
+        detalle.estado_vinculacion = (
+            "fuera_rango" if detalle.factura.estado == "fuera_rango" else "pendiente"
+        )
+        detalle.confianza = "Baja"
+        detalle.observacion = "Producto pendiente de seleccionar; cantidades guardadas."
+    else:
+        detalle.producto_id = producto.id
+        detalle.producto_nombre = producto.nombre
+        detalle.estado_vinculacion = (
+            "fuera_rango" if detalle.factura.estado == "fuera_rango" else "vinculado"
+        )
+        detalle.confianza = "Confirmada"
+        detalle.observacion = fuente_factor
+    return producto
+
+
 @desc_bp.route("/admin/documentacion/facturas/detalle/<int:detalle_id>", methods=["POST"])
 def desc_factura_detalle_actualizar(detalle_id):
-    """Permite confirmar el producto y la conversión antes de aplicar Compras."""
+    """Compatibilidad: confirma una sola línea; la interfaz usa guardado masivo."""
     _requiere_admin()
-    from core.models import db, FacturaCompra, FacturaCompraDetalle, Producto
+    from core.models import db, FacturaCompra, FacturaCompraDetalle
 
     cliente_id = session.get("cliente_id", "C001")
     detalle = (
@@ -813,45 +875,90 @@ def desc_factura_detalle_actualizar(detalle_id):
     )
     if detalle is None:
         abort(404)
-    producto_id = request.form.get("producto_id", type=int)
-    producto = db.session.get(Producto, producto_id) if producto_id else None
     try:
-        cantidad = float(request.form.get("cantidad_facturada", detalle.cantidad_facturada))
-        factor = float(request.form.get("factor_conversion", detalle.factor_conversion))
-    except (TypeError, ValueError):
-        flash("Cantidad o factor de conversión inválidos.", "error")
+        producto = _actualizar_linea_factura(
+            detalle,
+            cliente_id=cliente_id,
+            producto_id=request.form.get("producto_id"),
+            cantidad_raw=request.form.get("cantidad_facturada", detalle.cantidad_facturada),
+            factor_raw=request.form.get("factor_conversion", detalle.factor_conversion),
+            exigir_producto=True,
+        )
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
         return redirect(url_for("desc.admin_desc", periodo_id=detalle.factura.periodo_id, doc_tab="facturas") + "#facturas-card")
-    if (
-        producto is None or not math.isfinite(cantidad) or not math.isfinite(factor)
-        or cantidad < 0 or factor <= 0
-    ):
-        flash("Selecciona un producto y utiliza valores de conversión válidos.", "error")
-        return redirect(url_for("desc.admin_desc", periodo_id=detalle.factura.periodo_id, doc_tab="facturas") + "#facturas-card")
-    permitidas = {"Impulsivo", "Por Kilos"} if detalle.factura.proveedor == "Helacor" else {"Extras"}
-    if producto.categoria not in permitidas:
-        flash(f"{detalle.factura.proveedor} solo puede vincular productos de {', '.join(sorted(permitidas))}.", "error")
-        return redirect(url_for("desc.admin_desc", periodo_id=detalle.factura.periodo_id, doc_tab="facturas") + "#facturas-card")
-    detalle.producto_id = producto.id
-    detalle.producto_nombre = producto.nombre
-    detalle.cantidad_facturada = cantidad
-    from core.factura_ocr import calcular_compras_unidades, factor_conversion_catalogo
-    factor_catalogo = (
-        factor_conversion_catalogo(producto, cliente_id)
-        if detalle.factura.proveedor == "Helacor" and detalle.confianza != "Confirmada"
-        else None
-    )
-    fuente_factor = "Vinculación y conversión confirmadas por administrador"
-    if factor_catalogo is not None:
-        factor, fuente_catalogo = factor_catalogo
-        fuente_factor = f"Conversión automática desde {fuente_catalogo}"
-    detalle.factor_conversion = factor
-    detalle.compras_calculadas = calcular_compras_unidades(cantidad, factor)
-    detalle.estado_vinculacion = "fuera_rango" if detalle.factura.estado == "fuera_rango" else "vinculado"
-    detalle.confianza = "Confirmada"
-    detalle.observacion = fuente_factor
-    db.session.commit()
     flash(f"Compra de {producto.nombre} actualizada.", "success")
     return redirect(url_for("desc.admin_desc", periodo_id=detalle.factura.periodo_id, doc_tab="facturas") + "#facturas-card")
+
+
+@desc_bp.route("/admin/documentacion/facturas/detalles/guardar", methods=["POST"])
+def desc_facturas_detalles_guardar():
+    """Guarda juntas todas las ediciones visibles del PDF, incluso las incompletas."""
+    _requiere_admin()
+    from core.models import db, FacturaCompra, FacturaCompraDetalle, InventarioPeriodo
+
+    cliente_id = session.get("cliente_id", "C001")
+    periodo = InventarioPeriodo.query.filter_by(
+        id=request.form.get("periodo_id", type=int), cliente_id=cliente_id,
+    ).first()
+    if periodo is None:
+        abort(404)
+    try:
+        ids = [int(valor) for valor in request.form.getlist("detalle_ids")]
+    except (TypeError, ValueError):
+        ids = []
+    if not ids or len(ids) > 5000 or len(ids) != len(set(ids)):
+        flash("No se recibieron líneas PDF válidas para guardar.", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+    detalles = (
+        FacturaCompraDetalle.query.join(FacturaCompra)
+        .filter(
+            FacturaCompraDetalle.id.in_(ids),
+            FacturaCompra.periodo_id == periodo.id,
+            FacturaCompra.cliente_id == cliente_id,
+        )
+        .all()
+    )
+    if len(detalles) != len(ids):
+        abort(404)
+
+    listas = 0
+    pendientes = 0
+    try:
+        for detalle in detalles:
+            producto = _actualizar_linea_factura(
+                detalle,
+                cliente_id=cliente_id,
+                producto_id=request.form.get(f"producto_id_{detalle.id}"),
+                cantidad_raw=request.form.get(
+                    f"cantidad_facturada_{detalle.id}", detalle.cantidad_facturada
+                ),
+                factor_raw=request.form.get(
+                    f"factor_conversion_{detalle.id}", detalle.factor_conversion
+                ),
+                exigir_producto=False,
+            )
+            if producto is None:
+                pendientes += 1
+            else:
+                listas += 1
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        flash(f"No se guardó ninguna línea: {exc}", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+    except Exception:
+        db.session.rollback()
+        flash("No se guardaron los cambios PDF; la operación fue revertida.", "error")
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
+
+    mensaje = f"Se guardaron {len(detalles)} línea(s) PDF: {listas} listas."
+    if pendientes:
+        mensaje += f" {pendientes} continúan pendientes de producto."
+    flash(mensaje, "success")
+    return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="facturas") + "#facturas-card")
 
 
 @desc_bp.route("/admin/documentacion/facturas/aplicar", methods=["POST"])
@@ -1122,6 +1229,7 @@ def desc_excel_datos_guardar(excel_id):
 
     total_celdas = 0
     identidad_modificada = False
+    filas_actualizadas = []
     try:
         for item in filas:
             detalle = detalles[int(item["id"])]
@@ -1143,6 +1251,34 @@ def desc_excel_datos_guardar(excel_id):
                 if anterior != valor:
                     cambios[campo] = {"anterior": anterior, "nuevo": valor}
                     setattr(detalle, campo, valor)
+
+            campos_formula = {
+                "stockinicial", "compras", "otrosingresos", "stockfinal",
+                "otrassalidas", "ventareal",
+            }
+            if campos_formula & cambios.keys():
+                venta_teorica = round(
+                    float(detalle.stockinicial or 0)
+                    + float(detalle.compras or 0)
+                    + float(detalle.otrosingresos or 0)
+                    - float(detalle.stockfinal or 0)
+                    - float(detalle.otrassalidas or 0),
+                    3,
+                )
+                diferencia = round(venta_teorica - float(detalle.ventareal or 0), 3)
+                for campo, valor in (
+                    ("ventateorica", venta_teorica),
+                    ("diferencia", diferencia),
+                ):
+                    anterior_formula = (
+                        cambios.get(campo, {}).get("anterior", getattr(detalle, campo))
+                    )
+                    if getattr(detalle, campo) != valor:
+                        cambios[campo] = {
+                            "anterior": anterior_formula,
+                            "nuevo": valor,
+                        }
+                        setattr(detalle, campo, valor)
 
             if cambios:
                 if {"articulo", "artdescrip"} & cambios.keys():
@@ -1169,6 +1305,11 @@ def desc_excel_datos_guardar(excel_id):
                     usuario=session.get("usuario", "administrador"),
                     cambios_json=json.dumps(cambios, ensure_ascii=False),
                 ))
+                filas_actualizadas.append({
+                    "id": detalle.id,
+                    "ventateorica": detalle.ventateorica,
+                    "diferencia": detalle.diferencia,
+                })
 
         if total_celdas == 0:
             return jsonify(ok=True, filas=0, celdas=0, message="No había cambios nuevos.")
@@ -1188,6 +1329,7 @@ def desc_excel_datos_guardar(excel_id):
             celdas=total_celdas,
             requiere_sincronizacion=requiere_sync,
             sincronizacion=estado_sync,
+            resultados=filas_actualizadas,
             message=(
                 f"Se guardaron {total_celdas} celda(s). "
                 + (

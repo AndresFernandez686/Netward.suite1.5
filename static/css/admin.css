@@ -1409,6 +1409,15 @@
   color: #64748b;
 }
 .desc-invoice-apply .btn:disabled { cursor: not-allowed; opacity: .55; }
+.desc-invoice-save-all {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  color: #64748b;
+}
+.desc-invoice-save-all span { font-size: .9rem; }
 .text-warning { color: #b45309; }
 .text-success { color: #15803d; }
 
@@ -1425,6 +1434,8 @@
   .desc-analysis-result__bar { align-items: flex-start; flex-wrap: wrap; }
   .desc-invoice-apply { align-items: stretch; flex-direction: column; }
   .desc-invoice-apply .btn { width: 100%; }
+  .desc-invoice-save-all { align-items: stretch; flex-direction: column; }
+  .desc-invoice-save-all .btn { width: 100%; }
   .desc-excel-head { align-items: stretch; flex-direction: column; }
   .desc-excel-head-actions { align-items: stretch; flex-direction: column; }
   .desc-excel-head-actions .btn,
@@ -2128,6 +2139,14 @@ body.periodos-help-open {
   gap: 8px;
   color: var(--ink-2);
   font-size: .88rem;
+  flex-wrap: wrap;
+}
+
+.periodo-det-check small {
+  flex-basis: 100%;
+  margin-left: 24px;
+  color: var(--muted);
+  font-size: .73rem;
 }
 
 .periodo-det-table-tools {

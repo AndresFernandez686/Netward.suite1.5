@@ -129,7 +129,7 @@ class PruebaAuditoriaCorrelativa(unittest.TestCase):
         resultado_anterior = ejecutar_auditoria(anterior)[0]
         self.assertEqual(resultado_anterior.stock_esperado, 23)
         self.assertEqual(resultado_anterior.conteo_final, 3)
-        self.assertEqual(resultado_anterior.diferencia, -20)
+        self.assertEqual(resultado_anterior.diferencia, 20)
         self.assertEqual(resultado_anterior.tipo_diferencia, "faltante")
 
         actual = self.crear_periodo(
@@ -148,8 +148,8 @@ class PruebaAuditoriaCorrelativa(unittest.TestCase):
 
         self.assertEqual(resultado_actual.stock_esperado, 23)
         self.assertEqual(resultado_actual.conteo_final, 43)
-        self.assertEqual(resultado_actual.diferencia, 20)
-        self.assertEqual(resultado_actual.diferencia_anterior_compensada, -20)
+        self.assertEqual(resultado_actual.diferencia, -20)
+        self.assertEqual(resultado_actual.diferencia_anterior_compensada, 20)
         self.assertEqual(resultado_actual.tipo_diferencia, "compensado")
         self.assertEqual(
             resultado_actual.causa_sugerida,
@@ -178,7 +178,7 @@ class PruebaAuditoriaCorrelativa(unittest.TestCase):
         resultado_anterior = ejecutar_auditoria(anterior)[0]
         self.assertEqual(resultado_anterior.stock_esperado, 23)
         self.assertEqual(resultado_anterior.conteo_final, 43)
-        self.assertEqual(resultado_anterior.diferencia, 20)
+        self.assertEqual(resultado_anterior.diferencia, -20)
         self.assertEqual(resultado_anterior.tipo_diferencia, "sobrante")
 
         actual = self.crear_periodo(
@@ -198,8 +198,8 @@ class PruebaAuditoriaCorrelativa(unittest.TestCase):
 
         self.assertEqual(resultado_actual.stock_esperado, 23)
         self.assertEqual(resultado_actual.conteo_final, 3)
-        self.assertEqual(resultado_actual.diferencia, -20)
-        self.assertEqual(resultado_actual.diferencia_anterior_compensada, 20)
+        self.assertEqual(resultado_actual.diferencia, 20)
+        self.assertEqual(resultado_actual.diferencia_anterior_compensada, -20)
         self.assertEqual(resultado_actual.tipo_diferencia, "compensado")
         self.assertEqual(
             resultado_actual.causa_sugerida,

@@ -21,6 +21,7 @@ Requiere: psycopg2-binary   →  pip install psycopg2-binary
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sqlite3
 import sys
@@ -31,11 +32,13 @@ TABLAS_ORDEN = [
     "clientes",
     "tiendas",
     "usuarios",
+    "notificaciones_usuario",
     "productos",
     "stock_thresholds",
     "producto_precios",
     "delivery_productos",
     "inventario_periodos",
+    "inventario_borradores",
     "inventario_snapshots",
     "inventario_items",
     "historial",
@@ -56,6 +59,7 @@ TABLAS_ORDEN = [
     "asistente_ia_consultas",
     "justificaciones",
     "productos_relacionados",
+    "configuracion_sistema",
 ]
 
 # Columnas BOOLEAN de SQLite que vienen como 0/1
@@ -70,6 +74,15 @@ BOOL_COLS: dict[str, set[str]] = {
     "excel_detalles":      {"excluido_auditoria"},
     "auditoria_resultados": {"alerta_continuidad"},
     "productos_relacionados": {"activo"},
+    "notificaciones_usuario": {"leida"},
+}
+
+JSON_COLS: dict[str, set[str]] = {
+    "inventario_desc_snapshots": {"stock_final_json"},
+    "inventario_borradores": {"contenido_json"},
+    "excel_detalle_ediciones": {"cambios_json"},
+    "facturas_compra": {"analisis_json"},
+    "asistente_ia_consultas": {"contexto_json"},
 }
 
 # Tablas con secuencias SERIAL que hay que resetear tras la inserción masiva
@@ -82,16 +95,21 @@ SERIAL_TABLES = [
     "excel_importados", "excel_detalles", "excel_detalle_ediciones",
     "facturas_compra", "facturas_compra_detalles", "auditoria_resultados",
     "asistente_ia_consultas", "justificaciones", "productos_relacionados",
+    "notificaciones_usuario", "inventario_borradores", "configuracion_sistema",
 ]
 
 
-def _convert_row(tabla: str, cols: list[str], row: tuple) -> tuple:
+def _convert_row(tabla: str, cols: list[str], row: tuple, json_adapter=None) -> tuple:
     """Convierte valores SQLite al tipo correcto para Postgres."""
     bool_cols = BOOL_COLS.get(tabla, set())
+    json_cols = JSON_COLS.get(tabla, set())
     result = []
     for col, val in zip(cols, row):
         if col in bool_cols:
             result.append(bool(val) if val is not None else None)
+        elif col in json_cols and val is not None:
+            parsed = json.loads(val) if isinstance(val, str) else val
+            result.append(json_adapter(parsed) if json_adapter else parsed)
         else:
             result.append(val)
     return tuple(result)
@@ -107,6 +125,7 @@ def migrar(
     try:
         import psycopg2
         import psycopg2.extras
+        import psycopg2.sql
     except ImportError:
         print("ERROR: psycopg2 no está instalado.")
         print("       Ejecutá: pip install psycopg2-binary")
@@ -117,6 +136,9 @@ def migrar(
         sys.exit(1)
 
     tablas = tablas_filtro if tablas_filtro else TABLAS_ORDEN
+    desconocidas = sorted(set(tablas) - set(TABLAS_ORDEN))
+    if desconocidas:
+        raise ValueError(f"Tablas no permitidas: {', '.join(desconocidas)}")
 
     # ── Conexiones ────────────────────────────────────────────────────────────
     sqlite_conn = sqlite3.connect(sqlite_path)
@@ -149,6 +171,14 @@ def migrar(
                 print()
                 continue
 
+            pg_cur = pg_conn.cursor()
+            if reset:
+                pg_cur.execute(
+                    psycopg2.sql.SQL("TRUNCATE TABLE {} RESTART IDENTITY CASCADE").format(
+                        psycopg2.sql.Identifier(tabla)
+                    )
+                )
+
             cur_sqlite.execute(f"SELECT * FROM {tabla}")
             rows = cur_sqlite.fetchall()
             if not rows:
@@ -156,19 +186,19 @@ def migrar(
                 continue
 
             cols = [d[0] for d in cur_sqlite.description]
-            pg_cur = pg_conn.cursor()
 
-            if reset:
-                pg_cur.execute(f"TRUNCATE TABLE {tabla} RESTART IDENTITY CASCADE")
+            sql = psycopg2.sql.SQL("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT DO NOTHING").format(
+                psycopg2.sql.Identifier(tabla),
+                psycopg2.sql.SQL(", ").join(map(psycopg2.sql.Identifier, cols)),
+                psycopg2.sql.SQL(", ").join(psycopg2.sql.Placeholder() * len(cols)),
+            )
 
-            placeholders = ", ".join(["%s"] * len(cols))
-            col_names    = ", ".join(cols)
-            sql = f"INSERT INTO {tabla} ({col_names}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
-
-            converted = [_convert_row(tabla, cols, tuple(r)) for r in rows]
+            converted = [
+                _convert_row(tabla, cols, tuple(r), psycopg2.extras.Json)
+                for r in rows
+            ]
             psycopg2.extras.execute_batch(pg_cur, sql, converted, page_size=500)
 
-            pg_conn.commit()
             total_migradas += len(converted)
             print(f"  ✓")
 
@@ -184,11 +214,11 @@ def migrar(
                         f"SELECT setval(pg_get_serial_sequence('{tabla}','id'), "
                         f"COALESCE(MAX(id),0)+1, false) FROM {tabla}"
                     )
-                    pg_conn.commit()
                     print(f"  ✓  secuencia de {tabla} reseteada")
                 except Exception as e:
-                    pg_conn.rollback()
-                    print(f"  ⚠  {tabla}: {e}")
+                    raise RuntimeError(f"No se pudo ajustar la secuencia de {tabla}: {e}") from e
+
+            pg_conn.commit()
 
         print(f"\n{'─'*50}")
         print(f"{'DRY-RUN completado' if dry_run else 'Migración completada'}: {total_migradas} filas insertadas.\n")

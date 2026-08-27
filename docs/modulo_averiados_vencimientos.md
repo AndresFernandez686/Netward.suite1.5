@@ -16,13 +16,14 @@
 `registros_vencimiento` agrega `fecha_vencimiento` (cuándo vence el producto).
 
 ## Relaciones con auditoría
-El motor de auditoría (`core/auditoria.py`) consulta ambas tablas al calcular el stock esperado:
+El motor de auditoría (`core/auditoria.py`) consulta ambas tablas al calcular la venta teórica:
 ```python
 mermas_averiados = sum(r.cantidad_unidades for r in registros_averiados del período)
 vencidos         = sum(r.cantidad_unidades for r in registros_vencimiento del período)
-stock_esperado  -= mermas_averiados + vencidos
+venta_teorica  -= mermas_averiados + vencidos
 ```
-Esto reduce la diferencia detectada antes de sugerir una causa.
+Esto las descuenta una sola vez como bajas no imputables al empleado. La diferencia
+residual se calcula luego como `venta_teorica - venta_real`.
 
 ## Rutas empleado
 | Método | Ruta | Acción |

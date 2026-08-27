@@ -54,7 +54,7 @@
       {% set card_styles = {
         'Impulsivo': '#2563eb',
         'Por Kilos': '#16a34a',
-        'Extras': '#7c3aed'
+        'Fanee': '#7c3aed'
       } %}
       {% for cat in categorias %}
       <article class="inventory-summary-card js-summary-card {{ 'is-active' if categoria_filtro == cat }}" data-category="{{ cat }}" data-accent="{{ card_styles.get(cat, '#2563eb') }}">

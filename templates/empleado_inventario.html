@@ -119,7 +119,7 @@
           <select name="ume">
             <option value="Unidad">Unidad</option>
             <option value="Caja">Caja</option>
-            {% if cat == 'Extras' %}
+            {% if cat in ('Fanee', 'Extras') %}
             <option value="Tira">Tira</option>
             {% else %}
             <option value="Bulto">Bulto</option>

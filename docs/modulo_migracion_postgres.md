@@ -1,98 +1,72 @@
-# Módulo: Migración a PostgreSQL
+# Migración y operación de base de datos
 
-## Archivos
-| Archivo | Propósito |
-|---|---|
-| `migracion/01_schema_completo.sql` | DDL completo para PostgreSQL (todas las tablas, en orden de FK) |
-| `migracion/02_modulo_auditoria.sql` | Solo tablas del módulo de auditoría (para instancias ya existentes) |
-| `migracion/03_indices_rendimiento.sql` | Índices compuestos para producción |
-| `migracion/04_rollback.sql` | DROP CASCADE en orden inverso |
-| `migracion/05_multiempleado.sql` | Actualización idempotente del inventario multi-empleado |
-| `migracion/06_delivery_periodos.sql` | Asociación de ventas delivery con períodos y estado fuera de rango |
-| `migracion/07_asistente_ia.sql` | Trazabilidad de consultas de Nexa |
-| `migracion/08_edicion_datos_excel.sql` | Trazabilidad de ediciones sobre filas del Excel oficial |
-| `migracion/09_version_catalogo_empleado.sql` | Sincronización versionada del catálogo por empleado |
-| `migracion/10_reparar_estado_excel_importado.sql` | Repara períodos cuyo estado operativo fue reemplazado al importar Excel |
-| `migracion/11_eliminar_artcosto_excel.sql` | Elimina el costo externo; Auditoría usa exclusivamente el precio interno |
-| `migracion/12_documentacion_oficial_facturas.sql` | Facturas PDF, OCR y compras detectadas por período |
-| `migracion/migrate_sqlite_to_postgres.py` | Migra datos SQLite → PostgreSQL con conversión de tipos |
-| `migracion/verificar_migracion.py` | Compara conteos y verifica secuencias SERIAL |
+Netward utiliza una sola base de datos por empresa. Los roles administrador y
+empleado comparten esa base; la separación entre empresas se realiza desplegando
+una instancia y una base diferentes para cada empresa.
 
-## Diferencias SQLite → PostgreSQL
-| SQLite | PostgreSQL |
-|---|---|
-| `INTEGER PRIMARY KEY` | `SERIAL PRIMARY KEY` |
-| `BOOLEAN` (0/1) | `BOOLEAN` (true/false) |
-| `FLOAT` | `DOUBLE PRECISION` |
-| `DATETIME` | `TIMESTAMP` |
-| No FK enforcement | FK enforced — importar en orden |
+## Fuente oficial del esquema
 
-## Orden de migración (respeta FK)
-```
-clientes → tiendas → usuarios → productos → stock_thresholds
-→ producto_precios → delivery_productos → inventario_periodos
-→ inventario_snapshots → inventario_items → historial → inventario_desc_snapshots
-→ delivery_ventas → registros_averiados → registros_vencimiento
-→ sincronizacion_log → configuracion_sistema
-→ conteo_detalle → ajustes_inventario
-→ excel_importados → excel_detalles → excel_detalle_ediciones → auditoria_resultados
-→ asistente_ia_consultas → justificaciones → productos_relacionados
+Alembic es la única fuente vigente para crear o actualizar el esquema:
+
+```powershell
+$env:DATABASE_URL="postgresql+psycopg2://usuario:clave@host/base_empresa"
+.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
-## Uso rápido
-```bash
-# 1. Crear schema
-psql -U user -d netward -f migracion/01_schema_completo.sql
-psql -U user -d netward -f migracion/03_indices_rendimiento.sql
+Los archivos SQL numerados de `migracion/` quedan únicamente como historial de
+instalaciones anteriores. No deben aplicarse para crear una instalación nueva.
 
-# Solo para una base existente anterior al inventario multi-empleado
-psql -U user -d netward -f migracion/05_multiempleado.sql
-psql -U user -d netward -f migracion/06_delivery_periodos.sql
-psql -U user -d netward -f migracion/07_asistente_ia.sql
-psql -U user -d netward -f migracion/08_edicion_datos_excel.sql
-psql -U user -d netward -f migracion/09_version_catalogo_empleado.sql
-psql -U user -d netward -f migracion/10_reparar_estado_excel_importado.sql
-psql -U user -d netward -f migracion/11_eliminar_artcosto_excel.sql
-psql -U user -d netward -f migracion/12_documentacion_oficial_facturas.sql
+La aplicación rechaza el arranque sobre PostgreSQL si no existe
+`alembic_version` o si no corresponde con la revisión esperada.
 
-# 2. Dry-run (ver cuántas filas hay)
-python migracion/migrate_sqlite_to_postgres.py --pg "postgresql://..." --dry-run
+## Migración de datos SQLite a PostgreSQL
 
-# 3. Migrar datos
-python migracion/migrate_sqlite_to_postgres.py --pg "postgresql://..."
+```powershell
+# 1. Crear el esquema PostgreSQL.
+$env:DATABASE_URL="postgresql+psycopg2://usuario:clave@host/base_empresa"
+.venv\Scripts\python.exe -m alembic upgrade head
 
-# 4. Verificar
-python migracion/verificar_migracion.py --pg "postgresql://..."
+# 2. Revisar origen sin escribir.
+.venv\Scripts\python.exe migracion\migrate_sqlite_to_postgres.py `
+  --sqlite instance\netward_empleado.db --pg $env:DATABASE_URL --dry-run
 
-# 5. Activar en .env
-DATABASE_URL=postgresql://user:pass@host:5432/netward
+# 3. Migrar hacia una base vacía.
+.venv\Scripts\python.exe migracion\migrate_sqlite_to_postgres.py `
+  --sqlite instance\netward_empleado.db --pg $env:DATABASE_URL
+
+# 4. Exigir conteos exactos, hashes, columnas, FK y secuencias.
+.venv\Scripts\python.exe migracion\verificar_migracion.py `
+  --sqlite instance\netward_empleado.db --pg $env:DATABASE_URL
 ```
 
-## Tablas con columnas booleanas que se convierten
-`tiendas`, `productos`, `delivery_productos`, `inventario_items`,
-`registros_averiados`, `registros_vencimiento`, `conteo_detalle`,
-`auditoria_resultados`, `productos_relacionados`
+La importación se ejecuta en una sola transacción: si falla una tabla, un JSON o
+una secuencia, PostgreSQL revierte toda la carga y no deja una migración parcial.
 
-## Cambio multi-empleado
+Los JSON se almacenan como `TEXT` validado en SQLite y `JSONB` en PostgreSQL.
+Los PDF se almacenan como `BLOB` en SQLite y `BYTEA` en PostgreSQL.
 
-No se agregó una tabla nueva. Se ampliaron:
+## Respaldos y simulacros
 
-- `inventario_items`: período, último usuario, versión y marca de sobreescritura.
-- `historial`: período, snapshot, tipo de movimiento, valores anteriores y versión.
-- `conteo_detalle`: primera carga, número de sincronizaciones, sobreescritura y última versión.
+SQLite:
 
-En instalaciones nuevas los campos forman parte de `01_schema_completo.sql`. En una base PostgreSQL existente se ejecuta `05_multiempleado.sql` antes de usar la nueva versión.
+```powershell
+.venv\Scripts\python.exe scripts\database_maintenance.py backup-sqlite
+.venv\Scripts\python.exe scripts\database_maintenance.py verify-sqlite
+.venv\Scripts\python.exe scripts\database_maintenance.py audit-sqlite
+```
 
-## Cambio delivery por período
+PostgreSQL requiere `pg_dump` y `pg_restore` instalados:
 
-`delivery_ventas` incorpora `periodo_id` y `estado_periodo`. En bases existentes se debe ejecutar `06_delivery_periodos.sql`; las ventas nuevas quedan como `en_rango`, `fuera_rango` o `sin_periodo`.
+```powershell
+.venv\Scripts\python.exe scripts\database_maintenance.py backup-postgres `
+  --url $env:DATABASE_URL
+.venv\Scripts\python.exe scripts\database_maintenance.py verify-postgres `
+  --url $env:DATABASE_URL
+```
 
-## Cambio de Nexa
+`verify-postgres` crea una base temporal con nombre aleatorio, restaura el dump,
+compara todas las tablas por número de filas y hash y elimina la base temporal.
+El usuario de mantenimiento necesita permiso `CREATEDB` para ese simulacro.
 
-`asistente_ia_consultas` registra quién consultó, el período o producto, el proveedor, el modelo, el contexto y la respuesta. No almacena claves de API. En bases existentes se debe ejecutar `07_asistente_ia.sql`.
-
-## Edición de datos extraídos del Excel
-
-`excel_detalle_ediciones` conserva el usuario, la fecha y los valores anterior/nuevo
-de cada fila modificada. En bases existentes se debe ejecutar
-`08_edicion_datos_excel.sql` antes de habilitar la cuadrícula editable.
+Los respaldos se guardan en `backups/database/`. Deben copiarse cifrados a un
+almacenamiento externo y conservarse según la política de la empresa.

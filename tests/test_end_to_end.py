@@ -197,7 +197,7 @@ class PruebaEndToEnd(unittest.TestCase):
         self.assertEqual(detalle_excel.producto_id, self.producto.id)
         self.assertEqual(detalle_excel.estado_vinculacion, "vinculado")
 
-        # 6. Ejecutar auditoría: conteo 7 frente a esperado 10 = faltante 3.
+        # 6. Ejecutar auditoría: venta teórica 3 frente a venta real 0 = faltante 3.
         resultados = ejecutar_auditoria(periodo)
         db.session.flush()
         self.assertEqual(len(resultados), 1)
@@ -205,7 +205,8 @@ class PruebaEndToEnd(unittest.TestCase):
         self.assertIsInstance(resultado, AuditoriaResultado)
         self.assertEqual(resultado.stock_esperado, 10)
         self.assertEqual(resultado.conteo_final, 7)
-        self.assertEqual(resultado.diferencia, -3)
+        self.assertEqual(resultado.venta_teorica, 3)
+        self.assertEqual(resultado.diferencia, 3)
         self.assertEqual(resultado.tipo_diferencia, "faltante")
         self.assertEqual(resultado.impacto, 3000)
         self.assertEqual(periodo.estado, "Conciliado")

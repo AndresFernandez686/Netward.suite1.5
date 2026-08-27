@@ -493,8 +493,8 @@ class PruebasExcelOficial(unittest.TestCase):
 
     def test_todos_los_productos_nuevos_aparecen_y_se_publican_al_aplicar(self):
         nuevos = [
-            Producto(nombre="Pizza", categoria="Extras", visible_empleado=False),
-            Producto(nombre="Empanada", categoria="Extras", visible_empleado=False),
+            Producto(nombre="Pizza", categoria="Fanee", visible_empleado=False),
+            Producto(nombre="Empanada", categoria="Fanee", visible_empleado=False),
         ]
         empleado = Usuario(
             username="empleado-catalogo",
@@ -534,7 +534,7 @@ class PruebasExcelOficial(unittest.TestCase):
             cliente_id=CLIENTE,
             username=empleado.username,
         )
-        self.assertNotIn("Pizza", catalogo_antes["Extras"])
+        self.assertNotIn("Pizza", catalogo_antes["Fanee"])
         self.assertEqual(catalogo_pendiente_usuario(CLIENTE, empleado.username), (True, 2))
 
         solo_envio = empleado_service.procesar_sincronizacion(
@@ -559,8 +559,8 @@ class PruebasExcelOficial(unittest.TestCase):
             cliente_id=CLIENTE,
             username=empleado.username,
         )
-        self.assertIn("Pizza", catalogo_despues["Extras"])
-        self.assertIn("Empanada", catalogo_despues["Extras"])
+        self.assertIn("Pizza", catalogo_despues["Fanee"])
+        self.assertIn("Empanada", catalogo_despues["Fanee"])
 
     def test_producto_publicado_rescata_fila_de_un_grupo_excluido(self):
         fila_pizza = fila_oficial("158", "Pizza frizzio mozzarella")

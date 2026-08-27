@@ -273,6 +273,7 @@ class PruebasFacturasOCR(unittest.TestCase):
         }
         for nombre in (
             "desc_facturas_importar", "desc_factura_detalle_actualizar",
+            "desc_facturas_detalles_guardar",
             "desc_facturas_aplicar", "desc_factura_pdf",
             "desc_factura_descargar", "desc_factura_analisis",
         ):

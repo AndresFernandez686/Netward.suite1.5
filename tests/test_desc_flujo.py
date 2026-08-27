@@ -99,6 +99,16 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn("Selecciona un período contable antes de importar.", plantilla)
         self.assertIn("Seleccionar período...", plantilla)
 
+    def test_nexa_solicita_formula_y_sustitucion_de_valores(self):
+        plantilla = (ROOT / "templates" / "admin_auditoria.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Explicar cálculo", plantilla)
+        self.assertIn("Ver fórmula", plantilla)
+        self.assertIn("sustituye cada valor", plantilla)
+        self.assertIn("por qué el sistema esperaba ese número", plantilla)
+
     def test_documentacion_oficial_no_muestra_tarjetas_de_resumen(self):
         plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
             encoding="utf-8"
@@ -164,6 +174,47 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertNotIn("Reemplazar Excel oficial</a>", detalle)
         self.assertIn("datetime.now(timezone.utc)", app)
         self.assertNotIn("datetime.utcnow().strftime", app)
+
+    def test_bajas_registradas_no_impactan_dos_veces_y_se_muestran_como_residuales(self):
+        detalle = (ROOT / "templates" / "admin_periodo_detalle.html").read_text(
+            encoding="utf-8"
+        )
+        auditoria = (ROOT / "templates" / "admin_auditoria.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Merma o averiado ya registrado", detalle)
+        self.assertIn("Producto vencido ya registrado", detalle)
+        self.assertIn("ajusteImpacta.disabled = esBajaRegistrada", detalle)
+        self.assertIn("esta baja ya fue descontada de la venta teórica", detalle)
+        self.assertIn("Averiados/merma <small>no imputable</small>", auditoria)
+        self.assertIn("Vencidos <small>no imputable</small>", auditoria)
+        self.assertIn("Diferencia residual", auditoria)
+
+    def test_pdf_usa_guardado_masivo_y_busca_todo_el_catalogo(self):
+        plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
+            encoding="utf-8"
+        )
+        inicio = plantilla.index('id="invoice-lines-form"')
+        fin = plantilla.index('class="desc-invoice-apply"', inicio)
+        revision_pdf = plantilla[inicio:fin]
+
+        self.assertIn("desc.desc_facturas_detalles_guardar", revision_pdf)
+        self.assertIn("Guardar todos en PDF", revision_pdf)
+        self.assertNotIn("invoice-line-", revision_pdf)
+        self.assertNotIn(">Guardar</button>", revision_pdf)
+        self.assertIn("{% for producto in productos_factura %}", revision_pdf)
+        self.assertNotIn("producto.categoria in permitidas", revision_pdf)
+
+    def test_categoria_visible_se_llama_fanee(self):
+        seed = (ROOT / "core" / "seed_data.py").read_text(encoding="utf-8")
+        configuracion = (ROOT / "templates" / "admin_configuracion.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('"Fanee": [', seed)
+        self.assertIn('CATEGORIAS = ["Impulsivo", "Por Kilos", CATEGORIA_FANEE]', seed)
+        self.assertIn('value="Fanee">Fanee', configuracion)
 
     def test_alta_producto_deja_la_revinculacion_para_el_boton_manual(self):
         app = (ROOT / "app.py").read_text(encoding="utf-8")

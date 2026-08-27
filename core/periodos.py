@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from sqlalchemy import or_
 
 from .models import (
     AjusteInventario, ConteoDetalle, HistorialMovimiento, InventarioItem,
     InventarioPeriodo, InventarioSnapshot, db, utc_now,
 )
+from .ajustes import MOTIVOS_BAJA_NO_IMPUTABLE
 from .time_utils import now_local_time_str, today_local_iso
 
 
@@ -60,7 +62,10 @@ def registrar_conteo_admin(
             periodo_id=periodo.id,
             producto_nombre=producto_nombre,
             impacta_stock=True,
-        ).scalar()
+        ).filter(or_(
+            AjusteInventario.motivo.is_(None),
+            AjusteInventario.motivo.notin_(tuple(MOTIVOS_BAJA_NO_IMPUTABLE)),
+        )).scalar()
         actual = float(conteo.total_unidad_base or 0) + float(ajustes_previos or 0)
         ajuste = AjusteInventario(
             periodo_id=periodo.id,
@@ -137,7 +142,10 @@ def total_conteo_con_ajustes(periodo_id: int, producto_nombre: str) -> float:
         db.func.coalesce(db.func.sum(AjusteInventario.cantidad_ajustada), 0)
     ).filter_by(
         periodo_id=periodo_id, producto_nombre=producto_nombre, impacta_stock=True,
-    ).scalar()
+    ).filter(or_(
+        AjusteInventario.motivo.is_(None),
+        AjusteInventario.motivo.notin_(tuple(MOTIVOS_BAJA_NO_IMPUTABLE)),
+    )).scalar()
     return base + float(ajustes or 0)
 
 

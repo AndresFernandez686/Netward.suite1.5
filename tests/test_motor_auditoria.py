@@ -3,6 +3,7 @@ import unittest
 from flask import Flask
 
 from core.auditoria import ejecutar_auditoria
+from core.ajustes import ajuste_es_baja_no_imputable
 from core.models import (
     AjusteInventario,
     AuditoriaResultado,
@@ -221,6 +222,28 @@ class PruebasMotorAuditoria(unittest.TestCase):
         resultado = self.resultado_unico(periodo)
 
         self.assertEqual(resultado.stock_esperado, 86)
+        self.assertEqual(resultado.venta_teorica, 30)
+        self.assertEqual(resultado.diferencia, 0)
+
+    def test_formula_oficial_venta_teorica_menos_venta_real(self):
+        producto = self.crear_producto("Bombon suizo x unidad")
+        periodo = self.crear_periodo(1)
+        self.agregar_conteo(periodo, producto, 5)
+        self.agregar_excel(
+            periodo,
+            producto,
+            stock_inicial=136,
+            compras=48,
+            ventas=256,
+            costo=6500,
+        )
+
+        resultado = self.resultado_unico(periodo)
+
+        self.assertEqual(resultado.venta_teorica, 179)
+        self.assertEqual(resultado.diferencia, -77)
+        self.assertEqual(resultado.tipo_diferencia, "sobrante")
+        self.assertEqual(resultado.impacto, 500500)
 
     def test_formula_conteo_final(self):
         producto = self.crear_producto("Conteo final")
@@ -254,7 +277,9 @@ class PruebasMotorAuditoria(unittest.TestCase):
 
         self.assertEqual(resultado.stock_esperado, 10)
         self.assertEqual(resultado.conteo_final, 7)
-        self.assertEqual(resultado.diferencia, -3)
+        self.assertEqual(resultado.venta_teorica, 3)
+        self.assertEqual(resultado.diferencia, 3)
+        self.assertEqual(resultado.tipo_diferencia, "faltante")
 
     def test_tipos_de_diferencia_y_regla_stock_cero(self):
         periodo = self.crear_periodo(1)
@@ -313,7 +338,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
 
         resultado = self.resultado_unico(periodo)
 
-        self.assertEqual(resultado.diferencia, -3)
+        self.assertEqual(resultado.diferencia, 3)
         self.assertEqual(resultado.costo_unitario, 500)
         self.assertEqual(resultado.impacto, 1500)
         self.assertEqual(resultado.fuente_costo, "Precio interno")
@@ -339,7 +364,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         producto = self.crear_producto("Error conteo")
         anterior = self.crear_periodo(1)
         self.agregar_resultado_anterior(
-            anterior, producto, conteo_final=10, diferencia=10
+            anterior, producto, conteo_final=10, diferencia=-10
         )
         actual = self.crear_periodo(
             2, desde="2026-08-09", hasta="2026-08-16"
@@ -351,13 +376,13 @@ class PruebasMotorAuditoria(unittest.TestCase):
 
         self.assertEqual(resultado.causa_sugerida, "Error de conteo")
         self.assertEqual(resultado.nivel_confianza, "Medio")
-        self.assertEqual(resultado.diferencia_anterior_compensada, 10)
+        self.assertEqual(resultado.diferencia_anterior_compensada, -10)
 
-    def test_causa_merma(self):
+    def test_merma_reduce_esperado_una_vez_y_no_genera_impacto(self):
         producto = self.crear_producto("Producto con merma")
         periodo = self.crear_periodo(1)
-        self.agregar_conteo(periodo, producto, 4)
-        self.agregar_excel(periodo, producto, stock_inicial=10)
+        self.agregar_conteo(periodo, producto, 7)
+        self.agregar_excel(periodo, producto, stock_inicial=10, costo=1000)
         db.session.add(RegistroAveriado(
             cliente_id=CLIENTE,
             tienda_id=TIENDA,
@@ -373,15 +398,21 @@ class PruebasMotorAuditoria(unittest.TestCase):
 
         resultado = self.resultado_unico(periodo)
 
-        self.assertEqual(resultado.causa_sugerida, "Merma o averiado")
+        self.assertEqual(resultado.stock_esperado, 7)
+        self.assertEqual(resultado.conteo_final, 7)
+        self.assertEqual(resultado.diferencia, 0)
+        self.assertEqual(resultado.impacto, 0)
+        self.assertEqual(resultado.causa_sugerida, "Sin diferencia")
         self.assertEqual(resultado.cantidad_merma, 3)
         self.assertEqual(resultado.nivel_confianza, "Alto")
+        self.assertIn("Bajas no imputables al empleado", resultado.evidencia)
+        self.assertIn("descontadas una sola vez", resultado.evidencia)
 
-    def test_causa_producto_vencido(self):
+    def test_vencido_reduce_esperado_una_vez_y_no_genera_impacto(self):
         producto = self.crear_producto("Producto vencido")
         periodo = self.crear_periodo(1)
-        self.agregar_conteo(periodo, producto, 4)
-        self.agregar_excel(periodo, producto, stock_inicial=10)
+        self.agregar_conteo(periodo, producto, 7)
+        self.agregar_excel(periodo, producto, stock_inicial=10, costo=1000)
         db.session.add(RegistroVencimiento(
             cliente_id=CLIENTE,
             tienda_id=TIENDA,
@@ -398,9 +429,63 @@ class PruebasMotorAuditoria(unittest.TestCase):
 
         resultado = self.resultado_unico(periodo)
 
-        self.assertEqual(resultado.causa_sugerida, "Producto vencido")
+        self.assertEqual(resultado.stock_esperado, 7)
+        self.assertEqual(resultado.diferencia, 0)
+        self.assertEqual(resultado.impacto, 0)
+        self.assertEqual(resultado.causa_sugerida, "Sin diferencia")
         self.assertEqual(resultado.cantidad_vencida, 3)
         self.assertEqual(resultado.nivel_confianza, "Alto")
+        self.assertIn("Bajas no imputables al empleado", resultado.evidencia)
+
+    def test_merma_no_se_reutiliza_para_justificar_diferencia_residual(self):
+        producto = self.crear_producto("Producto con faltante residual")
+        periodo = self.crear_periodo(1)
+        self.agregar_conteo(periodo, producto, 4)
+        self.agregar_excel(periodo, producto, stock_inicial=10, costo=1000)
+        db.session.add(RegistroAveriado(
+            cliente_id=CLIENTE, tienda_id=TIENDA, fecha="2026-08-03",
+            usuario="empleado", categoria="Pruebas", producto=producto.nombre,
+            cantidad=3, cantidad_unidades=3, sinc_estado="sincronizado",
+        ))
+        db.session.flush()
+
+        resultado = self.resultado_unico(periodo)
+
+        self.assertEqual(resultado.stock_esperado, 7)
+        self.assertEqual(resultado.diferencia, 3)
+        self.assertEqual(resultado.impacto, 3000)
+        self.assertEqual(resultado.causa_sugerida, "Pendiente de revisión")
+        self.assertNotEqual(resultado.causa_sugerida, "Merma o averiado")
+        self.assertIn("diferencia residual de +3.0", resultado.evidencia)
+        self.assertIn("independiente de esas bajas", resultado.evidencia)
+
+    def test_ajuste_de_baja_ya_registrada_no_duplica_descuento(self):
+        producto = self.crear_producto("Producto con ajuste duplicado")
+        periodo = self.crear_periodo(1)
+        self.agregar_conteo(periodo, producto, 7)
+        self.agregar_excel(periodo, producto, stock_inicial=10, costo=1000)
+        db.session.add_all([
+            RegistroAveriado(
+                cliente_id=CLIENTE, tienda_id=TIENDA, fecha="2026-08-03",
+                usuario="empleado", categoria="Pruebas", producto=producto.nombre,
+                cantidad=3, cantidad_unidades=3, sinc_estado="sincronizado",
+            ),
+            AjusteInventario(
+                periodo_id=periodo.id, cliente_id=CLIENTE,
+                producto_nombre=producto.nombre, usuario_admin="admin",
+                cantidad_ajustada=-3, motivo="Merma o averiado ya registrado",
+                impacta_stock=True,
+            ),
+        ])
+        db.session.flush()
+
+        resultado = self.resultado_unico(periodo)
+
+        self.assertTrue(ajuste_es_baja_no_imputable("Merma o averiado ya registrado"))
+        self.assertEqual(resultado.ajuste_admin, 0)
+        self.assertEqual(resultado.conteo_final, 7)
+        self.assertEqual(resultado.diferencia, 0)
+        self.assertEqual(resultado.impacto, 0)
 
     def test_causa_inconsistencia_de_continuidad(self):
         producto = self.crear_producto("Continuidad")
@@ -439,8 +524,8 @@ class PruebasMotorAuditoria(unittest.TestCase):
             2, desde="2026-08-09", hasta="2026-08-16"
         )
         casos = [
-            ("Confianza alta", 10, 0, "Alto"),
-            ("Confianza media", 10, 3, "Medio"),
+            ("Confianza alta", -10, 0, "Alto"),
+            ("Confianza media", -10, 3, "Medio"),
             ("Confianza baja", 0, 9, "Bajo"),
         ]
         for nombre, diferencia_anterior, conteo_actual, _ in casos:
@@ -493,7 +578,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         producto = self.crear_producto("Anterior compensado")
         anterior = self.crear_periodo(1)
         self.agregar_resultado_anterior(
-            anterior, producto, conteo_final=10, diferencia=10
+            anterior, producto, conteo_final=10, diferencia=-10
         )
         actual = self.crear_periodo(
             2, desde="2026-08-09", hasta="2026-08-16"
@@ -503,7 +588,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
 
         resultado = self.resultado_unico(actual)
 
-        self.assertEqual(resultado.diferencia_anterior_compensada, 10)
+        self.assertEqual(resultado.diferencia_anterior_compensada, -10)
 
     def test_dif_anterior_inicializado_en_rama_sin_diferencia(self):
         producto = self.crear_producto("Inicialización segura")

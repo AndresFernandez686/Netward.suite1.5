@@ -55,7 +55,7 @@
         {% if resultados %}
         <div class="audit-table-wrap">
           <table class="audit-table" id="auditTable">
-            <thead><tr><th>Estado</th><th>Producto</th><th>Código</th><th>Categoría</th><th class="num">Sist. teórico</th><th class="num">Conteo físico</th><th class="num">Diferencia</th><th class="num">Impacto (Gs.)</th><th>Observación</th></tr></thead>
+            <thead><tr><th>Estado</th><th>Producto</th><th>Código</th><th>Categoría</th><th class="num">Venta teórica</th><th class="num">Venta real</th><th class="num">Diferencia</th><th class="num">Impacto (Gs.)</th><th>Observación</th></tr></thead>
             <tbody>
               {% for r in resultados %}
               {% set visual_state = 'sin_datos' if r.estado_auditoria == 'Sin datos' else ('critico' if r.severidad == 'Crítico' else ('pendiente' if r.estado_auditoria == 'Pendiente' else r.tipo_diferencia)) %}
@@ -64,18 +64,19 @@
                 <td><strong>{{ r.producto_nombre }}</strong></td>
                 <td><span class="audit-code">{{ r.articulo_codigo or '—' }}</span></td>
                 <td>{{ r.categoria or '—' }}</td>
-                <td class="num">{{ '{:,.2f}'.format(r.stock_esperado).rstrip('0').rstrip('.') }}</td>
-                <td class="num">{{ '{:,.2f}'.format(r.conteo_final).rstrip('0').rstrip('.') }}</td>
-                <td class="num audit-difference {{ 'is-negative' if r.diferencia < 0 else ('is-positive' if r.diferencia > 0 else '') }}">{{ '{:+,.2f}'.format(r.diferencia).rstrip('0').rstrip('.') if r.diferencia else '—' }}</td>
+                <td class="num">{{ '{:,.2f}'.format(r.venta_teorica).rstrip('0').rstrip('.') }}</td>
+                <td class="num">{{ '{:,.2f}'.format(r.ventas).rstrip('0').rstrip('.') }}</td>
+                <td class="num audit-difference {{ 'is-negative' if r.tipo_diferencia == 'faltante' else ('is-positive' if r.tipo_diferencia == 'sobrante' else '') }}">{{ '{:+,.2f}'.format(r.diferencia).rstrip('0').rstrip('.') if r.diferencia else '—' }}</td>
                 <td class="num audit-impact {{ 'is-negative' if r.tipo_diferencia == 'faltante' and r.impacto else ('is-positive' if r.tipo_diferencia == 'sobrante' and r.impacto else '') }}">{{ ('-' if r.tipo_diferencia == 'faltante' and r.impacto else ('+' if r.tipo_diferencia == 'sobrante' and r.impacto else '')) ~ "{:,.0f}".format(r.impacto).replace(',', '.') if r.impacto else '—' }}</td>
                 <td><button type="button" class="audit-detail-toggle" aria-expanded="false" aria-controls="audit-detail-{{ r.id }}">{{ r.causa_sugerida or 'Ver detalle' }} <span aria-hidden="true">›</span></button></td>
               </tr>
               <tr class="audit-detail-row" id="audit-detail-{{ r.id }}" hidden><td colspan="9"><div class="audit-detail-grid">
                 <div class="audit-detail-numbers"><h3>Detalle del cálculo</h3><dl>
-                  <div><dt>Stock inicial anterior</dt><dd>{{ r.stock_inicial_anterior }}</dd></div><div><dt>Stock inicial Excel</dt><dd>{{ r.stock_inicial_excel }}</dd></div><div><dt>Compras</dt><dd>{{ r.compras }}</dd></div><div><dt>Ventas</dt><dd>{{ r.ventas }}</dd></div><div><dt>Ajuste administrativo</dt><dd>{{ '%+.1f'|format(r.ajuste_admin) }}</dd></div>
+                  <div><dt>Stock inicial anterior</dt><dd>{{ r.stock_inicial_anterior }}</dd></div><div><dt>Stock inicial Excel</dt><dd>{{ r.stock_inicial_excel }}</dd></div><div><dt>Compras</dt><dd>{{ r.compras }}</dd></div><div><dt>Stock final físico</dt><dd>{{ r.conteo_final }}</dd></div><div><dt>Venta teórica</dt><dd>{{ r.venta_teorica }}</dd></div><div><dt>Venta real</dt><dd>{{ r.ventas }}</dd></div><div><dt>Ajuste administrativo</dt><dd>{{ '%+.1f'|format(r.ajuste_admin) }}</dd></div>
+                  <div><dt>Averiados/merma <small>no imputable</small></dt><dd>{{ ('-%g'|format(r.cantidad_merma)) if r.cantidad_merma else '—' }}</dd></div><div><dt>Vencidos <small>no imputable</small></dt><dd>{{ ('-%g'|format(r.cantidad_vencida)) if r.cantidad_vencida else '—' }}</dd></div><div><dt>Diferencia residual</dt><dd>{{ ('%+.1f'|format(r.diferencia)) if r.diferencia else '—' }}</dd></div>
                 </dl></div>
                 <div class="audit-detail-actions"><h3>Diagnóstico y acciones</h3><p>{{ r.evidencia or 'Sin observaciones adicionales.' }}</p><p class="audit-detail-meta">Confianza {{ r.nivel_confianza }} · Estado {{ r.estado_auditoria }}{% if r.usuario_conteo %} · Conteo por {{ r.usuario_conteo }}{% endif %}</p>
-                  <button type="button" class="btn btn--ghost btn--sm audit-ai-explain" data-ai-open data-ai-result-id="{{ r.id }}" data-ai-context="{{ r.producto_nombre|e }}"><span aria-hidden="true">✦</span> Explicar con IA</button>
+                  <button type="button" class="btn btn--ghost btn--sm audit-ai-explain" data-ai-open data-ai-result-id="{{ r.id }}" data-ai-context="{{ r.producto_nombre|e }}"><span aria-hidden="true">✦</span> Explicar cálculo</button>
                   {% for j in r.justificaciones %}<div class="audit-justification"><strong>{{ j.causa }}</strong> · {{ j.cantidad_justificada }} unid.<br>{{ j.observacion }} <small>· {{ j.usuario }}</small></div>{% endfor %}
                   {% if r.diferencia != 0 and r.estado_auditoria not in ('Justificado', 'Revisado', 'Sin diferencia real', 'Sin datos') %}<div class="audit-row-actions"><details><summary class="btn btn--ghost btn--sm">Justificar diferencia</summary><form method="post" action="{{ url_for('admin_justificar', periodo_id=periodo.id, resultado_id=r.id) }}" class="audit-justify-form"><label>Causa<select name="causa" required>{% for c in causas_disponibles %}<option>{{ c }}</option>{% endfor %}</select></label><label>Cantidad<input type="number" name="cantidad_justificada" step="0.01" min="0" value="{{ r.diferencia|abs }}"></label><label>Observación<input type="text" name="observacion" maxlength="400" required></label><button type="submit" class="btn btn--primary btn--sm">Guardar</button></form></details><form method="post" action="{{ url_for('admin_marcar_revisado', periodo_id=periodo.id, resultado_id=r.id) }}"><button type="submit" class="btn btn--ghost btn--sm">Marcar revisado</button></form></div>{% endif %}
                 </div>
@@ -119,6 +120,7 @@
     <div class="audit-ai-notice">Las respuestas son explicativas. No cambian los cálculos ni el estado oficial de la auditoría.</div>
     <div class="audit-ai-messages" id="auditAiMessages" aria-live="polite"></div>
     <div class="audit-ai-prompts">
+      <button type="button" data-ai-question="Muéstrame las fórmulas, sustituye cada valor y explica por qué el sistema esperaba ese número.">Ver fórmula</button>
       <button type="button" data-ai-question="¿Cuáles son las evidencias que explican este resultado?">Ver evidencias</button>
       <button type="button" data-ai-question="¿Qué debería verificar primero el administrador?">Qué revisar primero</button>
       <button type="button" data-ai-question="Explícalo de forma breve y sencilla.">Resumen sencillo</button>
@@ -187,7 +189,7 @@
     document.getElementById('auditAiContext').textContent = button.dataset.aiContext || 'Período #{{ periodo.numero }}';
     drawer.classList.add('is-open'); drawer.setAttribute('aria-hidden', 'false'); overlay.hidden = false;
     if (!messages.children.length || currentResultId) {
-      askAssistant(currentResultId ? 'Explica esta diferencia, sus evidencias y qué debería verificar.' : 'Resume los principales hallazgos de este período y qué debería revisar primero.');
+      askAssistant(currentResultId ? 'Explica las fórmulas, sustituye cada valor y justifica por qué el sistema esperaba ese número y obtuvo esta diferencia.' : 'Resume los principales hallazgos de este período y qué debería revisar primero.');
     } else { question.focus(); }
   }
   function closeAssistant() { drawer.classList.remove('is-open'); drawer.setAttribute('aria-hidden', 'true'); overlay.hidden = true; }
