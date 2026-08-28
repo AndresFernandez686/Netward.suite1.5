@@ -56,10 +56,15 @@ def estado_actualizacion_auditoria(periodo, *, catalogo_pendiente: bool = False)
         AuditoriaResultado.cliente_id == periodo.cliente_id,
     ).scalar()
     ubicacion = "Auditoría → abrir período → barra superior"
+    pasos = [
+        "Revisa los cambios indicados y completa cualquier dato documental pendiente.",
+        "Abre la Auditoría de este período.",
+        "Pulsa el botón rojo «Re-ejecutar auditoría» y revisa los resultados actualizados.",
+    ]
     if ultima is None:
         return {"ejecutada": False, "desactualizada": False,
                 "ultima_ejecucion": None, "ultima_actualizacion": None,
-                "motivos": [], "ubicacion": ubicacion}
+                "motivos": [], "ubicacion": ubicacion, "pasos": pasos}
 
     fuentes = [
         (db.session.query(db.func.max(ExcelImportado.fecha_importacion)).filter_by(
@@ -114,4 +119,4 @@ def estado_actualizacion_auditoria(periodo, *, catalogo_pendiente: bool = False)
     return {"ejecutada": True, "desactualizada": bool(motivos),
             "ultima_ejecucion": ultima,
             "ultima_actualizacion": max(fechas_posteriores, default=None),
-            "motivos": motivos, "ubicacion": ubicacion}
+            "motivos": motivos, "ubicacion": ubicacion, "pasos": pasos}

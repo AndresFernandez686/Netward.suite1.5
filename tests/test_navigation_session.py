@@ -42,6 +42,26 @@ class PruebasNavegacionSesion(unittest.TestCase):
         self.assertNotIn('id="auditAiDrawer"', auditoria)
         self.assertIn("data-ai-url", auditoria)
 
+    def test_nexa_es_panel_integrado_y_empuja_el_contenido(self):
+        base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
+        estilos = (ROOT / "static" / "css" / "admin.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="admin-stage"', base)
+        self.assertNotIn("audit-ai-overlay", base)
+        self.assertIn("document.body.classList.add('nexa-is-open')", base)
+        self.assertIn(".admin-stage > .content", estilos)
+        self.assertIn("flex-basis: clamp(350px, 30vw, 420px)", estilos)
+        self.assertIn(".admin-stage { flex-direction: column; }", estilos)
+        self.assertNotIn(".audit-ai-overlay", estilos)
+
+    def test_periodos_no_muestra_tarjeta_para_cargar_excel(self):
+        periodo = (ROOT / "templates" / "admin_periodo_detalle.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("Documentación Oficial del período", periodo)
+        self.assertNotIn('id="periodo-excel-form"', periodo)
+        self.assertNotIn('id="periodo-excel-button"', periodo)
+
     def test_login_restablece_el_boton_al_volver_desde_historial(self):
         javascript = (ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")

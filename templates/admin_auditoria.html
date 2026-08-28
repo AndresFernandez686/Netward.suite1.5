@@ -40,7 +40,10 @@
   <div class="audit-stale-alert" role="alert">
     <div><strong>Auditoría desactualizada.</strong> Cambiaron datos después de la última ejecución:</div>
     <ul>{% for motivo in estado_actualizacion_auditoria.motivos %}<li>{{ motivo }}</li>{% endfor %}</ul>
-    <p>Re-ejecútala desde <strong>{{ estado_actualizacion_auditoria.ubicacion }}</strong>; es el botón rojo que aparece arriba.</p>
+    <ol class="audit-stale-steps">
+      {% for paso in estado_actualizacion_auditoria.pasos %}<li>{{ paso }}</li>{% endfor %}
+    </ol>
+    <p>Ubicación: <strong>{{ estado_actualizacion_auditoria.ubicacion }}</strong>.</p>
   </div>
   {% endif %}
 

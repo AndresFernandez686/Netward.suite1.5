@@ -2297,6 +2297,8 @@ body.periodos-help-open {
 .audit-stale-alert { border: 1px solid #f3a4ab; border-left: 4px solid #dc3545; border-radius: 10px; background: #fff3f4; color: #7f1d2d; padding: 12px 15px; font-size: .82rem; }
 .audit-stale-alert ul { display: flex; flex-wrap: wrap; gap: 5px 22px; margin: 8px 0; padding-left: 20px; }
 .audit-stale-alert p { margin: 0; }
+.audit-stale-steps { margin: 9px 0; padding-left: 22px; }
+.audit-stale-steps li + li { margin-top: 4px; }
 .desc-sync-button.is-urgent { border-color: #dc3545 !important; background: #dc3545 !important; color: #fff !important; box-shadow: 0 5px 14px rgba(220, 53, 69, .18); }
 .desc-sync-button.is-urgent .desc-sync-badge { background: #fff; color: #b42332; }
 .audit-layout { width: 100%; }
@@ -2383,10 +2385,48 @@ body.periodos-help-open {
 .audit-timeline p { margin: 0; color: #526078; font-size: .68rem; line-height: 1.45; }
 .sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
-/* ---------- Nexa: analista IA de auditoría ---------- */
-.audit-ai-overlay { position: fixed; inset: 0; z-index: 1090; background: rgba(15, 23, 42, .34); backdrop-filter: blur(1px); }
-.audit-ai-drawer { position: fixed; z-index: 1100; top: 0; right: 0; display: flex; flex-direction: column; width: min(440px, 100vw); height: 100vh; padding: 20px; background: #fff; box-shadow: -18px 0 50px rgba(15, 23, 42, .18); transform: translateX(105%); transition: transform .22s ease; visibility: hidden; }
-.audit-ai-drawer.is-open { transform: translateX(0); visibility: visible; }
+/* ---------- Nexa: panel lateral integrado ---------- */
+.admin-stage {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
+  min-width: 0;
+  width: 100%;
+}
+.admin-stage > .content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.audit-ai-drawer {
+  position: sticky;
+  z-index: 10;
+  top: 82px;
+  align-self: flex-start;
+  display: flex;
+  flex: 0 0 0;
+  flex-direction: column;
+  width: 0;
+  height: calc(100vh - 82px);
+  padding: 20px 0;
+  overflow: hidden;
+  border-left: 0 solid #e2e8f0;
+  background: #fff;
+  box-shadow: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: flex-basis .22s ease, width .22s ease, padding .22s ease,
+              border-width .22s ease, opacity .16s ease;
+}
+.audit-ai-drawer.is-open {
+  flex-basis: clamp(350px, 30vw, 420px);
+  width: clamp(350px, 30vw, 420px);
+  padding: 20px;
+  overflow: hidden;
+  border-left-width: 1px;
+  box-shadow: -8px 0 24px rgba(15, 23, 42, .07);
+  opacity: 1;
+  visibility: visible;
+}
 .audit-ai-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid #e6eaf1; }
 .audit-ai-header h2 { margin: 3px 0 0; color: var(--ink); font-size: 1.05rem; }
 .audit-ai-kicker { color: #6256d9; font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
@@ -2417,6 +2457,11 @@ body.periodos-help-open {
 @media (max-width: 980px) {
   .audit-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .audit-search, .audit-date-filter { grid-column: span 2; }
+  .audit-ai-drawer.is-open {
+    flex-basis: 340px;
+    width: 340px;
+    padding: 16px;
+  }
 }
 
 @media (max-width: 680px) {
@@ -2429,6 +2474,43 @@ body.periodos-help-open {
   .audit-justify-form { grid-template-columns: 1fr; min-width: 240px; }
   .nexa-topbar-button > span:last-child { display: none; }
   .nexa-topbar-button { min-width: 34px; padding-inline: 9px; }
+}
+
+@media (max-width: 720px) {
+  .admin-stage { flex-direction: column; }
+  .audit-ai-drawer {
+    position: relative;
+    top: auto;
+    order: -1;
+    align-self: stretch;
+    width: 100%;
+    height: 0;
+    max-height: 0;
+    padding: 0 14px;
+    border-bottom: 0 solid #e2e8f0;
+    border-left: 0;
+    transition: max-height .22s ease, height .22s ease, padding .22s ease,
+                border-width .22s ease, opacity .16s ease;
+  }
+  .audit-ai-drawer.is-open {
+    flex-basis: auto;
+    width: 100%;
+    height: min(68dvh, 620px);
+    max-height: min(68dvh, 620px);
+    padding: 16px 14px;
+    border-bottom-width: 1px;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, .06);
+  }
+  .audit-ai-header { padding-bottom: 10px; }
+  .audit-ai-status { margin-top: 9px; }
+  .audit-ai-context { margin-top: 8px; }
+  .audit-ai-notice { margin-top: 7px; }
+  .audit-ai-messages { min-height: 110px; margin-top: 10px; }
+}
+
+@media (max-width: 480px) {
+  .audit-ai-form { grid-template-columns: 1fr; }
+  .audit-ai-form button { width: 100%; }
 }
 
 @media (max-width: 1080px) {

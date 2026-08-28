@@ -38,7 +38,9 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     NotificacionUsuario, AsistenteIAConsulta)
 from core.auditoria import (ejecutar_auditoria, build_reporte_gerencial,
                             marcar_resultado_revisado)
-from core.auditoria_estado import estado_actualizacion_auditoria, marcar_cambio_catalogo
+from core.auditoria_estado import (
+    estado_actualizacion_auditoria, marcar_cambio_auditoria, marcar_cambio_catalogo,
+)
 from core.ajustes import ajuste_es_baja_no_imputable
 from core.excel_importer import importar_excel_transaccional
 from core.sync_bridge import (propagar_conteo_a_periodo, retroalimentar_periodo_desde_items,
@@ -61,8 +63,8 @@ from core.admin_feedback import set_view_notice, pop_view_notice
 from core.time_utils import today_local_iso, format_utc_naive_to_local
 from core.security import rol_permitido
 from core.periodos import (
-    asegurar_conteo_admin, registrar_conteo_admin,
-    registrar_estado_operativo_admin, total_conteo_con_ajustes,
+    asegurar_conteo_admin, registrar_estado_operativo_admin,
+    total_conteo_con_ajustes,
 )
 from core.ai_assistant import (AIConfig, build_period_context,
                                build_product_context, explain)
@@ -2451,6 +2453,34 @@ def _tipos_alerta_leidos(cliente_id: str, username: str) -> set[tuple[str, int]]
     return {(tipo, int(ref or 0)) for tipo, ref in filas}
 
 
+def _resolver_notificaciones_de_carga(cliente_id: str, username: str) -> list:
+    """Retira cargas pendientes cuando el período ya fue auditado o ya no existe."""
+    cargas = (
+        NotificacionUsuario.query
+        .filter_by(cliente_id=cliente_id, username=username, tipo="periodo_cargado", leida=False)
+        .order_by(NotificacionUsuario.id.desc()).limit(80).all()
+    )
+    activas = []
+    hubo_cambios = False
+    for notificacion in cargas:
+        periodo = (
+            db.session.get(InventarioPeriodo, notificacion.referencia_id)
+            if notificacion.referencia_id else None
+        )
+        resuelta = periodo is None
+        if periodo is not None:
+            estado = estado_actualizacion_auditoria(periodo)
+            resuelta = estado["ejecutada"] and not estado["desactualizada"]
+        if resuelta:
+            notificacion.leida = True
+            hubo_cambios = True
+        else:
+            activas.append(notificacion)
+    if hubo_cambios:
+        db.session.commit()
+    return activas
+
+
 def _construir_alertas_admin(cliente_id: str, username: str, tienda_sel: str) -> list[dict]:
     """Unifica notificaciones persistentes y condiciones operativas activas."""
     cache_key = (cliente_id, username, tienda_sel)
@@ -2485,11 +2515,7 @@ def _construir_alertas_admin(cliente_id: str, username: str, tienda_sel: str) ->
             "orden": datetime.now(),
         })
 
-    cargas = (
-        NotificacionUsuario.query
-        .filter_by(cliente_id=cliente_id, username=username, tipo="periodo_cargado", leida=False)
-        .order_by(NotificacionUsuario.id.desc()).limit(80).all()
-    )
+    cargas = _resolver_notificaciones_de_carga(cliente_id, username)
     for n in cargas:
         alertas.append({
             "tipo": "carga", "tono": "success", "icono": "✓",
@@ -2568,13 +2594,17 @@ def _construir_alertas_admin(cliente_id: str, username: str, tienda_sel: str) ->
         if not estado["desactualizada"] or not estado["ultima_ejecucion"]:
             continue
         version_alerta = estado["ultima_actualizacion"] or estado["ultima_ejecucion"]
-        tipo_auditoria = f"alerta_auditoria_{int(version_alerta.timestamp())}"
+        version_id = int(version_alerta.timestamp() * 1_000_000)
+        tipo_auditoria = f"alerta_auditoria_{version_id}"
         if (tipo_auditoria, periodo.id) in leidas:
             continue
         alertas.append({
             "tipo": "auditoria", "tono": "danger", "icono": "↻",
             "titulo": f"Re-ejecutar auditoría · Período #{periodo.numero}",
-            "detalle": "; ".join(estado["motivos"][:3]),
+            "detalle": (
+                "; ".join(estado["motivos"][:3])
+                + ". Abre la auditoría y pulsa el botón rojo «Re-ejecutar auditoría»."
+            ),
             "meta": tiendas_map.get(periodo.tienda_id, periodo.tienda_id),
             "destino": url_for("admin_alerta_ir", tipo="auditoria", referencia_id=periodo.id),
             "orden": estado["ultima_ejecucion"],
@@ -2644,7 +2674,8 @@ def admin_alerta_ir(tipo, referencia_id):
             )
             version_alerta = estado["ultima_actualizacion"] or estado["ultima_ejecucion"]
             if version_alerta:
-                tipo_guardado = f"alerta_auditoria_{int(version_alerta.timestamp())}"
+                version_id = int(version_alerta.timestamp() * 1_000_000)
+                tipo_guardado = f"alerta_auditoria_{version_id}"
                 titulo = f"Re-ejecutar auditoría · Período #{registro.numero}"
                 destino = url_for("admin_auditoria", periodo_id=registro.id)
 
@@ -3552,20 +3583,18 @@ def admin_periodo_cerrar(periodo_id):
     return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
 
-def _refrescar_auditoria_por_cambio_admin(periodo):
-    """Recalcula resultados existentes sin borrar justificaciones manuales."""
-    resultados = (
-        AuditoriaResultado.query.filter_by(periodo_id=periodo.id)
+def _marcar_auditoria_por_cambio_admin(periodo, motivo: str) -> bool:
+    """Marca una auditoría existente como pendiente sin recalcularla en silencio."""
+    tiene_auditoria = (
+        AuditoriaResultado.query.filter_by(
+            periodo_id=periodo.id, cliente_id=periodo.cliente_id,
+        )
         .filter(AuditoriaResultado.estado_auditoria != "Archivado")
-        .all()
+        .first()
+        is not None
     )
-    if not resultados:
-        return "sin_auditoria"
-    resultado_ids = [resultado.id for resultado in resultados]
-    if Justificacion.query.filter(Justificacion.resultado_id.in_(resultado_ids)).first():
-        return "requiere_revision"
-    ejecutar_auditoria(periodo)
-    return "actualizada"
+    marcar_cambio_auditoria(periodo.id, periodo.cliente_id, motivo)
+    return tiene_auditoria
 
 
 @app.route("/admin/periodos/<int:periodo_id>/ajuste", methods=["POST"])
@@ -3628,15 +3657,20 @@ def admin_periodo_ajuste(periodo_id):
             db.session.rollback()
             flash(str(exc), "warning")
             return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
-    estado_auditoria = (
-        _refrescar_auditoria_por_cambio_admin(periodo)
-        if impacta_stock else "sin_cambio"
+    auditoria_pendiente = _marcar_auditoria_por_cambio_admin(
+        periodo,
+        "Ajuste administrativo agregado"
+        + (" con impacto en stock" if impacta_stock else " sin impacto en stock"),
     )
     db.session.commit()
     impacto = f" Stock final: {cantidad_final:g} unidades." if impacta_stock else " Sin impacto en stock."
     flash(f"Ajuste de {cantidad:+.1f} agregado a '{producto_nombre}'.{impacto}", "success")
-    if estado_auditoria == "requiere_revision":
-        flash("La Auditoría tiene justificaciones manuales: revisálas antes de re-ejecutarla.", "warning")
+    if auditoria_pendiente:
+        flash(
+            "La auditoría quedó desactualizada. Sigue el aviso rojo y pulsa "
+            "«Re-ejecutar auditoría» para aplicar los nuevos datos.",
+            "warning",
+        )
     return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
 
@@ -4175,63 +4209,6 @@ def admin_auditoria_exportar(periodo_id):
         download_name=f"auditoria_inv{periodo.numero}_{periodo.fecha_desde}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-
-
-@app.route("/admin/periodos/<int:periodo_id>/conteo/manual", methods=["POST"])
-@login_required(rol="administrador")
-def admin_conteo_manual(periodo_id):
-    """Permite que el admin cargue un conteo directamente (sin pasar por el empleado)."""
-    cliente_id = get_cliente_filtro()
-    periodo = db.session.get(InventarioPeriodo, periodo_id)
-    if not periodo or periodo.cliente_id != cliente_id:
-        abort(404)
-
-    producto_nombre = (request.form.get("producto_nombre") or "").strip()
-    categoria = (request.form.get("categoria") or "").strip()
-    try:
-        cantidad = float(request.form.get("cantidad", 0))
-    except (ValueError, TypeError):
-        flash("Cantidad inválida.", "error")
-        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
-
-    if not producto_nombre:
-        flash("Seleccioná un producto.", "warning")
-        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
-
-    producto = Producto.query.filter_by(nombre=producto_nombre, categoria=categoria).first()
-    if producto is None:
-        flash("Seleccioná un producto válido del catálogo.", "warning")
-        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
-
-    try:
-        tipo_registro, _ = registrar_conteo_admin(
-            periodo,
-            producto_nombre=producto_nombre,
-            categoria=categoria,
-            cantidad=cantidad,
-            usuario=session["usuario"],
-            observacion=(request.form.get("observacion") or "").strip(),
-        )
-    except ValueError as exc:
-        flash(str(exc), "warning")
-        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
-    try:
-        registrar_estado_operativo_admin(
-            periodo, producto_nombre=producto_nombre, categoria=categoria,
-            cantidad_final=cantidad, usuario=session["usuario"],
-            detalle="Conteo manual registrado por administrador.",
-        )
-    except ValueError as exc:
-        db.session.rollback()
-        flash(str(exc), "warning")
-        return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
-    estado_auditoria = _refrescar_auditoria_por_cambio_admin(periodo)
-    db.session.commit()
-    mensaje = "Ajuste histórico trazable" if tipo_registro == "ajuste" else "Conteo"
-    flash(f"{mensaje} de '{producto_nombre}': {cantidad:.1f} unidades guardado.", "success")
-    if estado_auditoria == "requiere_revision":
-        flash("La Auditoría tiene justificaciones manuales: revisálas antes de re-ejecutarla.", "warning")
-    return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
 
 
 @app.route("/admin/periodos/config/autoclose", methods=["GET", "POST"])

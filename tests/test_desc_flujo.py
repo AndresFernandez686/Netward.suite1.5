@@ -165,17 +165,19 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertNotIn("Ver factura", historial)
         self.assertNotIn("desc-rules-grid", plantilla)
 
-    def test_auditoria_remite_al_unico_importador_y_datetime_es_compatible(self):
+    def test_periodos_no_duplica_el_importador_y_datetime_es_compatible(self):
         detalle = (ROOT / "templates" / "admin_periodo_detalle.html").read_text(
             encoding="utf-8"
         )
+        base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
         app = (ROOT / "app.py").read_text(encoding="utf-8")
 
         self.assertNotIn('name="archivo_excel"', detalle)
-        self.assertIn("desc.admin_desc", detalle)
-        self.assertIn('id="periodo-excel-input"', detalle)
-        self.assertIn('name="return_to" value="periodo"', detalle)
-        self.assertIn("excelForm.requestSubmit()", detalle)
+        self.assertNotIn("desc.admin_desc", detalle)
+        self.assertNotIn('id="periodo-excel-input"', detalle)
+        self.assertNotIn('name="return_to" value="periodo"', detalle)
+        self.assertNotIn("excelForm.requestSubmit()", detalle)
+        self.assertIn("desc.admin_desc", base)
         self.assertNotIn("Reemplazar Excel oficial</a>", detalle)
         self.assertIn("datetime.now(timezone.utc)", app)
         self.assertNotIn("datetime.utcnow().strftime", app)

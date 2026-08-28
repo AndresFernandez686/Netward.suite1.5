@@ -110,7 +110,8 @@
         </div>
         <div class="topbar__tools">
           <button type="button" class="btn btn--ghost btn--sm nexa-topbar-button" data-ai-open
-                  data-ai-context="{{ nexa_contexto }}" aria-label="Abrir Nexa">
+                  data-ai-context="{{ nexa_contexto }}" aria-label="Abrir Nexa"
+                  aria-controls="auditAiDrawer" aria-expanded="false">
             <span aria-hidden="true">✦</span><span>Nexa</span>
           </button>
           <label class="store-select" title="Tienda activa">
@@ -131,6 +132,7 @@
         </div>
       </header>
 
+      <div class="admin-stage">
       <main class="content {{ 'content--desc-wide' if request.endpoint and request.endpoint.startswith('desc.') else '' }}">
         {% if not hide_global_flash %}
           {% with messages = get_flashed_messages(with_categories=true) %}
@@ -151,11 +153,7 @@
           <span>Versión 2.1.0</span>
         </footer>
       </main>
-    </div>
-  </div>
-
-  <div class="audit-ai-overlay" id="auditAiOverlay" hidden></div>
-  <aside class="audit-ai-drawer" id="auditAiDrawer" aria-hidden="true" aria-labelledby="auditAiTitle"
+      <aside class="audit-ai-drawer" id="auditAiDrawer" aria-hidden="true" aria-labelledby="auditAiTitle"
          data-assistant-url="{{ url_for('admin_nexa_consultar') }}"
          data-section="{{ nexa_seccion }}" data-period-id="{{ nexa_periodo_id or '' }}">
     <header class="audit-ai-header">
@@ -176,7 +174,11 @@
       <textarea id="auditAiQuestion" maxlength="1000" rows="3" placeholder="Pregunta sobre {{ nexa_contexto|lower }}…" required></textarea>
       <button type="submit" class="btn btn--primary btn--sm" id="auditAiSend">Consultar</button>
     </form>
-  </aside>
+      </aside>
+      </div>
+    </div>
+  </div>
+
   <div class="sidebar-backdrop" id="backdrop"></div>
 
   <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-sidebar-scroll-fix-1-confirm-no-delay-1-processing-card-1-login-reset-1') }}"></script>
@@ -189,12 +191,11 @@
 
     (function () {
       var drawer = document.getElementById('auditAiDrawer');
-      var overlay = document.getElementById('auditAiOverlay');
       var messages = document.getElementById('auditAiMessages');
       var question = document.getElementById('auditAiQuestion');
       var send = document.getElementById('auditAiSend');
       var form = document.getElementById('auditAiForm');
-      if (!drawer || !overlay || !messages || !question || !send || !form) return;
+      if (!drawer || !messages || !question || !send || !form) return;
 
       var currentResultId = '';
       var currentUrl = drawer.dataset.assistantUrl;
@@ -221,7 +222,10 @@
         document.getElementById('auditAiContext').textContent = nextContext;
         drawer.classList.add('is-open');
         drawer.setAttribute('aria-hidden', 'false');
-        overlay.hidden = false;
+        document.body.classList.add('nexa-is-open');
+        document.querySelectorAll('[data-ai-open]').forEach(function (trigger) {
+          trigger.setAttribute('aria-expanded', 'true');
+        });
         if (!messages.children.length) {
           appendMessage('assistant', 'Estoy lista para ayudarte en ' + nextContext + '. Elige una pregunta sugerida o escribe la tuya.');
         }
@@ -232,7 +236,10 @@
       function closeAssistant() {
         drawer.classList.remove('is-open');
         drawer.setAttribute('aria-hidden', 'true');
-        overlay.hidden = true;
+        document.body.classList.remove('nexa-is-open');
+        document.querySelectorAll('[data-ai-open]').forEach(function (trigger) {
+          trigger.setAttribute('aria-expanded', 'false');
+        });
       }
 
       function askAssistant(value) {
@@ -282,7 +289,6 @@
         button.addEventListener('click', function () { askAssistant(button.dataset.aiQuestion); });
       });
       document.getElementById('auditAiClose').addEventListener('click', closeAssistant);
-      overlay.addEventListener('click', closeAssistant);
       document.addEventListener('keydown', function (event) {
         if (event.key === 'Escape' && drawer.classList.contains('is-open')) closeAssistant();
       });

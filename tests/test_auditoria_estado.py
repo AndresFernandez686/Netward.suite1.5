@@ -4,7 +4,9 @@ from datetime import datetime
 from flask import Flask
 
 from core.auditoria_estado import estado_actualizacion_auditoria, marcar_cambio_auditoria
-from core.models import AuditoriaResultado, ExcelDetalleEdicion, InventarioPeriodo, db
+from core.models import (
+    AjusteInventario, AuditoriaResultado, ExcelDetalleEdicion, InventarioPeriodo, db,
+)
 
 
 class PruebasEstadoAuditoria(unittest.TestCase):
@@ -76,6 +78,28 @@ class PruebasEstadoAuditoria(unittest.TestCase):
         self.assertTrue(estado["desactualizada"])
         self.assertIn("Líneas de facturas PDF corregidas", estado["motivos"])
         self.assertTrue(any("catálogo" in motivo for motivo in estado["motivos"]))
+
+    def test_ajuste_posterior_exige_re_ejecucion_y_luego_se_resuelve(self):
+        resultado = AuditoriaResultado(
+            periodo_id=self.periodo.id, cliente_id="TEST", producto_nombre="Producto",
+            creado=datetime(2026, 8, 21, 10, 0),
+        )
+        db.session.add(resultado)
+        db.session.add(AjusteInventario(
+            periodo_id=self.periodo.id, cliente_id="TEST", producto_nombre="Producto",
+            usuario_admin="admin", cantidad_ajustada=2, motivo="Corrección de carga",
+            fecha_ajuste=datetime(2026, 8, 21, 11, 0),
+        ))
+        db.session.commit()
+
+        estado = estado_actualizacion_auditoria(self.periodo)
+        self.assertTrue(estado["desactualizada"])
+        self.assertIn("Ajuste administrativo agregado", estado["motivos"])
+        self.assertEqual(len(estado["pasos"]), 3)
+
+        resultado.creado = datetime(2026, 8, 21, 12, 0)
+        db.session.commit()
+        self.assertFalse(estado_actualizacion_auditoria(self.periodo)["desactualizada"])
 
 
 if __name__ == "__main__":

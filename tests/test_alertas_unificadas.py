@@ -16,6 +16,7 @@ class PruebasAlertasUnificadas(unittest.TestCase):
         self.assertIn("alerta.destino", plantilla)
         self.assertNotIn("admin-tabpanel", plantilla)
         self.assertIn("def _construir_alertas_admin", codigo)
+        self.assertIn("def _resolver_notificaciones_de_carga", codigo)
         self.assertIn("def admin_alerta_ir", codigo)
         self.assertIn("lectura.leida = True", codigo)
         self.assertIn("notif_total = notif_admin_unread", base)
@@ -37,6 +38,12 @@ class PruebasAlertasUnificadas(unittest.TestCase):
         codigo = (ROOT / "app.py").read_text(encoding="utf-8")
         cabecera = codigo[:codigo.index("BASE_DIR =")]
         self.assertIn("ExcelDetalleEdicion", cabecera)
+
+    def test_alertas_se_reconcilian_con_el_estado_real(self):
+        codigo = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn('notificacion.leida = True', codigo)
+        self.assertIn('estado["ejecutada"] and not estado["desactualizada"]', codigo)
+        self.assertIn('version_alerta.timestamp() * 1_000_000', codigo)
 
 
 if __name__ == "__main__":
