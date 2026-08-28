@@ -49,6 +49,10 @@ class PruebasMantenimientoBaseDatos(unittest.TestCase):
         revision = ROOT / "migrations" / "versions" / "20260827_02_indice_excel_cliente.py"
         self.assertTrue(revision.is_file())
         self.assertIn('revision = "20260827_02"', revision.read_text(encoding="utf-8"))
+        head = ROOT / "migrations" / "versions" / "20260828_03_trazabilidad_auditoria.py"
+        self.assertTrue(head.is_file())
+        self.assertIn('revision = "20260828_03"', head.read_text(encoding="utf-8"))
+        self.assertIn('version != "20260828_03"', app_source)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,11 @@ import openpyxl
 from flask import Flask
 
 from core import empleado as empleado_service
-from core.catalogo import catalogo_pendiente_usuario, get_productos_db
+from core.catalogo import (
+    catalogo_pendiente_usuario,
+    get_productos_db,
+    producto_disponible_usuario,
+)
 from core.excel_importer import (
     descartar_detalles_sin_producto,
     _safe_float, corregir_vinculaciones_empaque, contar_detalles_pendientes,
@@ -535,6 +539,9 @@ class PruebasExcelOficial(unittest.TestCase):
             username=empleado.username,
         )
         self.assertNotIn("Pizza", catalogo_antes["Fanee"])
+        self.assertIsNone(producto_disponible_usuario(
+            CLIENTE, empleado.username, "Pizza", "Fanee"
+        ))
         self.assertEqual(catalogo_pendiente_usuario(CLIENTE, empleado.username), (True, 2))
 
         solo_envio = empleado_service.procesar_sincronizacion(
@@ -561,6 +568,12 @@ class PruebasExcelOficial(unittest.TestCase):
         )
         self.assertIn("Pizza", catalogo_despues["Fanee"])
         self.assertIn("Empanada", catalogo_despues["Fanee"])
+        self.assertEqual(
+            producto_disponible_usuario(
+                CLIENTE, empleado.username, "Pizza", "Fanee"
+            ).id,
+            nuevos[0].id,
+        )
 
     def test_producto_publicado_rescata_fila_de_un_grupo_excluido(self):
         fila_pizza = fila_oficial("158", "Pizza frizzio mozzarella")

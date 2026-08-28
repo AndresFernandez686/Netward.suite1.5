@@ -599,7 +599,12 @@ class AuditoriaResultado(BaseModel):
     __tablename__ = "auditoria_resultados"
 
     id = db.Column(db.Integer, primary_key=True)
-    periodo_id = db.Column(db.Integer, db.ForeignKey("inventario_periodos.id"), nullable=False)
+    periodo_id = db.Column(
+        db.Integer,
+        db.ForeignKey("inventario_periodos.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     producto_nombre = db.Column(db.String(160), nullable=False)
     categoria = db.Column(db.String(40), default="")
@@ -633,7 +638,7 @@ class AuditoriaResultado(BaseModel):
     nivel_confianza = db.Column(db.String(20), default="Bajo")
     # Correcto | Observación | Revisar | Crítico
     severidad = db.Column(db.String(20), default="Correcto")
-    # Pendiente | Sugerido | Justificado | Revisado | Sin diferencia | Sin diferencia real
+    # Pendiente | Sugerido | Justificado | Revisado | Sin diferencia | Sin diferencia real | Archivado
     estado_auditoria = db.Column(db.String(20), default="Pendiente")
     # Precio interno | Sin costo
     fuente_costo = db.Column(db.String(20), nullable=False, default="Sin costo")
@@ -673,7 +678,7 @@ class AsistenteIAConsulta(BaseModel):
     )
     resultado_id = db.Column(
         db.Integer,
-        db.ForeignKey("auditoria_resultados.id"),
+        db.ForeignKey("auditoria_resultados.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -694,7 +699,12 @@ class Justificacion(BaseModel):
     __tablename__ = "justificaciones"
 
     id = db.Column(db.Integer, primary_key=True)
-    resultado_id = db.Column(db.Integer, db.ForeignKey("auditoria_resultados.id"), nullable=False)
+    resultado_id = db.Column(
+        db.Integer,
+        db.ForeignKey("auditoria_resultados.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     # Error de conteo | Compra mal cargada | Canje no registrado |
     # Producto vencido | Merma o averiado | Pendiente de revisión

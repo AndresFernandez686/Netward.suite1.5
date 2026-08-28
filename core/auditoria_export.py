@@ -7,7 +7,10 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from .models import AuditoriaResultado, InventarioPeriodo, Justificacion
+from .models import (
+    AuditoriaResultado, ExcelDetalle, ExcelImportado, InventarioPeriodo,
+    Justificacion,
+)
 
 
 HEADERS_AUDITORIA = [
@@ -38,9 +41,43 @@ def generar_excel_auditoria(periodo: InventarioPeriodo) -> io.BytesIO:
     resultados = (
         AuditoriaResultado.query
         .filter_by(periodo_id=periodo.id)
+        .filter(AuditoriaResultado.estado_auditoria != "Archivado")
         .order_by(AuditoriaResultado.impacto.desc())
         .all()
     )
+
+    # Defensa para auditorías antiguas: si una fila fue excluida después de la
+    # última ejecución, tampoco debe aparecer en la descarga mientras se
+    # re-ejecuta el período.
+    excel = (
+        ExcelImportado.query
+        .filter_by(periodo_id=periodo.id, cliente_id=periodo.cliente_id)
+        .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
+        .order_by(ExcelImportado.id.desc()).first()
+    )
+    if excel:
+        filas_excel = ExcelDetalle.query.filter_by(excel_id=excel.id).all()
+        nombres_activos = {
+            (fila.producto_nombre_interno or fila.artdescrip or "").strip().casefold()
+            for fila in filas_excel if not fila.excluido_auditoria
+        }
+        codigos_activos = {
+            str(fila.articulo or "").strip().casefold()
+            for fila in filas_excel if not fila.excluido_auditoria and fila.articulo
+        }
+        nombres_excluidos = {
+            (fila.producto_nombre_interno or fila.artdescrip or "").strip().casefold()
+            for fila in filas_excel if fila.excluido_auditoria
+        } - nombres_activos
+        codigos_excluidos = {
+            str(fila.articulo or "").strip().casefold()
+            for fila in filas_excel if fila.excluido_auditoria and fila.articulo
+        } - codigos_activos
+        resultados = [
+            resultado for resultado in resultados
+            if resultado.producto_nombre.strip().casefold() not in nombres_excluidos
+            and str(resultado.articulo_codigo or "").strip().casefold() not in codigos_excluidos
+        ]
 
     libro = openpyxl.Workbook()
     hoja = libro.active

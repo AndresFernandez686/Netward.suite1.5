@@ -21,7 +21,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   session, flash, send_file, jsonify, abort)
+                   session, flash, send_file, jsonify, abort, g)
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
@@ -31,12 +31,14 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     InventarioDescSnapshot, RegistroAveriado, RegistroVencimiento,
                     SincronizacionLog,
                     InventarioPeriodo, ConteoDetalle, InventarioBorrador, AjusteInventario,
-                    ExcelImportado, ExcelDetalle, FacturaCompra, FacturaCompraDetalle,
+                    ExcelImportado, ExcelDetalle, ExcelDetalleEdicion,
+                    FacturaCompra, FacturaCompraDetalle,
                     AuditoriaResultado,
                     Justificacion, ProductoRelacionado, ConfiguracionSistema,
                     NotificacionUsuario, AsistenteIAConsulta)
 from core.auditoria import (ejecutar_auditoria, build_reporte_gerencial,
                             marcar_resultado_revisado)
+from core.auditoria_estado import estado_actualizacion_auditoria, marcar_cambio_catalogo
 from core.ajustes import ajuste_es_baja_no_imputable
 from core.excel_importer import importar_excel_transaccional
 from core.sync_bridge import (propagar_conteo_a_periodo, retroalimentar_periodo_desde_items,
@@ -45,6 +47,7 @@ from core.scheduler import (job_autoclose_periodos, actualizar_estados_periodos,
                             get_autoclose_horas, set_autoclose_horas)
 from core.catalogo import (get_productos_db as catalogo_get_productos_db,
                            catalogo_pendiente_usuario,
+                           producto_disponible_usuario,
                            resolver_producto_id, backfill_producto_ids)
 from core.seed_data import (PRODUCTOS_BASE, CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME,
                        ESTADOS_BALDE, CLIENTES_DEFAULT, TIENDAS_DEFAULT, USUARIOS_DEFAULT,
@@ -110,6 +113,20 @@ def _habilitar_claves_foraneas_sqlite(dbapi_connection, _connection_record):
 
 db.init_app(app)
 app.register_blueprint(desc_bp)
+
+
+@app.after_request
+def evitar_cache_de_sesion(response):
+    """Evita restaurar desde historial una sesión cerrada o un login cargando."""
+    if request.endpoint != "static" and (
+        session.get("usuario") or request.endpoint in {"login", "logout"}
+    ):
+        response.headers["Cache-Control"] = (
+            "no-store, no-cache, must-revalidate, max-age=0, private"
+        )
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 # Filtro Jinja2 para parsear JSON en templates
 import json as _json
@@ -565,7 +582,7 @@ def init_db():
             )
         with db.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        if version != "20260827_02":
+        if version != "20260828_03":
             raise RuntimeError(
                 f"Esquema PostgreSQL desactualizado ({version or 'sin version'}). "
                 "Ejecuta `alembic upgrade head`."
@@ -664,6 +681,233 @@ def login_required(rol=None):
     return decorator
 
 
+NEXA_SECCIONES = {
+    "resumen": {
+        "titulo": "Resumen administrativo",
+        "contexto": "Indicadores generales y prioridades",
+        "orientacion": "Prioriza alertas, cargas pendientes y períodos que requieren revisión.",
+        "preguntas": [
+            ("¿Qué debería revisar primero hoy?", "Prioridades de hoy"),
+            ("Resume las alertas y pendientes actuales.", "Resumir pendientes"),
+            ("¿Qué indicador merece atención y por qué?", "Revisar indicadores"),
+        ],
+    },
+    "inventario": {
+        "titulo": "Inventario",
+        "contexto": "Stock, productos y cargas por tienda",
+        "orientacion": "Contrasta stock, productos sin carga y registros pendientes de sincronización.",
+        "preguntas": [
+            ("¿Qué productos o cargas de inventario debería revisar?", "Qué revisar"),
+            ("¿Hay registros pendientes de sincronización?", "Pendientes de envío"),
+            ("¿Cómo interpreto el estado actual del inventario?", "Explicar inventario"),
+        ],
+    },
+    "historial": {
+        "titulo": "Historial",
+        "contexto": "Movimientos y cambios registrados",
+        "orientacion": "Busca cambios recientes, repeticiones y movimientos que necesiten trazabilidad.",
+        "preguntas": [
+            ("Resume los movimientos registrados recientemente.", "Resumen reciente"),
+            ("¿Qué cambios conviene verificar en el historial?", "Cambios a verificar"),
+            ("¿Cómo puedo rastrear quién modificó un producto?", "Rastrear cambios"),
+        ],
+    },
+    "delivery": {
+        "titulo": "Delivery",
+        "contexto": "Ventas y catálogo de delivery",
+        "orientacion": "Revisa ventas registradas, productos activos y su relación con Auditoría.",
+        "preguntas": [
+            ("¿Qué debería validar en las ventas de Delivery?", "Validar ventas"),
+            ("¿Cómo impacta Delivery en la venta real?", "Impacto en auditoría"),
+            ("Resume el estado del módulo Delivery.", "Resumen de Delivery"),
+        ],
+    },
+    "averiados": {
+        "titulo": "Averiados",
+        "contexto": "Bajas por productos dañados",
+        "orientacion": "Verifica cantidades, evidencia, sincronización y que no se imputen al empleado.",
+        "preguntas": [
+            ("¿Qué registros averiados requieren revisión?", "Pendientes de revisión"),
+            ("¿Cómo impactan los averiados en Auditoría?", "Impacto en auditoría"),
+            ("¿Qué evidencia debería solicitar para un averiado?", "Evidencia necesaria"),
+        ],
+    },
+    "vencimientos": {
+        "titulo": "Vencimientos",
+        "contexto": "Productos vencidos o próximos a vencer",
+        "orientacion": "Prioriza fechas cercanas, cantidades y bajas todavía no revisadas.",
+        "preguntas": [
+            ("¿Qué vencimientos debería atender primero?", "Priorizar vencimientos"),
+            ("¿Cómo impactan los vencidos en Auditoría?", "Impacto en auditoría"),
+            ("¿Qué registros aún necesitan revisión?", "Pendientes de revisión"),
+        ],
+    },
+    "documentacion": {
+        "titulo": "Documentación oficial",
+        "contexto": "Excel oficial y facturas PDF por período",
+        "orientacion": "Confirma que Excel y PDF pertenezcan al mismo período y completa vínculos pendientes.",
+        "preguntas": [
+            ("¿Qué documentación está incompleta o pendiente?", "Documentos pendientes"),
+            ("¿El Excel y las facturas pertenecen al mismo período?", "Validar período"),
+            ("¿Qué productos de las facturas necesitan vinculación?", "Vínculos pendientes"),
+        ],
+    },
+    "auditoria": {
+        "titulo": "Auditoría",
+        "contexto": "Períodos, diferencias y evidencia",
+        "orientacion": "Empieza por resultados críticos, pendientes y diferencias de mayor impacto.",
+        "preguntas": [
+            ("Muéstrame las fórmulas y explica cómo se obtuvieron los resultados.", "Ver fórmulas"),
+            ("¿Cuáles son las evidencias más importantes?", "Ver evidencias"),
+            ("¿Qué debería verificar primero el administrador?", "Qué revisar primero"),
+        ],
+    },
+    "relaciones": {
+        "titulo": "Productos relacionados",
+        "contexto": "Relaciones de consumo y alertas",
+        "orientacion": "Revisa relaciones duplicadas, ratios y productos que suelen consumirse juntos.",
+        "preguntas": [
+            ("¿Qué relaciones de productos debería revisar?", "Revisar relaciones"),
+            ("¿Cómo ayudan estas relaciones a detectar diferencias?", "Explicar alertas"),
+            ("¿Qué buenas prácticas debo usar al crear una relación?", "Buenas prácticas"),
+        ],
+    },
+    "catalogo": {
+        "titulo": "Catálogo",
+        "contexto": "Productos, precios y conversiones",
+        "orientacion": "Revisa productos sin precio, conversiones incompletas y cambios sin publicar.",
+        "preguntas": [
+            ("¿Qué productos tienen datos incompletos?", "Datos incompletos"),
+            ("¿Qué precios o conversiones debería verificar?", "Revisar precios"),
+            ("¿Hay cambios de catálogo pendientes de enviar?", "Cambios pendientes"),
+        ],
+    },
+    "tiendas": {
+        "titulo": "Tiendas",
+        "contexto": "Configuración y estado de sucursales",
+        "orientacion": "Confirma tiendas activas, asignaciones y configuración operativa.",
+        "preguntas": [
+            ("¿Qué configuración de tiendas debería revisar?", "Revisar configuración"),
+            ("¿Cuántas tiendas están activas o inactivas?", "Estado de tiendas"),
+            ("¿Qué puede impedir que una tienda sincronice?", "Problemas de sincronización"),
+        ],
+    },
+    "usuarios": {
+        "titulo": "Usuarios",
+        "contexto": "Administradores, empleados y asignaciones",
+        "orientacion": "Verifica roles, tiendas asignadas y usuarios que aún no recibieron el catálogo.",
+        "preguntas": [
+            ("¿Qué asignaciones de usuarios debería revisar?", "Revisar asignaciones"),
+            ("¿Hay empleados pendientes de recibir el catálogo?", "Recepción pendiente"),
+            ("¿Cómo comprobar roles y permisos?", "Roles y permisos"),
+        ],
+    },
+    "sincronizacion": {
+        "titulo": "Sincronización",
+        "contexto": "Envíos, recepciones y catálogo",
+        "orientacion": "Distingue registros pendientes de envío de cambios de catálogo pendientes de recepción.",
+        "preguntas": [
+            ("¿Qué tiendas o empleados están pendientes de sincronizar?", "Pendientes"),
+            ("¿Cuál es la diferencia entre enviar y recibir?", "Explicar sincronización"),
+            ("¿Hay productos nuevos pendientes de recepción?", "Catálogo pendiente"),
+        ],
+    },
+}
+
+
+def _nexa_seccion_actual(endpoint=None):
+    endpoint = endpoint or request.endpoint or ""
+    if endpoint.startswith("desc."):
+        return "documentacion"
+    if "auditoria" in endpoint or "periodo" in endpoint or endpoint == "admin_reporte_gerencial":
+        return "auditoria"
+    return {
+        "admin_dashboard": "resumen", "admin_inventario": "inventario",
+        "admin_historial": "historial", "admin_delivery": "delivery",
+        "admin_averiados": "averiados", "admin_vencimientos": "vencimientos",
+        "admin_productos_relacionados": "relaciones", "admin_precios": "catalogo",
+        "admin_configuracion": "tiendas", "admin_usuarios": "usuarios",
+        "admin_sincronizacion": "sincronizacion",
+    }.get(endpoint, "resumen")
+
+
+def _nexa_contexto_seccion(seccion, cliente_id):
+    definicion = NEXA_SECCIONES.get(seccion, NEXA_SECCIONES["resumen"])
+    resumen = {}
+    if seccion in {"resumen", "inventario", "sincronizacion"}:
+        resumen["inventario_pendiente"] = InventarioItem.query.filter_by(
+            cliente_id=cliente_id, sinc_estado="pendiente"
+        ).count()
+        resumen["inventario_sincronizado"] = InventarioItem.query.filter_by(
+            cliente_id=cliente_id, sinc_estado="sincronizado"
+        ).count()
+    if seccion in {"resumen", "auditoria"}:
+        resumen["periodos_abiertos"] = InventarioPeriodo.query.filter_by(
+            cliente_id=cliente_id, estado="Abierto"
+        ).count()
+        resumen["periodos_cerrados"] = InventarioPeriodo.query.filter_by(
+            cliente_id=cliente_id, estado="Cerrado"
+        ).count()
+        resumen["resultados_criticos"] = AuditoriaResultado.query.filter_by(
+            cliente_id=cliente_id, severidad="Crítico"
+        ).filter(AuditoriaResultado.estado_auditoria != "Archivado").count()
+    if seccion == "historial":
+        resumen["movimientos_registrados"] = HistorialMovimiento.query.filter_by(
+            cliente_id=cliente_id
+        ).count()
+    if seccion == "delivery":
+        resumen["productos_delivery"] = DeliveryProducto.query.filter_by(
+            cliente_id=cliente_id
+        ).count()
+        resumen["ventas_delivery"] = DeliveryVenta.query.filter_by(
+            cliente_id=cliente_id
+        ).count()
+    if seccion in {"resumen", "averiados"}:
+        resumen["averiados_sin_revisar"] = RegistroAveriado.query.filter_by(
+            cliente_id=cliente_id, revisado=False
+        ).count()
+    if seccion in {"resumen", "vencimientos"}:
+        resumen["vencimientos_sin_revisar"] = RegistroVencimiento.query.filter_by(
+            cliente_id=cliente_id, revisado=False
+        ).count()
+    if seccion == "documentacion":
+        resumen["excel_importados"] = ExcelImportado.query.filter_by(cliente_id=cliente_id).count()
+        resumen["facturas_pdf"] = FacturaCompra.query.filter_by(cliente_id=cliente_id).count()
+        resumen["lineas_pdf_pendientes"] = (
+            FacturaCompraDetalle.query.join(FacturaCompra)
+            .filter(
+                FacturaCompra.cliente_id == cliente_id,
+                ~FacturaCompraDetalle.estado_vinculacion.in_(("vinculado", "aplicado", "fuera_rango")),
+            ).count()
+        )
+    if seccion == "relaciones":
+        resumen["relaciones_registradas"] = ProductoRelacionado.query.filter_by(
+            cliente_id=cliente_id
+        ).count()
+    if seccion == "catalogo":
+        resumen["productos"] = Producto.query.count()
+        resumen["productos_sin_publicar"] = Producto.query.filter_by(visible_empleado=False).count()
+        resumen["precios_configurados"] = ProductoPrecio.query.filter_by(cliente_id=cliente_id).count()
+    if seccion == "tiendas":
+        resumen["tiendas_activas"] = Tienda.query.filter_by(cliente_id=cliente_id, activa=True).count()
+        resumen["tiendas_inactivas"] = Tienda.query.filter_by(cliente_id=cliente_id, activa=False).count()
+    if seccion in {"usuarios", "sincronizacion"}:
+        usuarios = Usuario.query.filter_by(cliente_id=cliente_id).all()
+        resumen["administradores"] = sum(u.rol == "administrador" for u in usuarios)
+        resumen["empleados"] = sum(u.rol == "empleado" for u in usuarios)
+        if seccion == "sincronizacion":
+            resumen["empleados_con_catalogo_pendiente"] = sum(
+                catalogo_pendiente_usuario(cliente_id, u.username)[0]
+                for u in usuarios if u.rol == "empleado"
+            )
+    return {
+        "alcance": "seccion",
+        "seccion": {"clave": seccion, "titulo": definicion["titulo"]},
+        "resumen": resumen,
+        "orientacion": definicion["orientacion"],
+    }
+
+
 @app.context_processor
 def inject_globals():
     """Variables disponibles en todas las plantillas."""
@@ -685,6 +929,12 @@ def inject_globals():
         "notif_catalogo_cambios": 0,
         "notif_periodo_abierto": 0,
         "notif_empleado_unread": 0,
+        "nexa_seccion": "resumen",
+        "nexa_titulo": "Resumen administrativo",
+        "nexa_contexto": "Indicadores generales y prioridades",
+        "nexa_preguntas": NEXA_SECCIONES["resumen"]["preguntas"],
+        "nexa_estado": AIConfig.from_env().public_status(),
+        "nexa_periodo_id": None,
     }
     if session.get("rol") == "empleado" and session.get("usuario"):
         cliente_id = get_cliente_filtro()
@@ -728,6 +978,16 @@ def inject_globals():
     # Solo consultar notificaciones si hay sesion activa de administrador
     if session.get("rol") == "administrador" and session.get("usuario"):
         cliente_id = get_cliente_filtro()
+        nexa_seccion = _nexa_seccion_actual()
+        nexa_definicion = NEXA_SECCIONES[nexa_seccion]
+        ctx.update(
+            nexa_seccion=nexa_seccion,
+            nexa_titulo=nexa_definicion["titulo"],
+            nexa_contexto=nexa_definicion["contexto"],
+            nexa_preguntas=nexa_definicion["preguntas"],
+            nexa_estado=AIConfig.from_env().public_status(),
+            nexa_periodo_id=(request.view_args or {}).get("periodo_id"),
+        )
         try:
             ctx["notif_averiados"]    = RegistroAveriado.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False).count()
             ctx["notif_vencimientos"] = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False).count()
@@ -741,10 +1001,16 @@ def inject_globals():
                 cliente_id,
                 detallado=True,
             )["total"]
+            ctx["notif_admin_unread"] = len(_construir_alertas_admin(
+                cliente_id,
+                session.get("usuario"),
+                session.get("admin_tienda_id", "ALL"),
+            ))
         except Exception:
             ctx["notif_averiados"]    = 0
             ctx["notif_vencimientos"] = 0
             ctx["notif_sincronizacion"] = 0
+            ctx["notif_admin_unread"] = 0
         try:
             ctx["tiendas_topbar"] = Tienda.query.filter_by(cliente_id=cliente_id, activa=True).all()
         except Exception:
@@ -1182,6 +1448,15 @@ def carrito_agregar():
     if not producto:
         flash("Selecciona un producto antes de agregar.", "warning")
         return _redirect_inventario_context("sec-carga")
+    if producto_disponible_usuario(
+        cliente_id, usuario, producto, categoria or CATEGORIAS[0]
+    ) is None:
+        flash(
+            "Ese producto todavía no fue recibido en tu catálogo. "
+            "Usa Enviar y recibir antes de cargarlo.",
+            "warning",
+        )
+        return _redirect_inventario_context("sec-carga")
 
     if cantidad_texto == "":
         flash("Ingresa una cantidad antes de agregar.", "warning")
@@ -1481,6 +1756,7 @@ def _convertir_ume(producto: str, ume: str, cantidad: float):
 @app.route("/empleado/averiado", methods=["GET", "POST"])
 @login_required(rol="empleado")
 def empleado_averiado():
+    cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
     context = empleado_service.build_averiado_context(tienda_id=tienda_id)
@@ -1503,6 +1779,14 @@ def empleado_averiado():
 
         if not producto:
             flash("Selecciona un producto.", "warning")
+        elif producto_disponible_usuario(
+            cliente_id, usuario, producto, categoria
+        ) is None:
+            flash(
+                "Ese producto todavía no fue recibido en tu catálogo. "
+                "Usa Enviar y recibir antes de registrarlo.",
+                "warning",
+            )
         elif cantidad_es_invalida:
             flash("La cantidad debe ser un número entero.", "warning")
         elif cantidad <= 0:
@@ -1543,6 +1827,7 @@ def averiado_eliminar(reg_id):
 @app.route("/empleado/vencimiento", methods=["GET", "POST"])
 @login_required(rol="empleado")
 def empleado_vencimiento():
+    cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
     context = empleado_service.build_vencimiento_context(tienda_id=tienda_id)
@@ -1566,6 +1851,14 @@ def empleado_vencimiento():
 
         if not producto:
             flash("Selecciona un producto.", "warning")
+        elif producto_disponible_usuario(
+            cliente_id, usuario, producto, categoria
+        ) is None:
+            flash(
+                "Ese producto todavía no fue recibido en tu catálogo. "
+                "Usa Enviar y recibir antes de registrarlo.",
+                "warning",
+            )
         elif cantidad_es_invalida:
             flash("La cantidad debe ser un número entero.", "warning")
         elif cantidad <= 0:
@@ -1919,6 +2212,7 @@ def admin_precios():
     if request.method == "POST":
         active_tab = _safe_catalog_tab(request.form.get("active_tab"))
         ids = request.form.getlist("ids")
+        hubo_cambios = False
         for pid in ids:
             try:
                 pid_int = int(pid)
@@ -1945,11 +2239,23 @@ def admin_precios():
                 db.session.add(rec)
             elif rec.producto_id is None:
                 rec.producto_id = producto.id
+            anterior = (
+                rec.precio, rec.precio_por_caja, rec.unidades_por_caja,
+                rec.unidades_por_bulto,
+            )
             rec.precio = precio_val
             if producto.categoria in ("Impulsivo", "Fanee", "Extras"):
                 rec.precio_por_caja = precio_caja_val
                 rec.unidades_por_caja = caja_val
                 rec.unidades_por_bulto = bulto_val
+            hubo_cambios = hubo_cambios or anterior != (
+                rec.precio, rec.precio_por_caja, rec.unidades_por_caja,
+                rec.unidades_por_bulto,
+            )
+        if hubo_cambios:
+            marcar_cambio_catalogo(
+                get_cliente_filtro(), "Precios o conversiones del catálogo actualizados",
+            )
         db.session.commit()
         _set_admin_precios_notice("Precios actualizados correctamente.", "success", active_tab)
         return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
@@ -2126,64 +2432,238 @@ def usuario_editar(usuario_id):
 def admin_alertas():
     cliente_id = get_cliente_filtro()
     tienda_sel = get_tienda_filtro()
-    tiendas_map = {t.id: t.nombre for t in Tienda.query.filter_by(cliente_id=cliente_id).all()}
-    thresholds = get_thresholds()
-
-    cargas_periodo = (
-        NotificacionUsuario.query
-        .filter_by(
-            cliente_id=cliente_id,
-            username=session.get("usuario"),
-            tipo="periodo_cargado",
-            leida=False,
-        )
-        .order_by(NotificacionUsuario.id.desc())
-        .limit(80)
-        .all()
+    alertas = _construir_alertas_admin(
+        cliente_id, session.get("usuario"), tienda_sel,
     )
+    resumen = {}
+    for alerta in alertas:
+        resumen[alerta["tipo"]] = resumen.get(alerta["tipo"], 0) + 1
+    return render_template("admin_alertas.html", alertas=alertas, resumen_alertas=resumen)
 
-    # Stock bajo (nivel critico segun StockThreshold)
-    stock_bajo = []
-    for i in _items_sincronizados(tienda_sel):
-        nivel, etiqueta = stock_status(i.producto, i.cantidad or 0, thresholds)
-        if nivel == "critico":
-            stock_bajo.append({
-                "producto": i.producto, "categoria": i.categoria,
-                "cantidad": i.cantidad, "etiqueta": etiqueta,
-                "tienda": tiendas_map.get(i.tienda_id, i.tienda_id),
-            })
 
-    # Proximos a vencer (<= 15 dias)
-    q_venc = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado")
+def _tipos_alerta_leidos(cliente_id: str, username: str) -> set[tuple[str, int]]:
+    filas = NotificacionUsuario.query.filter(
+        NotificacionUsuario.cliente_id == cliente_id,
+        NotificacionUsuario.username == username,
+        NotificacionUsuario.leida.is_(True),
+        NotificacionUsuario.tipo.like("alerta_%"),
+    ).with_entities(NotificacionUsuario.tipo, NotificacionUsuario.referencia_id).all()
+    return {(tipo, int(ref or 0)) for tipo, ref in filas}
+
+
+def _construir_alertas_admin(cliente_id: str, username: str, tienda_sel: str) -> list[dict]:
+    """Unifica notificaciones persistentes y condiciones operativas activas."""
+    cache_key = (cliente_id, username, tienda_sel)
+    if getattr(g, "_alertas_admin_key", None) == cache_key:
+        return g._alertas_admin
+    tiendas_map = {
+        t.id: t.nombre for t in Tienda.query.filter_by(cliente_id=cliente_id).all()
+    }
+    leidas = _tipos_alerta_leidos(cliente_id, username)
+    alertas = []
+
+    from core.inventario import estado_sincronizacion_catalogo
+    estado_catalogo = estado_sincronizacion_catalogo(cliente_id, detallado=True)
+    ultima_edicion_excel = db.session.query(db.func.max(ExcelDetalleEdicion.id)).filter_by(
+        cliente_id=cliente_id,
+    ).scalar() or 0
+    version_catalogo = db.session.query(db.func.max(Producto.catalogo_version)).scalar() or 0
+    tipo_catalogo = (
+        f"alerta_catalogo_{int(version_catalogo)}_{int(ultima_edicion_excel)}_"
+        f"{int(estado_catalogo['total'])}"
+    )[:40]
+    if estado_catalogo["total"] and (tipo_catalogo, 0) not in leidas:
+        alertas.append({
+            "tipo": "catalogo", "tono": "danger", "icono": "↻",
+            "titulo": "Catálogo pendiente de revisar y sincronizar",
+            "detalle": (
+                f"{estado_catalogo['total']} cambio(s) aplicable(s): productos nuevos, "
+                "renombres o vínculos del Excel."
+            ),
+            "meta": "Documentación oficial",
+            "destino": url_for("admin_alerta_ir", tipo="catalogo", referencia_id=0),
+            "orden": datetime.now(),
+        })
+
+    cargas = (
+        NotificacionUsuario.query
+        .filter_by(cliente_id=cliente_id, username=username, tipo="periodo_cargado", leida=False)
+        .order_by(NotificacionUsuario.id.desc()).limit(80).all()
+    )
+    for n in cargas:
+        alertas.append({
+            "tipo": "carga", "tono": "success", "icono": "✓",
+            "titulo": n.titulo, "detalle": n.mensaje,
+            "meta": n.creada.strftime("%d/%m/%Y %H:%M") if n.creada else "",
+            "destino": url_for("admin_notificacion_ir", notif_id=n.id),
+            "orden": n.creada or datetime(1970, 1, 1),
+        })
+
+    thresholds = get_thresholds()
+    for item in _items_sincronizados(tienda_sel):
+        nivel, etiqueta = stock_status(item.producto, item.cantidad or 0, thresholds)
+        tipo_lectura = f"alerta_stock_bajo_v{int(item.version or 1)}"
+        if nivel != "critico" or (tipo_lectura, item.id) in leidas:
+            continue
+        alertas.append({
+            "tipo": "stock", "tono": "danger", "icono": "!",
+            "titulo": f"Stock bajo · {item.producto}",
+            "detalle": f"Quedan {float(item.cantidad or 0):g} {item.ume or 'unidades'} · {etiqueta}",
+            "meta": tiendas_map.get(item.tienda_id, item.tienda_id),
+            "destino": url_for("admin_alerta_ir", tipo="stock", referencia_id=item.id),
+            "orden": item.actualizado or datetime(1970, 1, 1),
+        })
+
+    q_venc = RegistroVencimiento.query.filter_by(
+        cliente_id=cliente_id, sinc_estado="sincronizado",
+    )
     if tienda_sel != "ALL":
         q_venc = q_venc.filter_by(tienda_id=tienda_sel)
-    por_vencer = []
-    for r in q_venc.all():
-        dias = _dias_hasta(r.fecha_vencimiento)
-        if dias is not None and dias <= 15:
-            por_vencer.append({
-                "producto": r.producto, "categoria": r.categoria,
-                "tienda": tiendas_map.get(r.tienda_id, r.tienda_id),
-                "fecha_vencimiento": r.fecha_vencimiento, "dias": dias,
-                "cantidad": r.cantidad, "ume": r.ume,
-                "nivel": "danger" if dias < 7 else "warning",
-            })
-    por_vencer.sort(key=lambda x: x["dias"])
+    for registro in q_venc.all():
+        dias = _dias_hasta(registro.fecha_vencimiento)
+        if dias is None or dias > 15 or ("alerta_vencimiento", registro.id) in leidas:
+            continue
+        cuando = (
+            f"Vencido hace {-dias} día(s)" if dias < 0 else
+            "Vence hoy" if dias == 0 else f"Vence en {dias} día(s)"
+        )
+        alertas.append({
+            "tipo": "vencimiento", "tono": "danger" if dias < 7 else "warning",
+            "icono": "⌛", "titulo": f"{cuando} · {registro.producto}",
+            "detalle": f"{float(registro.cantidad or 0):g} {registro.ume} · vence {registro.fecha_vencimiento}",
+            "meta": tiendas_map.get(registro.tienda_id, registro.tienda_id),
+            "destino": url_for("admin_alerta_ir", tipo="vencimiento", referencia_id=registro.id),
+            "orden": registro.creado or datetime(1970, 1, 1),
+        })
 
-    # Averiados no revisados
-    q_aver = RegistroAveriado.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False)
+    q_aver = RegistroAveriado.query.filter_by(
+        cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False,
+    )
     if tienda_sel != "ALL":
         q_aver = q_aver.filter_by(tienda_id=tienda_sel)
-    averiados = [{
-        "producto": r.producto, "categoria": r.categoria,
-        "tienda": tiendas_map.get(r.tienda_id, r.tienda_id),
-        "cantidad": r.cantidad, "ume": r.ume, "fecha": r.fecha,
-        "detalle": r.detalle,
-    } for r in q_aver.order_by(RegistroAveriado.creado.desc()).all()]
+    for registro in q_aver.order_by(RegistroAveriado.creado.desc()).all():
+        if ("alerta_averiado", registro.id) in leidas:
+            continue
+        alertas.append({
+            "tipo": "averiado", "tono": "warning", "icono": "!",
+            "titulo": f"Averiado sin revisar · {registro.producto}",
+            "detalle": f"{float(registro.cantidad or 0):g} {registro.ume} · {registro.detalle or 'Sin detalle'}",
+            "meta": f"{tiendas_map.get(registro.tienda_id, registro.tienda_id)} · {registro.fecha}",
+            "destino": url_for("admin_alerta_ir", tipo="averiado", referencia_id=registro.id),
+            "orden": registro.creado or datetime(1970, 1, 1),
+        })
 
-    return render_template("admin_alertas.html",
-                           stock_bajo=stock_bajo, por_vencer=por_vencer,
-                           averiados=averiados, cargas_periodo=cargas_periodo)
+    periodos_auditados = (
+        InventarioPeriodo.query
+        .filter_by(cliente_id=cliente_id)
+        .filter(InventarioPeriodo.estado.in_(("Cerrado", "Conciliado", "Auditado")))
+        .order_by(InventarioPeriodo.id.desc()).limit(20).all()
+    )
+    for periodo in periodos_auditados:
+        if tienda_sel != "ALL" and periodo.tienda_id != tienda_sel:
+            continue
+        estado = estado_actualizacion_auditoria(
+            periodo, catalogo_pendiente=bool(estado_catalogo["total"]),
+        )
+        if not estado["desactualizada"] or not estado["ultima_ejecucion"]:
+            continue
+        version_alerta = estado["ultima_actualizacion"] or estado["ultima_ejecucion"]
+        tipo_auditoria = f"alerta_auditoria_{int(version_alerta.timestamp())}"
+        if (tipo_auditoria, periodo.id) in leidas:
+            continue
+        alertas.append({
+            "tipo": "auditoria", "tono": "danger", "icono": "↻",
+            "titulo": f"Re-ejecutar auditoría · Período #{periodo.numero}",
+            "detalle": "; ".join(estado["motivos"][:3]),
+            "meta": tiendas_map.get(periodo.tienda_id, periodo.tienda_id),
+            "destino": url_for("admin_alerta_ir", tipo="auditoria", referencia_id=periodo.id),
+            "orden": estado["ultima_ejecucion"],
+        })
+
+    prioridad = {"danger": 0, "warning": 1, "success": 2}
+    alertas = sorted(
+        alertas,
+        key=lambda a: (prioridad.get(a["tono"], 3), -a["orden"].timestamp()),
+    )
+    g._alertas_admin_key = cache_key
+    g._alertas_admin = alertas
+    return alertas
+
+
+@app.route("/admin/alertas/<tipo>/<int:referencia_id>/ir")
+@login_required(rol="administrador")
+def admin_alerta_ir(tipo, referencia_id):
+    cliente_id = get_cliente_filtro()
+    username = session.get("usuario")
+    destino = None
+    tipo_guardado = None
+    titulo = "Alerta revisada"
+
+    if tipo == "stock":
+        registro = InventarioItem.query.filter_by(id=referencia_id, cliente_id=cliente_id).first()
+        if registro:
+            tipo_guardado = f"alerta_stock_bajo_v{int(registro.version or 1)}"
+            titulo = f"Stock bajo · {registro.producto}"
+            destino = url_for(
+                "admin_inventario", tienda=registro.tienda_id, categoria="Todas",
+                estado="Todos", busqueda=registro.producto, alerta="Bajo stock",
+            ) + "#inventario-detalle"
+    elif tipo == "vencimiento":
+        registro = RegistroVencimiento.query.filter_by(id=referencia_id, cliente_id=cliente_id).first()
+        if registro:
+            tipo_guardado = "alerta_vencimiento"
+            titulo = f"Vencimiento · {registro.producto}"
+            destino = url_for("admin_vencimientos", tienda=registro.tienda_id) + "#vencimientos-lista"
+    elif tipo == "averiado":
+        registro = RegistroAveriado.query.filter_by(id=referencia_id, cliente_id=cliente_id).first()
+        if registro:
+            tipo_guardado = "alerta_averiado"
+            titulo = f"Averiado · {registro.producto}"
+            destino = url_for("admin_averiados", tienda=registro.tienda_id) + "#averiados-lista"
+    elif tipo == "catalogo" and referencia_id == 0:
+        from core.inventario import estado_sincronizacion_catalogo
+        estado = estado_sincronizacion_catalogo(cliente_id, detallado=True)
+        ultima_edicion = db.session.query(db.func.max(ExcelDetalleEdicion.id)).filter_by(
+            cliente_id=cliente_id,
+        ).scalar() or 0
+        version = db.session.query(db.func.max(Producto.catalogo_version)).scalar() or 0
+        tipo_guardado = f"alerta_catalogo_{int(version)}_{int(ultima_edicion)}_{int(estado['total'])}"[:40]
+        titulo = "Catálogo pendiente de sincronizar"
+        destino = url_for("desc.desc_sincronizar")
+    elif tipo == "auditoria":
+        registro = InventarioPeriodo.query.filter_by(
+            id=referencia_id, cliente_id=cliente_id,
+        ).first()
+        if registro:
+            from core.inventario import estado_sincronizacion_catalogo
+            estado = estado_actualizacion_auditoria(
+                registro,
+                catalogo_pendiente=bool(
+                    estado_sincronizacion_catalogo(cliente_id, detallado=True)["total"]
+                ),
+            )
+            version_alerta = estado["ultima_actualizacion"] or estado["ultima_ejecucion"]
+            if version_alerta:
+                tipo_guardado = f"alerta_auditoria_{int(version_alerta.timestamp())}"
+                titulo = f"Re-ejecutar auditoría · Período #{registro.numero}"
+                destino = url_for("admin_auditoria", periodo_id=registro.id)
+
+    if not destino or not tipo_guardado:
+        abort(404)
+    lectura = NotificacionUsuario.query.filter_by(
+        cliente_id=cliente_id, username=username,
+        tipo=tipo_guardado, referencia_id=referencia_id,
+    ).first()
+    if lectura is None:
+        db.session.add(NotificacionUsuario(
+            cliente_id=cliente_id, username=username, tipo=tipo_guardado,
+            referencia_id=referencia_id, titulo=titulo,
+            mensaje="Abierta desde el centro unificado de alertas.", leida=True,
+        ))
+    else:
+        lectura.leida = True
+    db.session.commit()
+    return redirect(destino)
 
 
 @app.route("/admin/notificaciones/<int:notif_id>/ir")
@@ -2220,6 +2700,7 @@ def admin_sincronizacion():
     local_notice = pop_view_notice(session, "admin_sync_notice")
     filas = []
     total_pendientes = 0
+    recepciones_catalogo_pendientes = 0
     for t in tiendas:
         ultimo_envio = (SincronizacionLog.query
                         .filter_by(cliente_id=cliente_id, tienda_id=t.id, tipo="envio")
@@ -2229,15 +2710,35 @@ def admin_sincronizacion():
                             .order_by(SincronizacionLog.timestamp.desc()).first())
         pendientes = InventarioItem.query.filter_by(
             cliente_id=cliente_id, tienda_id=t.id, sinc_estado="pendiente").count()
+        empleados_tienda = Usuario.query.filter_by(
+            cliente_id=cliente_id,
+            tienda_id=t.id,
+            rol="empleado",
+        ).all()
+        catalogo_usuarios_pendientes = 0
+        catalogo_cambios = 0
+        for empleado in empleados_tienda:
+            pendiente_catalogo, cambios = catalogo_pendiente_usuario(
+                cliente_id, empleado.username
+            )
+            if pendiente_catalogo:
+                catalogo_usuarios_pendientes += 1
+                catalogo_cambios = max(catalogo_cambios, cambios)
+        recepciones_catalogo_pendientes += catalogo_usuarios_pendientes
         total_pendientes += pendientes
         filas.append({
             "tienda": t.nombre, "tienda_id": t.id, "activa": t.activa,
             "ultimo_envio": format_utc_naive_to_local(ultimo_envio.timestamp) if ultimo_envio else None,
             "ultima_recepcion": format_utc_naive_to_local(ultima_recepcion.timestamp) if ultima_recepcion else None,
             "pendientes": pendientes,
+            "catalogo_usuarios_pendientes": catalogo_usuarios_pendientes,
+            "catalogo_cambios": catalogo_cambios,
         })
+    catalogo_por_publicar = Producto.query.filter_by(visible_empleado=False).count()
     return render_template("admin_sync_estado.html", filas=filas,
                            total_pendientes=total_pendientes,
+                           catalogo_por_publicar=catalogo_por_publicar,
+                           recepciones_catalogo_pendientes=recepciones_catalogo_pendientes,
                            local_notice=local_notice,
                            hide_global_flash=True)
 
@@ -2370,6 +2871,7 @@ def admin_configuracion():
 @login_required(rol="administrador")
 def producto_precio_guardar():
     ids = request.form.getlist("ids")
+    hubo_cambios = False
     for pid in ids:
         try:
             pid_int = int(pid)
@@ -2397,10 +2899,22 @@ def producto_precio_guardar():
             db.session.add(rec)
         elif rec.producto_id is None:
             rec.producto_id = producto.id
+        anterior = (
+            rec.precio, rec.precio_por_caja, rec.unidades_por_caja,
+            rec.unidades_por_bulto,
+        )
         rec.precio = precio_val
         rec.precio_por_caja = precio_caja_val
         rec.unidades_por_caja = caja_val
         rec.unidades_por_bulto = bulto_val
+        hubo_cambios = hubo_cambios or anterior != (
+            rec.precio, rec.precio_por_caja, rec.unidades_por_caja,
+            rec.unidades_por_bulto,
+        )
+    if hubo_cambios:
+        marcar_cambio_catalogo(
+            get_cliente_filtro(), "Precios o conversiones del catálogo actualizados",
+        )
     db.session.commit()
     flash("Precios y cantidades actualizados correctamente.", "success")
     return redirect(url_for("admin_precios"))
@@ -2540,6 +3054,9 @@ def producto_editar(producto_id):
     producto.catalogo_version = int(
         db.session.query(db.func.max(Producto.catalogo_version)).scalar() or 0
     ) + 1
+    marcar_cambio_catalogo(
+        get_cliente_filtro(), f"Producto renombrado: {nombre_anterior} → {nombre_nuevo}",
+    )
     try:
         db.session.commit()
     except IntegrityError:
@@ -2570,6 +3087,7 @@ def producto_eliminar(producto_id):
         db.session.delete(precio_rec)
     nombre = producto.nombre
     db.session.delete(producto)
+    marcar_cambio_catalogo(get_cliente_filtro(), f"Producto eliminado: {nombre}")
     db.session.commit()
     _set_admin_precios_notice(f"Producto '{nombre}' eliminado.", "info", active_tab)
     return redirect(url_for("admin_precios", tab=active_tab) + "#precios-tabs")
@@ -2960,6 +3478,7 @@ def admin_periodo_detalle(periodo_id):
     excel_imp = (ExcelImportado.query.filter_by(periodo_id=periodo_id)
                  .order_by(ExcelImportado.id.desc()).first())
     auditoria = (AuditoriaResultado.query.filter_by(periodo_id=periodo_id)
+                 .filter(AuditoriaResultado.estado_auditoria != "Archivado")
                  .order_by(AuditoriaResultado.severidad.desc(),
                             AuditoriaResultado.impacto.desc()).all())
     facturas_pendientes_auditoria = (
@@ -2982,6 +3501,11 @@ def admin_periodo_detalle(periodo_id):
         producto.categoria for producto in productos_catalogo
         if producto.categoria
     })
+    from core.inventario import estado_sincronizacion_catalogo
+    estado_auditoria = estado_actualizacion_auditoria(
+        periodo,
+        catalogo_pendiente=estado_sincronizacion_catalogo(cliente_id)["total"] > 0,
+    )
 
     return render_template(
         "admin_periodo_detalle.html",
@@ -2994,6 +3518,7 @@ def admin_periodo_detalle(periodo_id):
         facturas_pendientes_auditoria=facturas_pendientes_auditoria,
         productos_catalogo=productos_catalogo,
         categorias=categorias_catalogo,
+        estado_actualizacion_auditoria=estado_auditoria,
     )
 
 
@@ -3029,7 +3554,11 @@ def admin_periodo_cerrar(periodo_id):
 
 def _refrescar_auditoria_por_cambio_admin(periodo):
     """Recalcula resultados existentes sin borrar justificaciones manuales."""
-    resultados = AuditoriaResultado.query.filter_by(periodo_id=periodo.id).all()
+    resultados = (
+        AuditoriaResultado.query.filter_by(periodo_id=periodo.id)
+        .filter(AuditoriaResultado.estado_auditoria != "Archivado")
+        .all()
+    )
     if not resultados:
         return "sin_auditoria"
     resultado_ids = [resultado.id for resultado in resultados]
@@ -3258,7 +3787,9 @@ def admin_auditoria(periodo_id):
 
     # Se envía el conjunto completo para combinar filtros en pantalla sin
     # alterar los totales reales del período.
-    resultados = AuditoriaResultado.query.filter_by(periodo_id=periodo_id).order_by(
+    resultados = AuditoriaResultado.query.filter_by(periodo_id=periodo_id).filter(
+        AuditoriaResultado.estado_auditoria != "Archivado"
+    ).order_by(
         AuditoriaResultado.severidad.desc(),
         AuditoriaResultado.impacto.desc(),
     ).all()
@@ -3282,7 +3813,12 @@ def admin_auditoria(periodo_id):
         "sin_datos": sum(1 for r in resultados if r.estado_auditoria == "Sin datos"),
     }
     categorias = sorted({r.categoria for r in resultados if r.categoria})
-    ultima_ejecucion = max((r.creado for r in resultados if r.creado), default=None)
+    from core.inventario import estado_sincronizacion_catalogo
+    estado_actualizacion = estado_actualizacion_auditoria(
+        periodo,
+        catalogo_pendiente=estado_sincronizacion_catalogo(cliente_id)["total"] > 0,
+    )
+    ultima_ejecucion = estado_actualizacion["ultima_ejecucion"]
     causas_disponibles = [
         "Error de conteo", "Compra mal cargada", "Canje no registrado",
         "Producto vencido", "Merma o averiado", "Pendiente de revisión",
@@ -3297,9 +3833,9 @@ def admin_auditoria(periodo_id):
         resumen=resumen,
         categorias=categorias,
         ultima_ejecucion=ultima_ejecucion,
+        estado_actualizacion_auditoria=estado_actualizacion,
         facturas_pendientes_auditoria=facturas_pendientes_auditoria,
         causas_disponibles=causas_disponibles,
-        asistente_estado=AIConfig.from_env().public_status(),
     )
 
 
@@ -3373,6 +3909,82 @@ def admin_asistente_consultar(periodo_id):
         model=respuesta["model"],
         fallback=respuesta["fallback"],
         consultation_id=consulta.id,
+    )
+
+
+@app.route("/admin/asistente/consultar", methods=["POST"])
+@login_required(rol="administrador")
+def admin_nexa_consultar():
+    """Nexa responde con contexto del apartado administrativo actual."""
+    cliente_id = get_cliente_filtro()
+    payload = request.get_json(silent=True) or {}
+    pregunta = str(payload.get("pregunta") or "").strip()
+    if not pregunta:
+        return jsonify(ok=False, error="Escribe una consulta para Nexa."), 400
+    if len(pregunta) > 1000:
+        return jsonify(ok=False, error="La consulta no puede superar 1000 caracteres."), 400
+
+    seccion = str(payload.get("seccion") or "resumen")
+    if seccion not in NEXA_SECCIONES:
+        seccion = "resumen"
+
+    periodo = None
+    periodo_id = payload.get("periodo_id")
+    if periodo_id not in (None, ""):
+        try:
+            periodo_id = int(periodo_id)
+        except (TypeError, ValueError):
+            return jsonify(ok=False, error="El período indicado no es válido."), 400
+        periodo = db.session.get(InventarioPeriodo, periodo_id)
+        if periodo is None or periodo.cliente_id != cliente_id:
+            abort(404)
+
+    contexto = (
+        build_period_context(periodo)
+        if periodo is not None and seccion == "auditoria"
+        else _nexa_contexto_seccion(seccion, cliente_id)
+    )
+    respuesta = explain(pregunta, contexto)
+    consulta_id = None
+    # El esquema actual exige un período para la trazabilidad. Las consultas
+    # de una pantalla con período se conservan; las generales siguen siendo
+    # estrictamente de solo lectura y no inventan una asociación contable.
+    if periodo is not None:
+        consulta = AsistenteIAConsulta(
+            cliente_id=cliente_id,
+            tienda_id=periodo.tienda_id,
+            periodo_id=periodo.id,
+            resultado_id=None,
+            usuario=session["usuario"],
+            tipo="seccion",
+            pregunta=pregunta,
+            respuesta=respuesta["answer"] or respuesta["error"],
+            proveedor=respuesta["provider"],
+            modelo=respuesta["model"],
+            contexto_json=_json.dumps(contexto, ensure_ascii=False),
+            estado=("fallback" if respuesta["fallback"] else
+                    ("ok" if respuesta["ok"] else "error")),
+            error=respuesta["error"],
+        )
+        db.session.add(consulta)
+        db.session.commit()
+        consulta_id = consulta.id
+
+    if not respuesta["ok"]:
+        return jsonify(
+            ok=False,
+            error=respuesta["error"],
+            provider=respuesta["provider"],
+            model=respuesta["model"],
+            consultation_id=consulta_id,
+        ), 503
+    return jsonify(
+        ok=True,
+        answer=respuesta["answer"],
+        provider=respuesta["provider"],
+        model=respuesta["model"],
+        fallback=respuesta["fallback"],
+        consultation_id=consulta_id,
     )
 
 
@@ -3473,6 +4085,7 @@ def admin_auditoria_exportar(periodo_id):
         return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
 
     resultados = (AuditoriaResultado.query.filter_by(periodo_id=periodo_id)
+                  .filter(AuditoriaResultado.estado_auditoria != "Archivado")
                   .order_by(AuditoriaResultado.impacto.desc()).all())
 
     wb = openpyxl.Workbook()

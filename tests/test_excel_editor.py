@@ -5,7 +5,7 @@ from datetime import date
 from flask import Flask
 
 from core.auditoria import ejecutar_auditoria
-from core.inventario import desc_bp
+from core.inventario import desc_bp, _datos_extraidos_del_periodo
 from core.excel_importer import contar_detalles_pendientes, contar_detalles_revinculables
 from core.models import (
     ConteoDetalle,
@@ -149,6 +149,41 @@ class PruebasEditorExcel(unittest.TestCase):
         )
         self.assertEqual(respuesta.status_code, 404)
         self.assertEqual(db.session.get(ExcelDetalle, self.detalle.id).compras, 0)
+
+    def test_datos_extraidos_quedan_aislados_por_periodo(self):
+        periodo_otro = InventarioPeriodo(
+            cliente_id="C-EDIT", tienda_id="T-EDIT", numero=2,
+            fecha_desde="2026-08-22", fecha_hasta="2026-08-23",
+            estado="Excel Importado", usuario_creador="admin",
+        )
+        db.session.add(periodo_otro)
+        db.session.flush()
+        excel_otro = ExcelImportado(
+            periodo_id=periodo_otro.id, cliente_id="C-EDIT",
+            nombre_archivo="otro-periodo.xlsx", usuario_importador="admin",
+            estado_validacion="ok",
+        )
+        db.session.add(excel_otro)
+        db.session.flush()
+        db.session.add(ExcelDetalle(
+            cliente_id="C-EDIT", excel_id=excel_otro.id,
+            articulo="B2", artdescrip="Producto de otro período",
+            estado_vinculacion="pendiente",
+        ))
+        db.session.commit()
+
+        excel, filas = _datos_extraidos_del_periodo("C-EDIT", self.periodo.id)
+        self.assertEqual(excel.id, self.excel.id)
+        self.assertEqual({fila.excel_id for fila in filas}, {self.excel.id})
+        self.assertNotIn("Producto de otro período", {fila.artdescrip for fila in filas})
+
+        excel, filas = _datos_extraidos_del_periodo("C-EDIT", periodo_otro.id)
+        self.assertEqual(excel.id, excel_otro.id)
+        self.assertEqual([fila.artdescrip for fila in filas], ["Producto de otro período"])
+
+        excel, filas = _datos_extraidos_del_periodo("OTRO-CLIENTE", periodo_otro.id)
+        self.assertIsNone(excel)
+        self.assertEqual(filas, [])
 
     def test_detecta_conflicto_si_la_celda_cambio_en_otra_sesion(self):
         self.detalle.compras = 8

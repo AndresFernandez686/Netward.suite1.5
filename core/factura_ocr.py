@@ -567,7 +567,9 @@ def aplicar_compras_facturas(periodo: InventarioPeriodo, cliente_id: str, usuari
             fila.compras_calculadas = cantidad
         totales[fila.producto_id] = totales.get(fila.producto_id, 0.0) + cantidad
 
-    detalles_excel = ExcelDetalle.query.filter_by(excel_id=excel.id).all()
+    detalles_excel = ExcelDetalle.query.filter_by(
+        excel_id=excel.id, excluido_auditoria=False,
+    ).all()
     vinculados_excel = {d.producto_id: d for d in detalles_excel if d.producto_id}
     cambios = 0
     no_encontrados = []

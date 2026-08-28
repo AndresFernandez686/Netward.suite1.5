@@ -78,10 +78,12 @@ class PruebasPermisosSeguridad(unittest.TestCase):
             "admin_auditoria_ejecutar",
             "admin_auditoria",
             "admin_asistente_consultar",
+            "admin_nexa_consultar",
             "admin_justificar",
             "admin_marcar_revisado",
             "admin_reporte_gerencial",
             "admin_auditoria_exportar",
+            "admin_alerta_ir",
         }
         funciones = {
             nodo.name: nodo

@@ -95,6 +95,30 @@ class PruebasFacturasOCR(unittest.TestCase):
         self.assertFalse(any(d.estado_vinculacion == "fuera_rango" for d in factura.detalles))
         self.assertTrue(any("fecha de emisión" in aviso for aviso in avisos))
 
+    def test_factura_acepta_periodo_cerrado_y_conserva_su_asignacion(self):
+        periodo = self._periodo()
+        periodo.estado = "Cerrado"
+        db.session.add(ExcelImportado(
+            periodo_id=periodo.id,
+            cliente_id="C001",
+            nombre_archivo="oficial-cerrado.xlsx",
+            usuario_importador="admin",
+            estado_validacion="ok",
+        ))
+        nombre, contenido = self._pdf("fane")
+
+        factura, _avisos = importar_factura(
+            periodo=periodo,
+            cliente_id="C001",
+            usuario="admin",
+            nombre_archivo=nombre,
+            contenido=contenido,
+        )
+        db.session.commit()
+
+        self.assertEqual(factura.periodo_id, periodo.id)
+        self.assertEqual(factura.periodo.estado, "Cerrado")
+
     def test_aplica_compras_convertidas_y_registra_trazabilidad(self):
         periodo = self._periodo()
         palito = Producto.query.filter_by(nombre="Palito Crema Americana").one()
@@ -264,6 +288,42 @@ class PruebasFacturasOCR(unittest.TestCase):
             db.session.flush()
 
         self.assertEqual(FacturaCompra.query.filter_by(periodo_id=periodo.id).count(), 2)
+
+    def test_un_mismo_pdf_no_puede_quedar_en_dos_periodos(self):
+        periodo_origen = self._periodo()
+        nombre, contenido = self._pdf("helacor")
+        factura, _avisos = importar_factura(
+            periodo=periodo_origen,
+            cliente_id="C001",
+            usuario="admin",
+            nombre_archivo=nombre,
+            contenido=contenido,
+        )
+        db.session.commit()
+
+        periodo_otro = InventarioPeriodo(
+            cliente_id="C001",
+            tienda_id="T001",
+            numero=2,
+            fecha_desde="2026-09-01",
+            fecha_hasta="2026-09-30",
+            estado="Cerrado",
+            usuario_creador="admin",
+        )
+        db.session.add(periodo_otro)
+        db.session.flush()
+        repetida, avisos = importar_factura(
+            periodo=periodo_otro,
+            cliente_id="C001",
+            usuario="admin",
+            nombre_archivo="mismo-documento.pdf",
+            contenido=contenido,
+        )
+
+        self.assertIsNotNone(factura)
+        self.assertIsNone(repetida)
+        self.assertIn(f"período #{periodo_origen.numero}", avisos[0])
+        self.assertEqual(FacturaCompra.query.count(), 1)
 
     def test_todas_las_rutas_de_facturas_exigen_administrador(self):
         codigo = (ROOT / "core" / "inventario.py").read_text(encoding="utf-8-sig")

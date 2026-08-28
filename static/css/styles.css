@@ -164,6 +164,9 @@ small { font-size: .78rem; }
 }
 .topbar__menu { display: none; background: none; border: 0; color: var(--ink); cursor: pointer; }
 .topbar__title { flex: 1; }
+.topbar__heading-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.topbar__heading-row h1 { min-width: 0; }
+.topbar__back { flex: 0 0 auto; white-space: nowrap; }
 .topbar__title h1 { font-size: 1.25rem; }
 .topbar__title p { margin: 2px 0 0; color: var(--muted); font-size: .85rem; }
 .topbar__store {
@@ -876,6 +879,8 @@ small { font-size: .78rem; }
   .topbar         { padding: 0 14px; min-height: 56px; gap: 10px; }
   .topbar__title h1 { font-size: 1rem; }
   .topbar__title p  { display: none; }
+  .topbar__back span:last-child { display: none; }
+  .topbar__back { min-width: 34px; padding-inline: 9px; }
   .topbar__store  { font-size: .75rem; padding: 6px 10px; }
 
   /* Layout */

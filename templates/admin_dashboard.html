@@ -2,6 +2,7 @@
 {% block title %}Resumen - {{ app_nombre }}{% endblock %}
 {% block heading %}¡Hola, {{ sesion_usuario }}!{% endblock %}
 {% block subheading %}Aquí tienes un resumen actualizado de tu inventario.{% endblock %}
+{% block admin_back_button %}{% endblock %}
 
 {% block content %}
 <!-- KPIs -->
@@ -104,23 +105,12 @@
   <!-- Columna lateral: alertas + actividad -->
   <div class="dashboard-side-column">
     <section class="panel">
-      <div class="panel__head"><h3>Alertas de inventario</h3></div>
-      {% if stock_bajo > 0 %}
-      <div class="alert-tile alert-tile--danger">
-        <span class="alert-tile__icon">{% include 'icons/alert.svg' %}</span>
-        <div><strong>{{ stock_bajo }} producto(s)</strong><small>Stock bajo</small></div>
-      </div>
-      {% endif %}
-      {% if proximos_vencer %}
-      <div class="alert-tile alert-tile--warning">
-        <span class="alert-tile__icon">{% include 'icons/clock.svg' %}</span>
-        <div><strong>{{ proximos_vencer|length }} producto(s)</strong><small>Por vencer pronto</small></div>
-      </div>
-      {% endif %}
-      {% if stock_bajo == 0 and not proximos_vencer %}
-      <div class="empty-mini">Sin alertas activas. Todo en orden.</div>
-      {% endif %}
-      <a class="panel__link" style="margin-top:6px;" href="{{ url_for('admin_alertas') }}">Ver todas las alertas →</a>
+      <div class="panel__head"><h3>Centro de alertas</h3></div>
+      <a class="dashboard-alert-center" href="{{ url_for('admin_alertas') }}">
+        <span class="dashboard-alert-center__icon">{% include 'icons/alert.svg' %}</span>
+        <span><strong>{{ notif_admin_unread }} alerta{{ 's' if notif_admin_unread != 1 }} pendiente{{ 's' if notif_admin_unread != 1 }}</strong><small>Inventario, documentos, auditoría y operaciones</small></span>
+        <span aria-hidden="true">→</span>
+      </a>
     </section>
 
     <section class="panel">

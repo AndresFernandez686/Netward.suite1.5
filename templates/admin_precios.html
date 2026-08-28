@@ -13,21 +13,23 @@
   </div>
 </div>
 
-<section class="card card--skip-collapse catalog-management" id="catalogo-alta">
-  <div class="catalog-toolbar">
-    <label class="field catalog-toolbar__search">
-      <span class="field__label">Buscar producto</span>
-      <input type="text" id="buscar-precio-producto" placeholder="Escribe el nombre del producto..." />
-    </label>
-    <div class="catalog-toolbar__actions">
-      <button type="button" class="btn btn--ghost" id="limpiar-busqueda-precios">Limpiar búsqueda</button>
-      <button type="button" class="btn btn--primary" id="catalog-add-toggle" aria-expanded="false" aria-controls="catalog-add-panel">
-        + Añadir producto
-      </button>
-    </div>
+<div class="catalog-management" id="catalogo-alta">
+  <div class="catalog-management__top">
+    <section class="card card--skip-collapse catalog-search-card" aria-label="Buscar productos del catálogo">
+      <div class="catalog-toolbar">
+        <label class="field catalog-toolbar__search">
+          <span class="field__label">Buscar producto</span>
+          <input type="text" id="buscar-precio-producto" placeholder="Escribe el nombre del producto..." />
+        </label>
+        <button type="button" class="btn btn--ghost catalog-search-clear" id="limpiar-busqueda-precios">Limpiar búsqueda</button>
+      </div>
+    </section>
+    <button type="button" class="btn btn--primary catalog-add-button" id="catalog-add-toggle" aria-expanded="false" aria-controls="catalog-add-panel">
+      + Añadir producto
+    </button>
   </div>
 
-  <div class="catalog-add-panel" id="catalog-add-panel" hidden>
+  <section class="card card--skip-collapse catalog-add-panel" id="catalog-add-panel" hidden>
     <div class="catalog-add-panel__head">
       <div><h3>Nuevo producto</h3><p>Puede cargar también su precio y presentación inicial.</p></div>
       <button type="button" class="btn btn--ghost btn--sm" id="catalog-add-close">Cerrar</button>
@@ -63,8 +65,8 @@
         <button type="submit" class="btn btn--primary">Crear producto</button>
       </div>
     </form>
-  </div>
-</section>
+  </section>
+</div>
 
 {% if local_notice %}
 <div class="flash flash--{{ local_notice.category }}" style="margin-bottom:12px;">

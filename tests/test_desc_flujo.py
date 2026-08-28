@@ -27,7 +27,11 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn("Guardar modificaciones", plantilla)
         self.assertIn("function activateDocTab", plantilla)
         self.assertIn("docPanels.forEach", plantilla)
-        self.assertIn("activateDocTab('datos', true)", plantilla)
+        self.assertNotIn('data-doc-tab="datos"', plantilla)
+        self.assertIn("data-inline-data-panel", plantilla)
+        self.assertIn("datosCard.dataset.inlineVisible = 'true'", plantilla)
+        self.assertIn("url.searchParams.set('periodo_id', periodoSelect.value)", plantilla)
+        self.assertNotIn("if periodo_seleccionado is None and periodos_disponibles", ruta)
 
     def test_facturas_tienen_tabla_compacta_y_encabezado_congelado(self):
         plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
@@ -103,9 +107,10 @@ class PruebasFlujoDesc(unittest.TestCase):
         plantilla = (ROOT / "templates" / "admin_auditoria.html").read_text(
             encoding="utf-8"
         )
+        aplicacion = (ROOT / "app.py").read_text(encoding="utf-8")
 
         self.assertIn("Explicar cálculo", plantilla)
-        self.assertIn("Ver fórmula", plantilla)
+        self.assertIn("Ver fórmulas", aplicacion)
         self.assertIn("sustituye cada valor", plantilla)
         self.assertIn("por qué el sistema esperaba ese número", plantilla)
 
@@ -191,6 +196,20 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn("Vencidos <small>no imputable</small>", auditoria)
         self.assertIn("Diferencia residual", auditoria)
 
+    def test_auditoria_usa_todo_el_ancho_sin_tarjetas_laterales(self):
+        auditoria = (ROOT / "templates" / "admin_auditoria.html").read_text(
+            encoding="utf-8"
+        )
+        estilos = (ROOT / "static" / "css" / "admin.css").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("Resumen del período", auditoria)
+        self.assertNotIn("Acciones sugeridas", auditoria)
+        self.assertNotIn('class="audit-sidebar"', auditoria)
+        self.assertIn(".audit-layout { width: 100%; }", estilos)
+        self.assertIn(".audit-results, .audit-trace { width: 100%;", estilos)
+
     def test_pdf_usa_guardado_masivo_y_busca_todo_el_catalogo(self):
         plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
             encoding="utf-8"
@@ -205,6 +224,31 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertNotIn(">Guardar</button>", revision_pdf)
         self.assertIn("{% for producto in productos_factura %}", revision_pdf)
         self.assertNotIn("producto.categoria in permitidas", revision_pdf)
+
+    def test_pdf_hereda_el_periodo_documental_del_excel(self):
+        plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
+            encoding="utf-8"
+        )
+        ruta = (ROOT / "core" / "inventario.py").read_text(encoding="utf-8")
+
+        self.assertIn("Período documental seleccionado en Inventario", plantilla)
+        self.assertIn(
+            "url_for('desc.desc_facturas_importar', periodo_id=periodo_seleccionado.id)",
+            plantilla,
+        )
+        self.assertIn("{% if excel_seleccionado %}", plantilla)
+        self.assertIn("incluso si el período está cerrado", plantilla)
+        self.assertIn(
+            '"/admin/documentacion/periodos/<int:periodo_id>/facturas/importar"',
+            ruta,
+        )
+        self.assertIn("periodo_form_id != periodo_id", ruta)
+        self.assertIn("Primero importa el Excel oficial del período seleccionado", ruta)
+        self.assertIn(
+            'if excel_seleccionado is not None and active_doc_tab == "inventario"',
+            ruta,
+        )
+        self.assertIn("url.searchParams.set('ver_datos', '1')", plantilla)
 
     def test_categoria_visible_se_llama_fanee(self):
         seed = (ROOT / "core" / "seed_data.py").read_text(encoding="utf-8")
@@ -228,7 +272,8 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertNotIn("revincular_detalles_pendientes", ruta)
         self.assertIn("Aplicar cambios", plantilla)
         self.assertIn("disabled", plantilla)
-        self.assertIn("Volver atrás", plantilla)
+        self.assertEqual(plantilla.count("btn--back"), 1)
+        self.assertIn("topbar__back", plantilla)
 
     def test_notifica_cambios_pendientes_de_catalogo(self):
         desc = (ROOT / "templates" / "admin_desc.html").read_text(encoding="utf-8")
@@ -243,7 +288,8 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn("estado_sync.total", desc)
         self.assertIn("desc-sync-badge", desc)
         self.assertIn("refreshSyncNotice", desc)
-        self.assertIn("notif_sincronizacion", base)
+        self.assertNotIn("catalog-sync-nav-badge", base)
+        self.assertIn("notif_admin_unread", base)
         self.assertIn("pendientes_sin_producto", sincronizar)
         self.assertIn("Aplicar cambios", sincronizar)
         self.assertIn(".desc-sync-alert[hidden]", estilos)
@@ -255,6 +301,13 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn("catalogo_pendiente", empleado_sync)
         self.assertIn("Sincronización pendiente", empleado_sync)
         self.assertIn("enviar_recibir", empleado_sync)
+
+        estado_admin = (ROOT / "templates" / "admin_sync_estado.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("catalogo_por_publicar", estado_admin)
+        self.assertIn("Enviar cambios de catálogo", estado_admin)
+        self.assertIn("recepciones_catalogo_pendientes", estado_admin)
 
     def test_enviar_y_recibir_funciona_sin_inventario_pendiente(self):
         app = (ROOT / "app.py").read_text(encoding="utf-8")

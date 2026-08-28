@@ -15,7 +15,7 @@ from .models import (
     db, InventarioPeriodo, ConteoDetalle, AjusteInventario, InventarioItem,
     ExcelDetalle, AuditoriaResultado, Justificacion,
     RegistroAveriado, RegistroVencimiento, ProductoPrecio,
-    ProductoRelacionado,
+    ProductoRelacionado, utc_now,
 )
 from .excel_importer import empaques_compatibles
 from .ajustes import ajuste_es_baja_no_imputable
@@ -72,7 +72,7 @@ def _stock_final_anterior(periodo: InventarioPeriodo, producto_nombre: str) -> O
     prev = anteriores[0]
     ar = AuditoriaResultado.query.filter_by(
         periodo_id=prev.id, producto_nombre=producto_nombre
-    ).first()
+    ).filter(AuditoriaResultado.estado_auditoria != "Archivado").first()
     if ar:
         return ar.conteo_final
 
@@ -102,7 +102,7 @@ def _promedio_compras(periodo: InventarioPeriodo, producto_nombre: str, n: int =
         # Buscar en AuditoriaResultado
         ar = AuditoriaResultado.query.filter_by(
             periodo_id=prev.id, producto_nombre=producto_nombre
-        ).first()
+        ).filter(AuditoriaResultado.estado_auditoria != "Archivado").first()
         if ar:
             compras.append(ar.compras)
             continue
@@ -116,6 +116,7 @@ def _promedio_compras(periodo: InventarioPeriodo, producto_nombre: str, n: int =
             ed = (ExcelDetalle.query
                   .filter_by(excel_id=ei.id)
                   .filter(
+                      ExcelDetalle.excluido_auditoria.is_(False),
                       db.func.lower(ExcelDetalle.producto_nombre_interno) == _norm(producto_nombre)
                   ).first())
             if ed:
@@ -188,7 +189,7 @@ def _compensacion_conteo(periodo: InventarioPeriodo, producto_nombre: str,
     for prev in anteriores:
         ar = AuditoriaResultado.query.filter_by(
             periodo_id=prev.id, producto_nombre=producto_nombre
-        ).first()
+        ).filter(AuditoriaResultado.estado_auditoria != "Archivado").first()
         if ar and ar.diferencia:
             ratio = abs(diferencia_actual + ar.diferencia) / (abs(ar.diferencia) + 1e-9)
             if ratio < 0.15:
@@ -262,16 +263,21 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
 
     # Borrar resultados anteriores solo después de sincronizar correctamente
     # las fuentes; un error de factura no debe destruir una auditoría existente.
-    AuditoriaResultado.query.filter_by(periodo_id=periodo.id).delete()
-    db.session.flush()
+    resultados_anteriores = AuditoriaResultado.query.filter_by(
+        periodo_id=periodo.id
+    ).all()
+    resultados_por_producto = {
+        _norm(resultado.producto_nombre): resultado
+        for resultado in resultados_anteriores
+    }
 
     # Mapa producto → fila Excel (producto_id como clave primaria; nombre como fallback)
     excel_map: dict[str, ExcelDetalle] = {}
     excel_raw_map: dict[str, ExcelDetalle] = {}
+    excel_rows: list[ExcelDetalle] = []
     if excel_imp:
-        for row in ExcelDetalle.query.filter_by(
-            excel_id=excel_imp.id, excluido_auditoria=False
-        ).all():
+        excel_rows = ExcelDetalle.query.filter_by(excel_id=excel_imp.id).all()
+        for row in (fila for fila in excel_rows if not fila.excluido_auditoria):
             vinculo_incompatible = bool(
                 row.producto_nombre_interno
                 and not empaques_compatibles(row.producto_nombre_interno, row.artdescrip)
@@ -308,9 +314,39 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         ajuste_fecha_map[k] = aj.fecha_ajuste.strftime("%Y-%m-%d") if aj.fecha_ajuste else ""
 
     # Todos los productos a auditar = unión de conteos + filas Excel
-    nombres: set[str] = {c.producto_nombre for c in conteos}
+    claves_activas_excel: set[str] = set()
+    claves_excluidas_excel: set[str] = set()
+    for row in excel_rows:
+        nombre_fila = (
+            row.artdescrip
+            if row.producto_nombre_interno
+            and not empaques_compatibles(row.producto_nombre_interno, row.artdescrip)
+            else (row.producto_nombre_interno or row.artdescrip)
+        )
+        if not nombre_fila:
+            continue
+        destino = claves_excluidas_excel if row.excluido_auditoria else claves_activas_excel
+        destino.add(_norm(nombre_fila))
+    codigos_excluidos = {
+        str(row.articulo or "").strip()
+        for row in excel_rows if row.excluido_auditoria and row.articulo
+    }
+    if codigos_excluidos:
+        from .models import Producto
+        for producto_excluido in Producto.query.filter(
+            Producto.codigo_articulo.in_(codigos_excluidos)
+        ).all():
+            claves_excluidas_excel.add(_norm(producto_excluido.nombre))
+    # Si el mismo producto tiene una fila auditable y otra excluida, prevalece
+    # la fila auditable. Solo se suprimen productos exclusivamente excluidos.
+    solo_excluidas = claves_excluidas_excel - claves_activas_excel
+
+    nombres: set[str] = {
+        c.producto_nombre for c in conteos
+        if _norm(c.producto_nombre) not in solo_excluidas
+    }
     if excel_imp:
-        for row in ExcelDetalle.query.filter_by(excel_id=excel_imp.id).all():
+        for row in (fila for fila in excel_rows if not fila.excluido_auditoria):
             n = (
                 row.artdescrip
                 if row.producto_nombre_interno and not empaques_compatibles(row.producto_nombre_interno, row.artdescrip)
@@ -334,7 +370,10 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
         ))
         .all()
     )
-    nombres.update(v.producto for v in ventas_delivery_periodo if v.producto)
+    nombres.update(
+        v.producto for v in ventas_delivery_periodo
+        if v.producto and _norm(v.producto) not in solo_excluidas
+    )
 
     resultados: list[AuditoriaResultado] = []
 
@@ -612,7 +651,7 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             severidad = "Observación"
             impacto = 0.0
 
-        ar = AuditoriaResultado(
+        valores_resultado = dict(
             periodo_id=periodo.id,
             cliente_id=periodo.cliente_id,
             producto_nombre=nombre,
@@ -652,8 +691,28 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             usuario_ajuste=ajuste_usuario_map.get(pnorm, ""),
             fecha_ajuste=ajuste_fecha_map.get(pnorm, ""),
         )
-        db.session.add(ar)
+        ar = resultados_por_producto.pop(pnorm, None)
+        if ar is None:
+            ar = AuditoriaResultado()
+            db.session.add(ar)
+        for campo, valor in valores_resultado.items():
+            setattr(ar, campo, valor)
+        ar.creado = utc_now()
         resultados.append(ar)
+
+    # Los productos retirados o excluidos conservan su ID para mantener la
+    # trazabilidad, pero ya no forman parte de la auditoria vigente.
+    for anterior in resultados_por_producto.values():
+        anterior.estado_auditoria = "Archivado"
+        anterior.tipo_diferencia = "correcto"
+        anterior.severidad = "Correcto"
+        anterior.diferencia = 0
+        anterior.impacto = 0
+        anterior.evidencia = (
+            "Resultado archivado al re-ejecutar: el producto ya no forma parte "
+            "de las fuentes auditables del periodo."
+        )
+        anterior.creado = utc_now()
 
     db.session.flush()
 
@@ -727,6 +786,7 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
     resultados = (
         AuditoriaResultado.query
         .filter_by(periodo_id=periodo.id)
+        .filter(AuditoriaResultado.estado_auditoria != "Archivado")
         .filter(AuditoriaResultado.tipo_diferencia == "faltante")
         .order_by(AuditoriaResultado.impacto.desc())
         .all()
@@ -774,6 +834,7 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
         res_ant = (
             AuditoriaResultado.query
             .filter_by(periodo_id=periodo_anterior.id)
+            .filter(AuditoriaResultado.estado_auditoria != "Archivado")
             .filter(AuditoriaResultado.tipo_diferencia == "faltante")
             .all()
         )

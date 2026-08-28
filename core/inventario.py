@@ -394,6 +394,33 @@ def _procesar_filas(filas_raw: list, stock_map: dict, ventas_map: dict,
 # Rutas
 # ---------------------------------------------------------------------------
 
+def _datos_extraidos_del_periodo(cliente_id, periodo_id, excel_id=None):
+    """Devuelve exclusivamente el Excel y sus filas del período solicitado."""
+    from core.models import ExcelImportado, ExcelDetalle
+
+    consulta = ExcelImportado.query.filter_by(
+        periodo_id=periodo_id,
+        cliente_id=cliente_id,
+    )
+    if excel_id is not None:
+        excel = consulta.filter_by(id=excel_id).first()
+    else:
+        excel = (
+            consulta
+            .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
+            .order_by(ExcelImportado.id.desc())
+            .first()
+        )
+    if excel is None:
+        return None, []
+    detalles = (
+        ExcelDetalle.query
+        .filter_by(excel_id=excel.id)
+        .order_by(ExcelDetalle.grupo, ExcelDetalle.artdescrip, ExcelDetalle.id)
+        .all()
+    )
+    return excel, detalles
+
 @desc_bp.route("/admin/desc", methods=["GET", "POST"])
 def admin_desc():
     _requiere_admin()
@@ -416,13 +443,14 @@ def admin_desc():
     excel_id_arg = request.args.get("excel_id", type=int)
     snapshot_id_arg = request.args.get("snapshot_id", type=int)
     active_doc_tab = request.args.get("doc_tab", "inventario")
-    if active_doc_tab not in {"inventario", "facturas", "datos", "historial"}:
+    mostrar_datos = request.args.get("ver_datos") == "1"
+    if active_doc_tab == "datos":
+        # Compatibilidad con enlaces anteriores: ahora los datos viven bajo Inventario.
         active_doc_tab = "inventario"
-    if request.args.get("ver_datos") == "1":
-        active_doc_tab = "datos"
+        mostrar_datos = True
+    if active_doc_tab not in {"inventario", "facturas", "historial"}:
+        active_doc_tab = "inventario"
     periodo_seleccionado = next((p for p in periodos_disponibles if p.id == periodo_id_arg), None)
-    if periodo_seleccionado is None and periodos_disponibles:
-        periodo_seleccionado = periodos_disponibles[0]
 
     excel_seleccionado = None
     excel_detalles = []
@@ -431,23 +459,11 @@ def admin_desc():
     facturas_periodo = []
     factura_detalles = []
     if periodo_seleccionado is not None:
-        if excel_id_arg:
-            excel_seleccionado = ExcelImportado.query.filter_by(
-                id=excel_id_arg,
-                periodo_id=periodo_seleccionado.id,
-                cliente_id=cliente_id,
-            ).first()
-        else:
-            excel_seleccionado = (
-                ExcelImportado.query
-                .filter_by(
-                    periodo_id=periodo_seleccionado.id,
-                    cliente_id=cliente_id,
-                )
-                .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
-                .order_by(ExcelImportado.id.desc())
-                .first()
-            )
+        excel_seleccionado, excel_detalles = _datos_extraidos_del_periodo(
+            cliente_id,
+            periodo_seleccionado.id,
+            excel_id_arg,
+        )
         if excel_seleccionado is not None:
             from core.excel_importer import corregir_vinculaciones_empaque
             if corregir_vinculaciones_empaque(excel_seleccionado.id):
@@ -456,12 +472,6 @@ def admin_desc():
                     "Se desvincularon productos cuya cantidad de empaque no coincide con el Excel; requieren revisión.",
                     "warning",
                 )
-            excel_detalles = (
-                ExcelDetalle.query
-                .filter_by(excel_id=excel_seleccionado.id)
-                .order_by(ExcelDetalle.grupo, ExcelDetalle.artdescrip, ExcelDetalle.id)
-                .all()
-            )
         facturas_periodo = (
             FacturaCompra.query
             .filter_by(periodo_id=periodo_seleccionado.id, cliente_id=cliente_id)
@@ -480,6 +490,11 @@ def admin_desc():
                 )
                 .all()
             )
+
+        # Seleccionar un período ya documentado debe restaurar su contexto
+        # completo sin exigir un segundo clic ni una nueva importación.
+        if excel_seleccionado is not None and active_doc_tab == "inventario":
+            mostrar_datos = True
 
     # Historial de snapshots para mostrar en la UI
     snapshots = (InventarioDescSnapshot.query
@@ -552,7 +567,7 @@ def admin_desc():
             destino = url_for(
                 "desc.admin_desc",
                 periodo_id=periodo.id,
-                doc_tab="datos" if ver_datos else "inventario",
+                doc_tab="inventario",
                 **({"ver_datos": 1} if ver_datos else {}),
             )
             return redirect(destino + ("#datos-extraidos-card" if ver_datos else ""))
@@ -670,7 +685,7 @@ def admin_desc():
             if detalle.estado_vinculacion not in ("vinculado", "aplicado", "fuera_rango")
         ),
         estado_sync=estado_sync,
-        mostrar_datos=request.args.get("ver_datos") == "1",
+        mostrar_datos=mostrar_datos,
         snapshots=snapshots,
         historial_vistas=historial_vistas,
         inventarios_procesados=InventarioDescSnapshot.query.count(),
@@ -710,22 +725,53 @@ def _guardar_analisis_automatico(factura):
 
 
 @desc_bp.route("/admin/documentacion/facturas/importar", methods=["POST"])
-def desc_facturas_importar():
+@desc_bp.route(
+    "/admin/documentacion/periodos/<int:periodo_id>/facturas/importar",
+    methods=["POST"],
+)
+def desc_facturas_importar(periodo_id=None):
     """Importa hasta 20 facturas PDF en una sola operación."""
     _requiere_admin()
-    from core.models import db, FacturaCompra, InventarioPeriodo
+    from core.models import db, ExcelImportado, FacturaCompra, InventarioPeriodo
     from core.factura_ocr import (
         FacturaError, MAX_FACTURAS_POR_CARGA, MAX_TOTAL_BYTES, importar_factura,
     )
 
     cliente_id = session.get("cliente_id", "C001")
-    periodo_id = request.form.get("periodo_id", type=int)
+    periodo_form_id = request.form.get("periodo_id", type=int)
+    if periodo_id is None:
+        periodo_id = periodo_form_id
+    elif periodo_form_id is not None and periodo_form_id != periodo_id:
+        flash(
+            "La carga fue cancelada porque el período del formulario no coincide "
+            "con el período documental seleccionado.",
+            "error",
+        )
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo_id, doc_tab="facturas") + "#facturas-card")
     periodo = InventarioPeriodo.query.filter_by(
         id=periodo_id, cliente_id=cliente_id,
     ).first()
     if periodo is None:
         flash("Selecciona un período contable válido.", "warning")
         return redirect(url_for("desc.admin_desc"))
+
+    # Un período cerrado sigue aceptando documentación complementaria. La
+    # condición es que exista un Excel oficial del mismo período: así ningún
+    # PDF puede quedar asociado a un contexto documental distinto.
+    excel_periodo = (
+        ExcelImportado.query
+        .filter_by(periodo_id=periodo.id, cliente_id=cliente_id)
+        .filter(ExcelImportado.estado_validacion.in_(("ok", "pendiente_vinculacion")))
+        .order_by(ExcelImportado.id.desc())
+        .first()
+    )
+    if excel_periodo is None:
+        flash(
+            "Primero importa el Excel oficial del período seleccionado. "
+            "Las facturas PDF deben pertenecer al mismo período documental.",
+            "warning",
+        )
+        return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="inventario"))
 
     archivos = [archivo for archivo in request.files.getlist("facturas_pdf") if archivo.filename]
     if not archivos:
@@ -884,6 +930,10 @@ def desc_factura_detalle_actualizar(detalle_id):
             factor_raw=request.form.get("factor_conversion", detalle.factor_conversion),
             exigir_producto=True,
         )
+        from core.auditoria_estado import marcar_cambio_auditoria
+        marcar_cambio_auditoria(
+            detalle.factura.periodo_id, cliente_id, "Líneas de una factura PDF corregidas",
+        )
         db.session.commit()
     except ValueError as exc:
         db.session.rollback()
@@ -944,6 +994,10 @@ def desc_facturas_detalles_guardar():
                 pendientes += 1
             else:
                 listas += 1
+        from core.auditoria_estado import marcar_cambio_auditoria
+        marcar_cambio_auditoria(
+            periodo.id, cliente_id, "Líneas de facturas PDF corregidas",
+        )
         db.session.commit()
     except ValueError as exc:
         db.session.rollback()
@@ -978,6 +1032,10 @@ def desc_facturas_aplicar():
         resumen = aplicar_compras_facturas(
             periodo, cliente_id, session.get("usuario", "administrador")
         )
+        from core.auditoria_estado import marcar_cambio_auditoria
+        marcar_cambio_auditoria(
+            periodo.id, cliente_id, "Compras del PDF aplicadas al Excel oficial",
+        )
         db.session.commit()
     except FacturaError as exc:
         db.session.rollback()
@@ -991,7 +1049,7 @@ def desc_facturas_aplicar():
     if resumen["no_encontrados"]:
         mensaje += f" {len(resumen['no_encontrados'])} producto(s) no existen en el inventario XLS/XLSX."
     flash(mensaje, "success")
-    return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="datos", ver_datos=1) + "#datos-extraidos-card")
+    return redirect(url_for("desc.admin_desc", periodo_id=periodo.id, doc_tab="inventario", ver_datos=1) + "#datos-extraidos-card")
 
 
 @desc_bp.route("/admin/documentacion/facturas/<int:factura_id>/pdf")
@@ -1577,6 +1635,12 @@ def desc_sincronizar():
         descartados = 0
         for excel_vigente in _ultimos_excel_validos(session.get("cliente_id", "C001")):
             descartados += descartar_detalles_sin_producto(excel_vigente.id)
+        if renombrados or eliminados or publicados or revinculados:
+            from core.auditoria_estado import marcar_cambio_catalogo
+            marcar_cambio_catalogo(
+                session.get("cliente_id", "C001"),
+                "Catálogo publicado o vínculos de productos actualizados",
+            )
         db.session.commit()
         msg = (
             f"Sincronizado: {renombrados} renombrados, "
@@ -1587,6 +1651,8 @@ def desc_sincronizar():
         if errores:
             msg += f" Errores: {'; '.join(errores)}"
         flash(msg, "success" if not errores else "warning")
+        if request.form.get("volver_a") == "estado_sincronizacion":
+            return redirect(url_for("admin_sincronizacion") + "#sync-estado")
         return redirect(url_for("desc.desc_sincronizar", completado=1))
 
     plan = _calcular_plan_renombrado()

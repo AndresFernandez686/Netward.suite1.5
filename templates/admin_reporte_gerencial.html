@@ -1,5 +1,12 @@
 {% extends "admin_base.html" %}
 {% block title %}Reporte Gerencial — Período #{{ periodo.numero }} — {{ app_nombre }}{% endblock %}
+{% block heading %}Reporte gerencial{% endblock %}
+{% block subheading %}Período #{{ periodo.numero }} · {{ tienda_nombre }}{% endblock %}
+{% block admin_back_button %}
+<a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn--ghost btn--back btn--sm topbar__back">
+  <span aria-hidden="true">←</span><span>Auditoría</span>
+</a>
+{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -8,9 +15,6 @@
 </div>
 
 <div class="audit-toolbar report-toolbar" aria-label="Acciones del reporte gerencial">
-  <a href="{{ url_for('admin_auditoria', periodo_id=periodo.id) }}" class="btn btn--ghost btn--back btn--sm">
-    <span aria-hidden="true">←</span> Auditoría
-  </a>
   <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm audit-export">
     <span aria-hidden="true">↓</span> Exportar Excel completo
   </a>

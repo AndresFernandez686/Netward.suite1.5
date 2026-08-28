@@ -41,15 +41,12 @@
         </a>
         <a href="{{ url_for('admin_averiados') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_averiados' }}">
           <span class="nav__icon">{% include 'icons/alert.svg' %}</span> Averiados
-          {% if notif_averiados > 0 %}<span class="nav__badge">{{ notif_averiados }}</span>{% endif %}
         </a>
         <a href="{{ url_for('admin_vencimientos') }}" class="nav__link {{ 'is-active' if request.endpoint == 'admin_vencimientos' }}">
           <span class="nav__icon">{% include 'icons/clock.svg' %}</span> Vencimientos
-          {% if notif_vencimientos > 0 %}<span class="nav__badge">{{ notif_vencimientos }}</span>{% endif %}
         </a>
         <a href="{{ url_for('desc.admin_desc') }}" class="nav__link {{ 'is-active' if request.endpoint and request.endpoint.startswith('desc.') }}">
           <span class="nav__icon">{% include 'icons/upload.svg' %}</span> Documentación Oficial
-          <span id="catalog-sync-nav-badge" class="nav__badge" {{ 'hidden' if notif_sincronizacion == 0 else '' }}>{{ notif_sincronizacion }}</span>
         </a>
         <a href="{{ url_for('admin_periodos') }}" class="nav__link {{ 'is-active' if request.endpoint and 'periodo' in (request.endpoint or '') or 'auditoria' in (request.endpoint or '') }}">
           <span class="nav__icon">{% include 'icons/chart.svg' %}</span> Auditoría
@@ -101,10 +98,21 @@
       <header class="topbar admin-topbar">
         <button class="topbar__menu" id="menuToggle" aria-label="Abrir menú">{% include 'icons/menu.svg' %}</button>
         <div class="topbar__title">
-          <h1>{% block heading %}Panel{% endblock %}</h1>
+          <div class="topbar__heading-row">
+            {% block admin_back_button %}
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn--ghost btn--back btn--sm topbar__back">
+              <span aria-hidden="true">←</span><span>Volver atrás</span>
+            </a>
+            {% endblock %}
+            <h1>{% block heading %}Panel{% endblock %}</h1>
+          </div>
           <p>{% block subheading %}{% endblock %}</p>
         </div>
         <div class="topbar__tools">
+          <button type="button" class="btn btn--ghost btn--sm nexa-topbar-button" data-ai-open
+                  data-ai-context="{{ nexa_contexto }}" aria-label="Abrir Nexa">
+            <span aria-hidden="true">✦</span><span>Nexa</span>
+          </button>
           <label class="store-select" title="Tienda activa">
             <span class="store__dot"></span>
             <select id="tiendaGlobal" onchange="cambiarTiendaGlobal(this.value)" aria-label="Seleccionar tienda activa">
@@ -117,7 +125,7 @@
           <span class="topbar__date">{{ hoy_es }}</span>
           <a href="{{ url_for('admin_alertas') }}" class="topbar__bell" title="Ver alertas" aria-label="Alertas">
             {% include 'icons/alert.svg' %}
-            {% set notif_total = notif_averiados + notif_vencimientos + notif_admin_unread %}
+            {% set notif_total = notif_admin_unread %}
             {% if notif_total > 0 %}<span class="bell__badge">{{ notif_total }}</span>{% endif %}
           </a>
         </div>
@@ -136,15 +144,6 @@
           {% endwith %}
         {% endif %}
 
-        {% block admin_back_button %}
-        <div class="admin-back-nav">
-          <a href="{{ url_for('admin_dashboard') }}" class="btn btn--ghost btn--back btn--sm"
-             onclick="if (window.history.length > 1) { window.history.back(); return false; }">
-            ← Volver atrás
-          </a>
-        </div>
-        {% endblock %}
-
         {% block content %}{% endblock %}
 
         <footer class="admin-footer">
@@ -154,15 +153,144 @@
       </main>
     </div>
   </div>
+
+  <div class="audit-ai-overlay" id="auditAiOverlay" hidden></div>
+  <aside class="audit-ai-drawer" id="auditAiDrawer" aria-hidden="true" aria-labelledby="auditAiTitle"
+         data-assistant-url="{{ url_for('admin_nexa_consultar') }}"
+         data-section="{{ nexa_seccion }}" data-period-id="{{ nexa_periodo_id or '' }}">
+    <header class="audit-ai-header">
+      <div><span class="audit-ai-kicker">NEXA · ASISTENTE ADMINISTRATIVA</span><h2 id="auditAiTitle">{{ nexa_titulo }}</h2></div>
+      <button type="button" class="audit-ai-close" id="auditAiClose" aria-label="Cerrar Nexa">×</button>
+    </header>
+    <div class="audit-ai-status"><span class="{{ 'is-connected' if nexa_estado.configured else 'is-local' }}"></span>{{ nexa_estado.label }} · {{ nexa_estado.provider }} / {{ nexa_estado.model }}</div>
+    <div class="audit-ai-context" id="auditAiContext">{{ nexa_contexto }}</div>
+    <div class="audit-ai-notice">Nexa explica y orienta con los datos de este apartado. No modifica registros ni cálculos.</div>
+    <div class="audit-ai-messages" id="auditAiMessages" aria-live="polite"></div>
+    <div class="audit-ai-prompts" id="auditAiPrompts">
+      {% for pregunta, etiqueta in nexa_preguntas %}
+      <button type="button" data-ai-question="{{ pregunta|e }}">{{ etiqueta }}</button>
+      {% endfor %}
+    </div>
+    <form class="audit-ai-form" id="auditAiForm">
+      <label class="sr-only" for="auditAiQuestion">Consulta para Nexa</label>
+      <textarea id="auditAiQuestion" maxlength="1000" rows="3" placeholder="Pregunta sobre {{ nexa_contexto|lower }}…" required></textarea>
+      <button type="submit" class="btn btn--primary btn--sm" id="auditAiSend">Consultar</button>
+    </form>
+  </aside>
   <div class="sidebar-backdrop" id="backdrop"></div>
 
-  <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-sidebar-scroll-fix-1-confirm-no-delay-1-processing-card-1') }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-sidebar-scroll-fix-1-confirm-no-delay-1-processing-card-1-login-reset-1') }}"></script>
   <script>
     function cambiarTiendaGlobal(valor) {
       var url = new URL(window.location.href);
       url.searchParams.set('tienda', valor);
       window.location.href = url.toString();
     }
+
+    (function () {
+      var drawer = document.getElementById('auditAiDrawer');
+      var overlay = document.getElementById('auditAiOverlay');
+      var messages = document.getElementById('auditAiMessages');
+      var question = document.getElementById('auditAiQuestion');
+      var send = document.getElementById('auditAiSend');
+      var form = document.getElementById('auditAiForm');
+      if (!drawer || !overlay || !messages || !question || !send || !form) return;
+
+      var currentResultId = '';
+      var currentUrl = drawer.dataset.assistantUrl;
+      var requestSequence = 0;
+      var activeContext = '';
+
+      function appendMessage(role, value, muted) {
+        var item = document.createElement('div');
+        item.className = 'audit-ai-message audit-ai-message--' + role + (muted ? ' is-muted' : '');
+        item.textContent = value;
+        messages.appendChild(item);
+        messages.scrollTop = messages.scrollHeight;
+        return item;
+      }
+
+      function openAssistant(button) {
+        var nextContext = button.dataset.aiContext || '{{ nexa_contexto|e }}';
+        currentResultId = button.dataset.aiResultId || '';
+        currentUrl = button.dataset.aiUrl || drawer.dataset.assistantUrl;
+        if (activeContext !== nextContext || currentResultId) {
+          messages.textContent = '';
+          activeContext = nextContext;
+        }
+        document.getElementById('auditAiContext').textContent = nextContext;
+        drawer.classList.add('is-open');
+        drawer.setAttribute('aria-hidden', 'false');
+        overlay.hidden = false;
+        if (!messages.children.length) {
+          appendMessage('assistant', 'Estoy lista para ayudarte en ' + nextContext + '. Elige una pregunta sugerida o escribe la tuya.');
+        }
+        question.focus();
+        if (button.dataset.aiAutoQuestion) askAssistant(button.dataset.aiAutoQuestion);
+      }
+
+      function closeAssistant() {
+        drawer.classList.remove('is-open');
+        drawer.setAttribute('aria-hidden', 'true');
+        overlay.hidden = true;
+      }
+
+      function askAssistant(value) {
+        value = (value || '').trim();
+        if (!value || send.disabled) return;
+        var sequence = ++requestSequence;
+        appendMessage('user', value);
+        send.disabled = true;
+        send.textContent = 'Analizando…';
+        var pending = appendMessage('assistant', 'Revisando los datos disponibles…', true);
+        fetch(currentUrl, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            pregunta: value,
+            resultado_id: currentResultId || null,
+            seccion: drawer.dataset.section,
+            periodo_id: drawer.dataset.periodId || null
+          })
+        })
+          .then(function (response) {
+            return response.json().then(function (data) {
+              if (!response.ok) throw new Error(data.error || 'No se pudo consultar.');
+              return data;
+            });
+          })
+          .then(function (data) {
+            pending.remove();
+            if (sequence === requestSequence) appendMessage('assistant', data.answer);
+          })
+          .catch(function (error) {
+            pending.remove();
+            if (sequence === requestSequence) appendMessage('assistant', error.message || 'No fue posible obtener la explicación.');
+          })
+          .finally(function () {
+            send.disabled = false;
+            send.textContent = 'Consultar';
+            question.value = '';
+            question.focus();
+          });
+      }
+
+      document.querySelectorAll('[data-ai-open]').forEach(function (button) {
+        button.addEventListener('click', function () { openAssistant(button); });
+      });
+      document.querySelectorAll('[data-ai-question]').forEach(function (button) {
+        button.addEventListener('click', function () { askAssistant(button.dataset.aiQuestion); });
+      });
+      document.getElementById('auditAiClose').addEventListener('click', closeAssistant);
+      overlay.addEventListener('click', closeAssistant);
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && drawer.classList.contains('is-open')) closeAssistant();
+      });
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        askAssistant(question.value);
+      });
+    })();
   </script>
   {% block scripts %}{% endblock %}
 </body>

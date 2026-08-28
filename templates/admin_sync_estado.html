@@ -14,12 +14,34 @@
 <section class="panel">
   <div class="panel__head">
     <h3>Estado por tienda</h3>
-    {% if total_pendientes > 0 %}
-    <span class="badge-soft badge-soft--danger">{{ total_pendientes }} ítem(s) pendientes en total</span>
+    {% if total_pendientes > 0 or catalogo_por_publicar > 0 or recepciones_catalogo_pendientes > 0 %}
+    <span class="badge-soft badge-soft--danger">Sincronización pendiente</span>
     {% else %}
     <span class="badge-soft badge-soft--success">Todo sincronizado</span>
     {% endif %}
   </div>
+
+  {% if catalogo_por_publicar > 0 %}
+  <div class="banner banner--warning" style="margin-bottom:16px;">
+    <div>
+      <strong>{{ catalogo_por_publicar }} producto(s) nuevo(s) sin enviar.</strong><br>
+      Los empleados no los recibirán hasta que publiques los cambios del catálogo.
+    </div>
+    <form method="post" action="{{ url_for('desc.desc_sincronizar') }}"
+          data-loading-text="Enviando catálogo..."
+          data-confirm-message="¿Enviar los productos nuevos al catálogo de empleados? Cada empleado deberá usar Enviar y recibir.">
+      <input type="hidden" name="volver_a" value="estado_sincronizacion">
+      <button type="submit" class="btn btn--primary">Enviar cambios de catálogo</button>
+    </form>
+  </div>
+  {% elif recepciones_catalogo_pendientes > 0 %}
+  <div class="banner banner--info" style="margin-bottom:16px;">
+    <div>
+      <strong>Catálogo enviado.</strong><br>
+      {{ recepciones_catalogo_pendientes }} empleado(s) todavía deben usar “Enviar y recibir”.
+    </div>
+  </div>
+  {% endif %}
   <div class="table-wrap">
     <table class="mini-table">
       <thead>
@@ -28,6 +50,7 @@
           <th>Estado</th>
           <th>Último envío</th>
           <th>Última recepción</th>
+          <th>Catálogo</th>
           <th style="text-align:right;">Ítems pendientes</th>
         </tr>
       </thead>
@@ -44,6 +67,15 @@
           </td>
           <td class="muted">{{ f.ultimo_envio or 'Nunca' }}</td>
           <td class="muted">{{ f.ultima_recepcion or 'Nunca' }}</td>
+          <td>
+            {% if f.catalogo_usuarios_pendientes > 0 %}
+            <span class="badge-soft badge-soft--warning">
+              {{ f.catalogo_cambios }} cambio(s) · {{ f.catalogo_usuarios_pendientes }} empleado(s)
+            </span>
+            {% else %}
+            <span class="badge-soft badge-soft--success">Recibido</span>
+            {% endif %}
+          </td>
           <td class="num">
             {% if f.pendientes > 0 %}
             <span class="badge-soft badge-soft--danger">{{ f.pendientes }} pendiente(s)</span>
@@ -53,7 +85,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="muted">No hay tiendas registradas.</td></tr>
+        <tr><td colspan="6" class="muted">No hay tiendas registradas.</td></tr>
         {% endfor %}
       </tbody>
     </table>

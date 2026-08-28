@@ -87,10 +87,21 @@
     if (!button) return;
     if (!button.dataset.originalLabel) {
       button.dataset.originalLabel = button.innerHTML;
+      button.dataset.originalDisabled = button.disabled ? '1' : '0';
     }
     button.disabled = true;
     button.classList.add('is-loading');
     button.textContent = loadingText || 'Cargando...';
+  }
+
+  function resetLoadingButtonStates() {
+    document.querySelectorAll('[data-original-label]').forEach(function (button) {
+      button.innerHTML = button.dataset.originalLabel;
+      button.disabled = button.dataset.originalDisabled === '1';
+      button.classList.remove('is-loading');
+      delete button.dataset.originalLabel;
+      delete button.dataset.originalDisabled;
+    });
   }
 
   function ensureUiLockOverlay() {
@@ -183,6 +194,7 @@
 
   window.addEventListener('pageshow', function () {
     unlockUi();
+    resetLoadingButtonStates();
   });
 
   function initSubmitLoading() {

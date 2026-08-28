@@ -46,6 +46,36 @@ def recibir_catalogo_usuario(cliente_id: str, username: str) -> int:
     return cantidad
 
 
+def producto_disponible_usuario(
+    cliente_id: str,
+    username: str,
+    nombre: str,
+    categoria: str | None = None,
+) -> Producto | None:
+    """Resuelve un producto solo si el empleado ya recibió su versión.
+
+    Esta validación se usa también al guardar formularios: ocultar una opción
+    en HTML no basta, porque una pestaña antigua o una petición manual podría
+    intentar utilizar un producto que aún está pendiente de recepción.
+    """
+    usuario = Usuario.query.filter_by(
+        cliente_id=cliente_id,
+        username=username,
+        rol="empleado",
+    ).first()
+    if usuario is None:
+        return None
+
+    query = Producto.query.filter(
+        Producto.visible_empleado.is_(True),
+        Producto.catalogo_version <= int(usuario.catalogo_version_recibida or 0),
+        db.func.lower(Producto.nombre) == str(nombre or "").strip().lower(),
+    )
+    if categoria:
+        query = query.filter(Producto.categoria == categoria)
+    return query.first()
+
+
 def get_productos_db(include_hidden: bool = False, *, cliente_id=None, username=None):
     """Devuelve {categoria: [nombre, ...]} filtrando productos visibles para empleado."""
     result = {}

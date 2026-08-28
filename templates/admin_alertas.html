@@ -1,164 +1,45 @@
 {% extends 'admin_base.html' %}
 {% block title %}Alertas - {{ app_nombre }}{% endblock %}
 {% block heading %}Alertas{% endblock %}
-{% block subheading %}Centro de alertas de inventario, vencimientos y averiados{% endblock %}
+{% block subheading %}Centro unificado de avisos pendientes{% endblock %}
 
 {% block content %}
-{% set active_alerta_tab = 'alerta-cargas' if cargas_periodo else ('alerta-stock' if stock_bajo else ('alerta-vencer' if por_vencer else ('alerta-averiados' if averiados else 'alerta-stock'))) %}
+<section class="alerts-center" aria-labelledby="alerts-title">
+  <div class="alerts-center__head">
+    <div>
+      <h2 id="alerts-title">{{ alertas|length }} alerta{{ 's' if alertas|length != 1 }} pendiente{{ 's' if alertas|length != 1 }}</h2>
+      <p>Selecciona una alerta para abrir su apartado. Al hacerlo dejará de aparecer como notificación pendiente.</p>
+    </div>
+    {% if alertas %}<span class="alerts-center__total">{{ alertas|length }}</span>{% endif %}
+  </div>
 
-<div class="admin-tabs" role="tablist" aria-label="Tipos de alertas">
-  <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_alerta_tab == 'alerta-cargas' else '' }}"
-          data-tabtarget="alerta-cargas" aria-selected="{{ 'true' if active_alerta_tab == 'alerta-cargas' else 'false' }}">
-    Cargas de períodos
-    <span class="badge-soft {{ 'badge-soft--success' if cargas_periodo else 'badge-soft--muted' }}" style="margin-left:8px;">{{ cargas_periodo|length }}</span>
-  </button>
-  <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_alerta_tab == 'alerta-stock' else '' }}"
-          data-tabtarget="alerta-stock" aria-selected="{{ 'true' if active_alerta_tab == 'alerta-stock' else 'false' }}">
-    Stock bajo
-    <span class="badge-soft {{ 'badge-soft--danger' if stock_bajo else 'badge-soft--muted' }}" style="margin-left:8px;">{{ stock_bajo|length }}</span>
-  </button>
-  <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_alerta_tab == 'alerta-vencer' else '' }}"
-          data-tabtarget="alerta-vencer" aria-selected="{{ 'true' if active_alerta_tab == 'alerta-vencer' else 'false' }}">
-    Próximos a vencer (≤ 15 días)
-    <span class="badge-soft {{ 'badge-soft--warning' if por_vencer else 'badge-soft--muted' }}" style="margin-left:8px;">{{ por_vencer|length }}</span>
-  </button>
-  <button type="button" role="tab" class="admin-tab {{ 'is-active' if active_alerta_tab == 'alerta-averiados' else '' }}"
-          data-tabtarget="alerta-averiados" aria-selected="{{ 'true' if active_alerta_tab == 'alerta-averiados' else 'false' }}">
-    Averiados sin revisar
-    <span class="badge-soft {{ 'badge-soft--danger' if averiados else 'badge-soft--muted' }}" style="margin-left:8px;">{{ averiados|length }}</span>
-  </button>
-</div>
+  {% if alertas %}
+  <div class="alerts-summary" aria-label="Resumen por tipo">
+    {% for tipo, etiqueta in [('catalogo','Catálogo'),('auditoria','Auditoría'),('carga','Cargas'),('stock','Stock bajo'),('vencimiento','Vencimientos'),('averiado','Averiados')] %}
+      {% set cantidad = resumen_alertas.get(tipo, 0) %}
+      {% if cantidad %}<span class="alerts-summary__item alerts-summary__item--{{ tipo }}">{{ etiqueta }} <strong>{{ cantidad }}</strong></span>{% endif %}
+    {% endfor %}
+  </div>
 
-<section class="panel admin-tabpanel" id="alerta-cargas" {{ '' if active_alerta_tab == 'alerta-cargas' else 'hidden' }}>
-  <h3 class="panel__title">Inventarios cargados por empleados</h3>
-  {% if cargas_periodo %}
-  <div class="table-wrap">
-    <table class="mini-table">
-      <thead><tr><th>Estado</th><th>Notificación</th><th>Detalle</th><th>Fecha</th><th style="text-align:right;">Acción</th></tr></thead>
-      <tbody>
-        {% for n in cargas_periodo %}
-        <tr>
-          <td><span class="badge-soft badge-soft--success">Nueva carga</span></td>
-          <td><strong>{{ n.titulo }}</strong></td>
-          <td class="muted">{{ n.mensaje }}</td>
-          <td class="muted">{{ n.creada.strftime('%d/%m/%Y %H:%M') if n.creada else '—' }}</td>
-          <td style="text-align:right;"><a class="btn btn--primary btn--sm" href="{{ url_for('admin_notificacion_ir', notif_id=n.id) }}">Ver período</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="alerts-list">
+    {% for alerta in alertas %}
+    <a class="alerts-item alerts-item--{{ alerta.tono }}" href="{{ alerta.destino }}">
+      <span class="alerts-item__icon" aria-hidden="true">{{ alerta.icono }}</span>
+      <span class="alerts-item__body">
+        <strong>{{ alerta.titulo }}</strong>
+        <small>{{ alerta.detalle }}</small>
+      </span>
+      <span class="alerts-item__meta">{{ alerta.meta }}</span>
+      <span class="alerts-item__action">Abrir <span aria-hidden="true">→</span></span>
+    </a>
+    {% endfor %}
   </div>
   {% else %}
-  <div class="empty-mini">No hay cargas nuevas de empleados.</div>
+  <div class="alerts-empty">
+    <span aria-hidden="true">✓</span>
+    <strong>No hay alertas pendientes</strong>
+    <p>Los avisos nuevos aparecerán aquí cuando requieran tu atención.</p>
+  </div>
   {% endif %}
 </section>
-
-<section class="panel admin-tabpanel" id="alerta-stock" {{ '' if active_alerta_tab == 'alerta-stock' else 'hidden' }}>
-  <h3 class="panel__title">Stock bajo</h3>
-  {% if stock_bajo %}
-  <div class="table-wrap">
-    <table class="mini-table">
-      <thead><tr><th>Producto</th><th>Categoría</th><th>Tienda</th><th style="text-align:right;">Stock actual</th><th>Estado</th></tr></thead>
-      <tbody>
-        {% for s in stock_bajo %}
-        <tr>
-          <td><strong>{{ s.producto }}</strong></td>
-          <td class="muted">{{ s.categoria }}</td>
-          <td class="muted">{{ s.tienda }}</td>
-          <td class="num">{{ '%g'|format(s.cantidad) }}</td>
-          <td><span class="badge-soft badge-soft--danger">{{ s.etiqueta }}</span></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-mini">No hay productos con stock bajo.</div>
-  {% endif %}
-</section>
-
-<section class="panel admin-tabpanel" id="alerta-vencer" {{ '' if active_alerta_tab == 'alerta-vencer' else 'hidden' }}>
-  <h3 class="panel__title">Próximos a vencer (≤ 15 días)</h3>
-  {% if por_vencer %}
-  <div class="table-wrap">
-    <table class="mini-table">
-      <thead><tr><th>Producto</th><th>Tienda</th><th style="text-align:right;">Cantidad</th><th>Fecha venc.</th><th style="text-align:right;">Vence</th></tr></thead>
-      <tbody>
-        {% for p in por_vencer %}
-        <tr>
-          <td><strong>{{ p.producto }}</strong></td>
-          <td class="muted">{{ p.tienda }}</td>
-          <td class="num">{{ '%g'|format(p.cantidad) }} {{ p.ume }}</td>
-          <td class="muted">{{ p.fecha_vencimiento }}</td>
-          <td class="num">
-            <span class="due-{{ p.nivel }}">
-              {% if p.dias < 0 %}Vencido hace {{ -p.dias }} día{{ 's' if p.dias != -1 }}
-              {% elif p.dias == 0 %}Vence hoy
-              {% else %}Vence en {{ p.dias }} día{{ 's' if p.dias != 1 }}{% endif %}
-            </span>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="empty-mini">No hay productos próximos a vencer.</div>
-  {% endif %}
-</section>
-
-<section class="panel admin-tabpanel" id="alerta-averiados" {{ '' if active_alerta_tab == 'alerta-averiados' else 'hidden' }}>
-  <h3 class="panel__title">Averiados sin revisar</h3>
-  {% if averiados %}
-  <div class="table-wrap">
-    <table class="mini-table">
-      <thead><tr><th>Producto</th><th>Categoría</th><th>Tienda</th><th style="text-align:right;">Cantidad</th><th>Fecha</th><th>Detalle</th></tr></thead>
-      <tbody>
-        {% for a in averiados %}
-        <tr>
-          <td><strong>{{ a.producto }}</strong></td>
-          <td class="muted">{{ a.categoria }}</td>
-          <td class="muted">{{ a.tienda }}</td>
-          <td class="num">{{ '%g'|format(a.cantidad) }} {{ a.ume }}</td>
-          <td class="muted">{{ a.fecha }}</td>
-          <td class="muted">{{ a.detalle or '—' }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <div style="margin-top:14px;">
-    <a class="btn btn--ghost" href="{{ url_for('admin_averiados') }}">Ir a Averiados para marcar como revisados</a>
-  </div>
-  {% else %}
-  <div class="empty-mini">No hay registros de averiados pendientes de revisión.</div>
-  {% endif %}
-</section>
-{% endblock %}
-
-{% block scripts %}
-{{ super() }}
-<script>
-  (function () {
-    function setActiveTab(tabId) {
-      document.querySelectorAll('.admin-tab').forEach(function (tab) {
-        var isCurrent = tab.dataset.tabtarget === tabId;
-        tab.classList.toggle('is-active', isCurrent);
-        tab.setAttribute('aria-selected', isCurrent ? 'true' : 'false');
-      });
-
-      document.querySelectorAll('.admin-tabpanel').forEach(function (panel) {
-        panel.hidden = panel.id !== tabId;
-      });
-    }
-
-    document.querySelectorAll('.admin-tab[data-tabtarget]').forEach(function (tab) {
-      tab.addEventListener('click', function () {
-        setActiveTab(tab.dataset.tabtarget);
-      });
-    });
-
-    setActiveTab('{{ active_alerta_tab }}');
-  })();
-</script>
 {% endblock %}

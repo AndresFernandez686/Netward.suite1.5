@@ -1,16 +1,20 @@
 import unittest
 
+import openpyxl
 from flask import Flask
 
 from core.auditoria import ejecutar_auditoria
+from core.auditoria_export import generar_excel_auditoria
 from core.ajustes import ajuste_es_baja_no_imputable
 from core.models import (
     AjusteInventario,
+    AsistenteIAConsulta,
     AuditoriaResultado,
     ConteoDetalle,
     ExcelDetalle,
     ExcelImportado,
     InventarioPeriodo,
+    Justificacion,
     Producto,
     ProductoPrecio,
     RegistroAveriado,
@@ -111,6 +115,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         otras_salidas=0,
         stock_final=0,
         costo=None,
+        excluido=False,
     ):
         excel = ExcelImportado.query.filter_by(periodo_id=periodo.id).first()
         if excel is None:
@@ -133,10 +138,11 @@ class PruebasMotorAuditoria(unittest.TestCase):
             ventareal=ventas,
             otrassalidas=otras_salidas,
             stockfinal=stock_final,
-            producto_nombre_interno=producto.nombre,
-            producto_id=producto.id,
-            estado_vinculacion="vinculado",
-            excluido_auditoria=False,
+            producto_nombre_interno=None if excluido else producto.nombre,
+            producto_id=None if excluido else producto.id,
+            estado_vinculacion="excluido" if excluido else "vinculado",
+            excluido_auditoria=excluido,
+            motivo_exclusion="Excluido en prueba" if excluido else None,
         )
         db.session.add(detalle)
         if costo is not None:
@@ -152,6 +158,78 @@ class PruebasMotorAuditoria(unittest.TestCase):
             precio.precio = costo
         db.session.flush()
         return detalle
+
+    def test_producto_excluido_no_se_calcula_ni_se_exporta(self):
+        periodo = self.crear_periodo(1)
+        producto = self.crear_producto("Producto excluido")
+        producto.codigo_articulo = f"P-{producto.id}"
+        self.agregar_conteo(periodo, producto, 9)
+        detalle = self.agregar_excel(
+            periodo, producto, stock_inicial=20, compras=5, ventas=3,
+            stock_final=9, excluido=True,
+        )
+        detalle.artdescrip = "Descripción externa excluida"
+        db.session.commit()
+
+        resultados = ejecutar_auditoria(periodo)
+        db.session.commit()
+        self.assertEqual(resultados, [])
+        self.assertEqual(AuditoriaResultado.query.filter_by(periodo_id=periodo.id).count(), 0)
+
+        # Simula un resultado antiguo creado antes de la corrección. La defensa
+        # del exportador también debe omitirlo.
+        db.session.add(AuditoriaResultado(
+            periodo_id=periodo.id, cliente_id=CLIENTE,
+            producto_nombre=producto.nombre, articulo_codigo=f"P-{producto.id}",
+        ))
+        db.session.commit()
+        libro = openpyxl.load_workbook(generar_excel_auditoria(periodo), data_only=True)
+        self.assertEqual(libro.active.max_row, 1)
+        libro.close()
+
+    def test_reejecutar_conserva_resultado_y_trazabilidad(self):
+        periodo = self.crear_periodo(1)
+        producto = self.crear_producto("Producto con trazabilidad")
+        self.agregar_conteo(periodo, producto, 5)
+        detalle = self.agregar_excel(
+            periodo, producto, stock_inicial=10, ventas=3, stock_final=5,
+        )
+        resultado_inicial = ejecutar_auditoria(periodo)[0]
+        db.session.commit()
+        resultado_id = resultado_inicial.id
+        diferencia_inicial = resultado_inicial.diferencia
+
+        justificacion = Justificacion(
+            resultado_id=resultado_id,
+            cliente_id=CLIENTE,
+            causa="Error de conteo",
+            cantidad_justificada=1,
+            importe_justificado=0,
+            observacion="Trazabilidad previa a la re-ejecucion.",
+            usuario="tester",
+        )
+        consulta = AsistenteIAConsulta(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            periodo_id=periodo.id,
+            resultado_id=resultado_id,
+            usuario="tester",
+            pregunta="Explica el resultado",
+            respuesta="Respuesta de prueba",
+        )
+        db.session.add_all([justificacion, consulta])
+        detalle.ventareal = 4
+        db.session.commit()
+
+        resultado_actualizado = ejecutar_auditoria(periodo)[0]
+        db.session.commit()
+
+        self.assertEqual(resultado_actualizado.id, resultado_id)
+        self.assertNotEqual(resultado_actualizado.diferencia, diferencia_inicial)
+        self.assertEqual(justificacion.resultado_id, resultado_id)
+        self.assertEqual(consulta.resultado_id, resultado_id)
+        self.assertEqual(Justificacion.query.count(), 1)
+        self.assertEqual(AsistenteIAConsulta.query.count(), 1)
 
     def agregar_resultado_anterior(
         self,

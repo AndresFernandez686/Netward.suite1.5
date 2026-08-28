@@ -97,13 +97,14 @@ class AIProviderError(RuntimeError):
     pass
 
 
-SYSTEM_INSTRUCTIONS = """Eres Nexa, la analista inteligente de inventario de Netward.
+SYSTEM_INSTRUCTIONS = """Eres Nexa, la asistente inteligente de administración de Netward.
 Responde en español claro, directo y profesional. Tu función es ayudar al administrador
-a comprender resultados de auditoría y decidir qué evidencia verificar primero.
+a comprender la pantalla y los datos del módulo actual, detectar pendientes y decidir
+qué debería verificar primero.
 Explica únicamente con los datos estructurados suministrados. El motor de Netward es
 la fuente oficial: no cambies diferencias, causas, severidad ni estados. Distingue
 hechos de hipótesis, menciona evidencia faltante y sugiere verificaciones concretas.
-Para cada consulta sobre un producto, muestra siempre las fórmulas de stock final físico,
+Solo cuando el alcance sea "producto", muestra siempre las fórmulas de stock final físico,
 venta teórica, diferencia e impacto; sustituye las variables por sus valores reales y
 explica la fuente del stock inicial y de la venta real. La diferencia oficial es siempre
 venta teórica menos venta real: positiva significa faltante y negativa significa sobrante.
@@ -159,7 +160,7 @@ def _http_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeo
 
 
 def _prompt(question: str, context: dict[str, Any]) -> str:
-    return "Pregunta del administrador:\n" + question + "\n\nDatos de auditoría (JSON):\n" + json.dumps(
+    return "Pregunta del administrador:\n" + question + "\n\nDatos de Netward (JSON):\n" + json.dumps(
         context, ensure_ascii=False, separators=(",", ":")
     )
 
@@ -270,6 +271,7 @@ def build_product_context(periodo: InventarioPeriodo, resultado: AuditoriaResult
             InventarioPeriodo.tienda_id == periodo.tienda_id,
             InventarioPeriodo.numero < periodo.numero,
             AuditoriaResultado.producto_nombre == resultado.producto_nombre,
+            AuditoriaResultado.estado_auditoria != "Archivado",
         )
         .order_by(InventarioPeriodo.numero.desc())
         .first()
@@ -358,6 +360,8 @@ def build_product_context(periodo: InventarioPeriodo, resultado: AuditoriaResult
 def build_period_context(periodo: InventarioPeriodo) -> dict[str, Any]:
     resultados = AuditoriaResultado.query.filter_by(
         periodo_id=periodo.id, cliente_id=periodo.cliente_id
+    ).filter(
+        AuditoriaResultado.estado_auditoria != "Archivado"
     ).order_by(AuditoriaResultado.impacto.desc()).all()
     return {
         "alcance": "periodo",
@@ -381,6 +385,19 @@ def build_period_context(periodo: InventarioPeriodo) -> dict[str, Any]:
 
 
 def local_explanation(context: dict[str, Any]) -> str:
+    if context["alcance"] == "seccion":
+        seccion = context.get("seccion") or {}
+        resumen = context.get("resumen") or {}
+        hechos = "; ".join(
+            f"{str(clave).replace('_', ' ')}: {valor}"
+            for clave, valor in resumen.items()
+        ) or "no hay métricas disponibles para esta pantalla"
+        return (
+            f"Nexa está revisando {seccion.get('titulo', 'este apartado')}. "
+            f"Datos disponibles: {hechos}. "
+            f"{context.get('orientacion') or 'Verifica los registros visibles antes de tomar una decisión.'} "
+            "Esta respuesta es informativa y no modifica ningún dato del sistema."
+        )
     if context["alcance"] == "periodo":
         r = context["resumen"]
         if not r["productos"]:

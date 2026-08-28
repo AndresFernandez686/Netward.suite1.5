@@ -56,6 +56,8 @@ class PruebasConfiguracionSeparada(unittest.TestCase):
         app = ROOT.joinpath("app.py").read_text(encoding="utf-8")
 
         self.assertIn("catalog-toolbar", catalogo)
+        self.assertIn("catalog-search-card", catalogo)
+        self.assertIn("catalog-management__top", catalogo)
         self.assertIn("catalog-add-toggle", catalogo)
         self.assertIn("producto_crear", catalogo)
         self.assertIn("producto_eliminar", catalogo)

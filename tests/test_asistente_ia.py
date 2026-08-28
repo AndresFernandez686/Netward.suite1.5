@@ -15,6 +15,7 @@ from core.ai_assistant import (
     build_period_context,
     build_product_context,
     explain,
+    local_explanation,
 )
 from core.models import AsistenteIAConsulta, AuditoriaResultado, InventarioPeriodo, db
 
@@ -198,6 +199,18 @@ class PruebasAsistenteIA(unittest.TestCase):
         self.assertEqual(contexto["resumen"]["productos"], 1)
         self.assertEqual(contexto["resumen"]["faltantes"], 1)
         self.assertEqual(contexto["resumen"]["impacto_faltantes"], 20000)
+
+    def test_bot_local_explica_contexto_de_cualquier_seccion(self):
+        respuesta = local_explanation({
+            "alcance": "seccion",
+            "seccion": {"clave": "catalogo", "titulo": "Catálogo"},
+            "resumen": {"productos": 12, "productos_sin_publicar": 2},
+            "orientacion": "Revisa cambios pendientes antes de publicarlos.",
+        })
+
+        self.assertIn("Catálogo", respuesta)
+        self.assertIn("productos sin publicar: 2", respuesta)
+        self.assertIn("no modifica ningún dato", respuesta)
 
     @patch("core.ai_assistant._http_json")
     def test_openai_usa_responses_api_sin_almacenar(self, http_json):

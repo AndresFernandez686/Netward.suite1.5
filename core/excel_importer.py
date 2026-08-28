@@ -224,7 +224,8 @@ def _vincular_producto_publicado(articulo: str, artdescrip: str) -> Optional[Pro
 def corregir_vinculaciones_empaque(excel_id: int) -> int:
     """Desvincula relaciones históricas xN/xM incompatibles del Excel indicado."""
     detalles = ExcelDetalle.query.filter_by(excel_id=excel_id).filter(
-        ExcelDetalle.producto_id.isnot(None)
+        ExcelDetalle.producto_id.isnot(None),
+        ExcelDetalle.excluido_auditoria.is_(False),
     ).all()
     corregidos = 0
     for detalle in detalles:
@@ -540,6 +541,7 @@ def importar_excel(
             estado_vinc = "pendiente"
 
         ed = ExcelDetalle(
+            cliente_id=cliente_id,
             excel_id=ei.id,
             articulo=articulo,
             artdescrip=str(_get("artdescrip") or ""),

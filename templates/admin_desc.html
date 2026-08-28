@@ -15,11 +15,6 @@
       <span class="desc-doc-tab__copy"><strong>Facturas</strong><small>Compras en PDF</small></span>
       {% if facturas_periodo %}<span class="desc-doc-tab__badge">{{ facturas_periodo|length }}</span>{% endif %}
     </button>
-    <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'datos' else '' }}" data-doc-tab="datos" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'datos' else 'false' }}" aria-controls="datos-extraidos-card">
-      <span class="desc-doc-tab__icon">{% include 'icons/chart.svg' %}</span>
-      <span class="desc-doc-tab__copy"><strong>Datos extraídos</strong><small>Revisar y editar</small></span>
-      {% if excel_detalles %}<span class="desc-doc-tab__badge">{{ excel_detalles|length }}</span>{% endif %}
-    </button>
     <button type="button" class="desc-doc-tab {{ 'is-active' if active_doc_tab == 'historial' else '' }}" data-doc-tab="historial" role="tab" aria-selected="{{ 'true' if active_doc_tab == 'historial' else 'false' }}" aria-controls="procesamientos-recientes">
       <span class="desc-doc-tab__icon">{% include 'icons/clock.svg' %}</span>
       <span class="desc-doc-tab__copy"><strong>Historial</strong><small>Procesamientos anteriores</small></span>
@@ -59,7 +54,8 @@
             </select>
           </label>
           <div class="field field--grow" style="display:flex;align-items:flex-end;">
-            <button type="button" id="btn-ver-datos" class="btn btn--ghost desc-view-data-btn" style="width:100%;">
+            <button type="button" id="btn-ver-datos" class="btn btn--ghost desc-view-data-btn" style="width:100%;"
+                    aria-controls="datos-extraidos-card" {{ 'disabled' if not periodo_seleccionado else '' }}>
               Ver datos extraídos
             </button>
           </div>
@@ -73,7 +69,7 @@
         </div>
 
         <div class="desc-actions">
-          <a href="{{ url_for('desc.desc_sincronizar') }}" class="btn btn--ghost btn--soft-green desc-sync-button">
+          <a href="{{ url_for('desc.desc_sincronizar') }}" class="btn btn--ghost btn--soft-green desc-sync-button {{ 'is-urgent' if estado_sync.total else '' }}">
             Revisar y sincronizar catálogo
             <span id="desc-sync-count" class="desc-sync-badge" {{ 'hidden' if estado_sync.total == 0 else '' }}>{{ estado_sync.total }}</span>
           </a>
@@ -84,7 +80,7 @@
         </div>
       </div>
     </form>
-    <div id="desc-sync-alert" class="banner banner--warning desc-sync-alert" {{ 'hidden' if estado_sync.total == 0 else '' }}>
+    <div id="desc-sync-alert" class="banner banner--danger desc-sync-alert" {{ 'hidden' if estado_sync.total == 0 else '' }}>
       <div>
         <strong>Hay cambios pendientes de sincronización.</strong>
         <span id="desc-sync-renombres">{{ estado_sync.renombres }}</span> renombre(s),
@@ -111,7 +107,15 @@
     </div>
 
     {% if periodo_seleccionado %}
-    <form method="post" action="{{ url_for('desc.desc_facturas_importar') }}" enctype="multipart/form-data" class="desc-invoice-upload" id="invoice-upload-form"
+    <div class="desc-invoice-period-context" role="status">
+      <div>
+        <span>Período documental seleccionado en Inventario</span>
+        <strong>#{{ periodo_seleccionado.numero }} · {{ tiendas_map.get(periodo_seleccionado.tienda_id, periodo_seleccionado.tienda_id) }}</strong>
+      </div>
+      <span class="badge {{ 'badge--green' if periodo_seleccionado.estado == 'Cerrado' else 'badge--blue' }}">{{ periodo_seleccionado.estado }}</span>
+    </div>
+    {% if excel_seleccionado %}
+    <form method="post" action="{{ url_for('desc.desc_facturas_importar', periodo_id=periodo_seleccionado.id) }}" enctype="multipart/form-data" class="desc-invoice-upload" id="invoice-upload-form"
           data-loading-title="Procesando facturas..." data-loading-subtitle="Leyendo documentos y detectando compras...">
       <input type="hidden" name="periodo_id" value="{{ periodo_seleccionado.id }}">
       <label class="desc-invoice-picker" for="invoice-files">
@@ -122,7 +126,12 @@
       <div class="desc-invoice-files" id="invoice-file-list" aria-live="polite"></div>
     </form>
     {% else %}
-    <div class="empty"><p>Selecciona un período antes de cargar facturas.</p></div>
+    <div class="banner banner--warning" style="margin-bottom:14px;">
+      <div>Importa primero el Excel oficial de este período. Después podrás cargar aquí sus facturas PDF, incluso si el período está cerrado.</div>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="empty"><p>Selecciona primero el período contable en el apartado Inventario.</p></div>
     {% endif %}
 
     {% if facturas_periodo %}
@@ -293,11 +302,20 @@
   </section>
 
   <section class="card card--skip-collapse desc-excel-card {{ 'desc-excel-card--readonly' if excel_historico else '' }}" id="datos-extraidos-card"
-           data-doc-panel="datos" {{ 'hidden' if active_doc_tab != 'datos' else '' }}
+           data-doc-panel="inventario" data-inline-data-panel
+           data-inline-visible="{{ 'true' if mostrar_datos else 'false' }}"
+           {{ 'hidden' if active_doc_tab != 'inventario' or not mostrar_datos else '' }}
            {% if excel_seleccionado %}data-save-url="{{ url_for('desc.desc_excel_datos_guardar', excel_id=excel_seleccionado.id) }}"{% endif %}>
     <div class="desc-excel-head">
       <div>
         <h3 class="panel__title">Datos extraídos del inventario oficial</h3>
+        {% if periodo_seleccionado %}
+        <p class="desc-excel-period">
+          Período #{{ periodo_seleccionado.numero }} ·
+          {{ tiendas_map.get(periodo_seleccionado.tienda_id, periodo_seleccionado.tienda_id) }} ·
+          {{ periodo_seleccionado.fecha_desde }} a {{ periodo_seleccionado.fecha_hasta }}
+        </p>
+        {% endif %}
         {% if excel_seleccionado %}
         <p class="muted">{{ excel_seleccionado.nombre_archivo }} · {{ excel_detalles|length }} fila(s). Las modificaciones quedan registradas y serán utilizadas al volver a ejecutar Auditoría.</p>
         {% elif snapshot_seleccionado %}
@@ -420,7 +438,7 @@
             <td><span class="badge badge--green">Correcto</span></td>
             <td><div class="desc-history-actions">
               {% set vista = historial_vistas.get(s.id, {}) %}
-              <a class="btn btn--sm btn--primary" href="{{ url_for('desc.admin_desc', periodo_id=vista.periodo_id, excel_id=vista.excel_id, snapshot_id=s.id, doc_tab='datos', ver_datos=1) }}#datos-extraidos-card">Ver datos</a>
+              <a class="btn btn--sm btn--primary" href="{{ url_for('desc.admin_desc', periodo_id=vista.periodo_id, excel_id=vista.excel_id, snapshot_id=s.id, doc_tab='inventario', ver_datos=1) }}#datos-extraidos-card">Ver datos</a>
               <form method="post" action="{{ url_for('desc.desc_snapshot_eliminar', snap_id=s.id) }}" data-confirm-message="¿Eliminar este snapshot? Se perderá la continuidad para este período.">
                 <button class="btn btn--sm btn--danger">Eliminar</button>
               </form>
@@ -457,7 +475,12 @@
         tab.setAttribute('tabindex', active ? '0' : '-1');
       });
       docPanels.forEach(function(panel) {
-        panel.hidden = panel.dataset.docPanel !== tabName;
+        var pertenece = panel.dataset.docPanel === tabName;
+        if (panel.hasAttribute('data-inline-data-panel')) {
+          panel.hidden = !pertenece || panel.dataset.inlineVisible !== 'true';
+        } else {
+          panel.hidden = !pertenece;
+        }
       });
 
       if (updateUrl && window.history && window.history.replaceState) {
@@ -802,13 +825,28 @@
       periodoSelect.addEventListener('change', function() {
         var url = new URL(window.location.href);
         url.searchParams.set('periodo_id', periodoSelect.value);
+        url.searchParams.set('doc_tab', 'inventario');
+        url.searchParams.delete('excel_id');
+        url.searchParams.delete('snapshot_id');
+        url.searchParams.set('ver_datos', '1');
+        url.hash = 'datos-extraidos-card';
         window.location.href = url.toString();
       });
     }
 
     if (btnVerDatos && datosCard) {
       btnVerDatos.addEventListener('click', function() {
-        activateDocTab('datos', true);
+        if (!periodoSelect || !periodoSelect.value) return;
+        datosCard.dataset.inlineVisible = 'true';
+        datosCard.hidden = false;
+        if (window.history && window.history.replaceState) {
+          var url = new URL(window.location.href);
+          url.searchParams.set('periodo_id', periodoSelect.value);
+          url.searchParams.set('doc_tab', 'inventario');
+          url.searchParams.set('ver_datos', '1');
+          url.hash = 'datos-extraidos-card';
+          window.history.replaceState({}, '', url.toString());
+        }
         datosCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }

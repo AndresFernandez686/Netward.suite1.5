@@ -55,8 +55,8 @@
       <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline;"
             data-confirm-message="¿Ejecutar la auditoría automática de este período?"
             data-confirm-loading-text="Ejecutando auditoría...">
-        <button type="submit" class="btn btn--primary" {{ 'disabled' if facturas_pendientes_auditoria else '' }}
-                title="{{ 'Completa las facturas pendientes antes de auditar.' if facturas_pendientes_auditoria else '' }}">Ejecutar auditoría</button>
+        <button type="submit" class="btn {{ 'btn--danger' if estado_actualizacion_auditoria.desactualizada else 'btn--primary' }}" {{ 'disabled' if facturas_pendientes_auditoria else '' }}
+                title="{{ 'Completa las facturas pendientes antes de auditar.' if facturas_pendientes_auditoria else '' }}">{{ 'Re-ejecutar auditoría' if estado_actualizacion_auditoria.ejecutada else 'Ejecutar auditoría' }}</button>
       </form>
       {% if excel_imp and excel_imp.estado_validacion == 'pendiente_vinculacion' %}
       <form method="post" action="{{ url_for('admin_auditoria_ejecutar', periodo_id=periodo.id) }}" style="display:inline;"
@@ -71,6 +71,14 @@
       {% endif %}
     </div>
   </section>
+
+  {% if estado_actualizacion_auditoria.desactualizada %}
+  <section class="periodo-det-alerta periodo-det-alerta--danger">
+    <strong>Esta auditoría debe re-ejecutarse.</strong>
+    Cambiaron: {{ estado_actualizacion_auditoria.motivos|join(', ') }}.
+    La opción está en <strong>{{ estado_actualizacion_auditoria.ubicacion }}</strong>.
+  </section>
+  {% endif %}
 
   {% if facturas_pendientes_auditoria %}
   <section class="periodo-det-alerta">
