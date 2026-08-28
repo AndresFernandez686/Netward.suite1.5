@@ -21,12 +21,17 @@ from pathlib import Path
 import sqlite3
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.database_maintenance import _rows_digest
-from migracion.migrate_sqlite_to_postgres import BOOL_COLS
+from migracion.migrate_sqlite_to_postgres import BOOL_COLS, psycopg2_url
 
 TABLAS = [
     "clientes", "tiendas", "usuarios", "notificaciones_usuario", "productos",
@@ -99,6 +104,7 @@ CLAVES_CRITICAS = (
 def verificar(sqlite_path: str, pg_url: str) -> bool:
     try:
         import psycopg2
+        from psycopg2 import sql
     except ImportError:
         print("ERROR: psycopg2 no está instalado. Ejecutá: pip install psycopg2-binary")
         sys.exit(1)
@@ -108,7 +114,7 @@ def verificar(sqlite_path: str, pg_url: str) -> bool:
         sys.exit(1)
 
     sqlite_conn = sqlite3.connect(sqlite_path)
-    pg_conn     = psycopg2.connect(pg_url)
+    pg_conn     = psycopg2.connect(psycopg2_url(pg_url))
     pg_conn.autocommit = True
 
     print(f"\nVerificación de migración")
@@ -215,19 +221,23 @@ def verificar(sqlite_path: str, pg_url: str) -> bool:
     cur_p = pg_conn.cursor()
     for tabla in SERIAL_TABLES:
         try:
+            cur_p.execute("SELECT pg_get_serial_sequence(%s, 'id')", (tabla,))
+            seq_row = cur_p.fetchone()
+            seq_name = seq_row[0] if seq_row else None
+            if not seq_name:
+                print(f"  {tabla:<35} sin secuencia (no aplica)")
+                continue
             cur_p.execute(
-                "SELECT last_value FROM pg_sequences "
-                "WHERE schemaname=current_schema() "
-                "AND format('%I.%I', schemaname, sequencename)="
-                "pg_get_serial_sequence(%s, 'id')",
-                (tabla,),
+                sql.SQL("SELECT last_value FROM {}").format(
+                    sql.Identifier(*seq_name.split(".", 1))
+                )
             )
-            row = cur_p.fetchone()
-            seq_val = row[0] if row else "—"
+            value_row = cur_p.fetchone()
+            seq_val = value_row[0] if value_row else None
             cur_p.execute(f"SELECT COALESCE(MAX(id), 0) FROM {tabla}")
             fila_max_id = cur_p.fetchone()
             max_id = fila_max_id[0] if fila_max_id else 0
-            ok = (seq_val is None or seq_val == "—" or seq_val >= max_id)
+            ok = seq_val is None or seq_val >= max_id
             estado = "✓" if ok else f"✗ seq={seq_val} max_id={max_id}"
             print(f"  {tabla:<35} seq_val={str(seq_val):>8}  max_id={max_id:>8}  {estado}")
             if not ok:

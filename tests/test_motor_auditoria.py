@@ -231,6 +231,38 @@ class PruebasMotorAuditoria(unittest.TestCase):
         self.assertEqual(Justificacion.query.count(), 1)
         self.assertEqual(AsistenteIAConsulta.query.count(), 1)
 
+    def test_reejecutar_archiva_producto_retirado_sin_romper_su_traza(self):
+        periodo = self.crear_periodo(1)
+        producto = self.crear_producto("Producto retirado")
+        self.agregar_conteo(periodo, producto, 2)
+        detalle = self.agregar_excel(
+            periodo, producto, stock_inicial=8, ventas=4, stock_final=2,
+        )
+        resultado = ejecutar_auditoria(periodo)[0]
+        db.session.commit()
+        db.session.add(Justificacion(
+            resultado_id=resultado.id,
+            cliente_id=CLIENTE,
+            causa="Pendiente de revision",
+            cantidad_justificada=0,
+            importe_justificado=0,
+            observacion="Conservar aunque el producto sea retirado.",
+            usuario="tester",
+        ))
+        detalle.excluido_auditoria = True
+        detalle.estado_vinculacion = "excluido"
+        db.session.commit()
+
+        self.assertEqual(ejecutar_auditoria(periodo), [])
+        db.session.commit()
+        archivado = db.session.get(AuditoriaResultado, resultado.id)
+        self.assertEqual(archivado.estado_auditoria, "Archivado")
+        self.assertEqual(archivado.impacto, 0)
+        self.assertEqual(Justificacion.query.count(), 1)
+        libro = openpyxl.load_workbook(generar_excel_auditoria(periodo), data_only=True)
+        self.assertEqual(libro.active.max_row, 1)
+        libro.close()
+
     def agregar_resultado_anterior(
         self,
         periodo,

@@ -1,0 +1,139 @@
+{
+  "fecha_utc": "2026-08-28T20:54:45.881944+00:00",
+  "origen_sqlite": "C:\\Users\\USUARIO\\OneDrive\\Escritorio\\1260709145538-Andres\\Netward.suite1.4\\instance\\netward_empleado.db",
+  "respaldo_sqlite": "C:\\Users\\USUARIO\\OneDrive\\Escritorio\\1260709145538-Andres\\Netward.suite1.4\\backups\\database\\netward_empleado_20260828T205444Z.sqlite3",
+  "destino": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "Netward",
+    "user": "postgres"
+  },
+  "alembic_revision": "20260828_03",
+  "tablas": {
+    "ajustes_inventario": {
+      "filas": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "alembic_version": {
+      "filas": 1,
+      "sha256": "ca9f3f994832c227f9133f943614d8cc53b0711524f2bfa3375aa0182feed263"
+    },
+    "asistente_ia_consultas": {
+      "filas": 13,
+      "sha256": "c1d16d820e015d4c3f2a603a0d7c78a3d3d527e734ed2982b95bb514e029d4ae"
+    },
+    "auditoria_resultados": {
+      "filas": 144,
+      "sha256": "7644b18b8817ab0f3cc937c134114014f1c6794d9108301ddecd70f691f48a69"
+    },
+    "clientes": {
+      "filas": 1,
+      "sha256": "3e3e826a4b99bb1e9f9b08fb0c66438c733c70db0a618bd21cbeae31bf98c510"
+    },
+    "configuracion_sistema": {
+      "filas": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "conteo_detalle": {
+      "filas": 102,
+      "sha256": "e9821cba5978903119a7c867c89e13f2b47d3bd13d3576b04a49c0fbfce0e1f1"
+    },
+    "delivery_productos": {
+      "filas": 4,
+      "sha256": "d608372f7cbe1dcce1211eed9b689b069f01bd252299c358f305c3816920234b"
+    },
+    "delivery_ventas": {
+      "filas": 2,
+      "sha256": "96c9a8dda7bb8ae9490a9926e717d2f33431afe42c5d48336ca7f0c55ad95df7"
+    },
+    "excel_detalle_ediciones": {
+      "filas": 20,
+      "sha256": "a4b75966c7b32b2bc5b142c4bd93527045a30c0e4203aec708029c5ab2eec546"
+    },
+    "excel_detalles": {
+      "filas": 86,
+      "sha256": "bb974f2294e59473b2db02a0a3a8cdfd913ad7fe9e0fa821d6872a6922fb2fb4"
+    },
+    "excel_importados": {
+      "filas": 1,
+      "sha256": "991ef89c9c46089fae44ffe732f8fdcfc71c13b7afb5f99ff0b451f55a8979d1"
+    },
+    "facturas_compra": {
+      "filas": 1,
+      "sha256": "fef14afdcba6e06557ca482e1d1ccef5dc5177187b359bfa044d65b33ec99492"
+    },
+    "facturas_compra_detalles": {
+      "filas": 16,
+      "sha256": "833a91f42db757e4d2458a11531ad415aa49af1354850c2ab3eb8058a0f78103"
+    },
+    "historial": {
+      "filas": 20,
+      "sha256": "839f4ef7bf645de4a2ed3a6efac465e590fdb305188dff7c3eea51be2b6a202f"
+    },
+    "inventario_borradores": {
+      "filas": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "inventario_desc_snapshots": {
+      "filas": 1,
+      "sha256": "af1772fbec0a50cb6c7fa1bf079423cc2820f38a9dfb48d961e6528c9066fdaa"
+    },
+    "inventario_items": {
+      "filas": 3,
+      "sha256": "969b38ef9acd74c9d9700b93ccf60e804630a24a2bf5537eb4ffa5a662c8b3b4"
+    },
+    "inventario_periodos": {
+      "filas": 1,
+      "sha256": "d71b46edee9c8f5ecad16bea22fe0aba110245a51ea45170fdb676b542d11ece"
+    },
+    "inventario_snapshots": {
+      "filas": 5,
+      "sha256": "85dd309dfe84bc54b6a0c55238857c99985b70e1e7fed351fc444069afd169ed"
+    },
+    "justificaciones": {
+      "filas": 1,
+      "sha256": "54462600a95d626763b71a339016dafde0eefffa57b9a5d31d631ee727085495"
+    },
+    "notificaciones_usuario": {
+      "filas": 8,
+      "sha256": "949580da70d7fd12da101092c130af127bbe28a32927fbdd07fa5fb866d7d7a6"
+    },
+    "producto_precios": {
+      "filas": 43,
+      "sha256": "59b551a65108ba6443768b1db0db70d9b9b6208c5ec4ef63c274e43adda36c09"
+    },
+    "productos": {
+      "filas": 104,
+      "sha256": "9406c8b88a1aa79118417bcad580ecb992a1a328ecd93d7fc18be89009c38859"
+    },
+    "productos_relacionados": {
+      "filas": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "registros_averiados": {
+      "filas": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "registros_vencimiento": {
+      "filas": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sincronizacion_log": {
+      "filas": 12,
+      "sha256": "79fa9a2315f4e9ea29e8604d849852c1340ef4c022d2446998d3710bf3cefe5c"
+    },
+    "stock_thresholds": {
+      "filas": 19,
+      "sha256": "52708305e74514644370111009c81af0abfe447dfd7bf7a6e86d0a5906ef5fbc"
+    },
+    "tiendas": {
+      "filas": 2,
+      "sha256": "70504040c20cf6029f6b6cea4f080b13e4db3e90280230d39895bf0c4449c229"
+    },
+    "usuarios": {
+      "filas": 6,
+      "sha256": "a2d703e931e5162bef6cb392ee4731afb94cbb75a38b4a1c81523312f77c26ee"
+    }
+  },
+  "verificacion": "correcta"
+}

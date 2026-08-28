@@ -27,6 +27,11 @@ import sqlite3
 import sys
 from typing import Any
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # ── Orden de migración respeta las FK ────────────────────────────────────────
 TABLAS_ORDEN = [
     "clientes",
@@ -99,6 +104,11 @@ SERIAL_TABLES = [
 ]
 
 
+def psycopg2_url(pg_url: str) -> str:
+    """Convierte una URL SQLAlchemy en una URI aceptada por psycopg2."""
+    return pg_url.replace("postgresql+psycopg2://", "postgresql://", 1)
+
+
 def _convert_row(tabla: str, cols: list[str], row: tuple, json_adapter=None) -> tuple:
     """Convierte valores SQLite al tipo correcto para Postgres."""
     bool_cols = BOOL_COLS.get(tabla, set())
@@ -143,7 +153,7 @@ def migrar(
     # ── Conexiones ────────────────────────────────────────────────────────────
     sqlite_conn = sqlite3.connect(sqlite_path)
     sqlite_conn.row_factory = sqlite3.Row
-    pg_conn = psycopg2.connect(pg_url)
+    pg_conn = psycopg2.connect(psycopg2_url(pg_url))
     pg_conn.autocommit = False
 
     print(f"\n{'DRY-RUN' if dry_run else 'MIGRACIÓN'} — SQLite: {sqlite_path}")

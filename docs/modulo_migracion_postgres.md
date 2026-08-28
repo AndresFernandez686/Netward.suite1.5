@@ -26,6 +26,27 @@ eliminar accidentalmente el resultado que documenta.
 
 ## Migración de datos SQLite a PostgreSQL
 
+El flujo recomendado está automatizado en `scripts/migrar_a_postgresql.py`.
+Lee la conexión desde `.env`, nunca imprime la contraseña, rechaza destinos
+con datos, respalda SQLite, aplica Alembic, copia dentro de una transacción y
+verifica filas, hashes, columnas, claves foráneas y secuencias.
+
+```powershell
+# Comprobación sin escrituras
+.venv\Scripts\python.exe scripts\migrar_a_postgresql.py --preflight
+
+# Migración completa
+.venv\Scripts\python.exe scripts\migrar_a_postgresql.py
+
+# Repetir solamente la verificación después de migrar
+.venv\Scripts\python.exe scripts\migrar_a_postgresql.py --verify-only
+```
+
+El comando completo se cancela si PostgreSQL contiene cualquier dato de la
+aplicación. Esta protección evita mezclar instalaciones o duplicar registros.
+
+### Ejecución manual equivalente
+
 ```powershell
 # 1. Crear el esquema PostgreSQL.
 $env:DATABASE_URL="postgresql+psycopg2://usuario:clave@host/base_empresa"
