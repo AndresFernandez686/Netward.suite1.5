@@ -160,6 +160,7 @@ class PruebasRegresion(unittest.TestCase):
         db.session.add(RegistroAveriado(
             cliente_id=CLIENTE,
             tienda_id=TIENDA,
+            periodo_id=periodo.id,
             fecha="2026-08-04",
             usuario="empleado",
             categoria="Pruebas",

@@ -60,6 +60,17 @@ class PruebasAveriadosVencimientos(unittest.TestCase):
             unidades_por_caja=12,
             unidades_por_bulto=4,
         ))
+        self.periodo = InventarioPeriodo(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            numero=1,
+            fecha_desde="2026-08-01",
+            fecha_hasta="2026-08-08",
+            dias_periodo=7,
+            estado="Abierto",
+            usuario_creador="tester",
+        )
+        db.session.add(self.periodo)
         db.session.commit()
 
     def tearDown(self):
@@ -78,6 +89,7 @@ class PruebasAveriadosVencimientos(unittest.TestCase):
                 ume=ume,
                 detalle="Daño de prueba",
                 fecha=fecha,
+                periodo_id=self.periodo.id,
             )
             db.session.flush()
         return convertido, descripcion, RegistroAveriado.query.one()
@@ -113,6 +125,7 @@ class PruebasAveriadosVencimientos(unittest.TestCase):
         self.assertIsNotNone(registro.id)
         self.assertEqual(registro.cliente_id, CLIENTE)
         self.assertEqual(registro.tienda_id, TIENDA)
+        self.assertEqual(registro.periodo_id, self.periodo.id)
         self.assertEqual(registro.cantidad, 3)
         self.assertEqual(registro.cantidad_unidades, 3)
         self.assertEqual(registro.sinc_estado, "pendiente")
@@ -157,6 +170,7 @@ class PruebasAveriadosVencimientos(unittest.TestCase):
             tienda_id=TIENDA,
             usuario="empleado",
             accion="solo_enviar",
+            periodo_id=self.periodo.id,
         )
         db.session.flush()
 
@@ -174,22 +188,12 @@ class PruebasAveriadosVencimientos(unittest.TestCase):
             tienda_id=TIENDA,
             usuario="empleado",
             accion="solo_enviar",
+            periodo_id=self.periodo.id,
         )
 
-        periodo = InventarioPeriodo(
-            cliente_id=CLIENTE,
-            tienda_id=TIENDA,
-            numero=1,
-            fecha_desde="2026-08-01",
-            fecha_hasta="2026-08-08",
-            dias_periodo=7,
-            estado="Cerrado",
-            usuario_creador="tester",
-        )
-        db.session.add(periodo)
-        db.session.flush()
+        self.periodo.estado = "Cerrado"
         db.session.add(ConteoDetalle(
-            periodo_id=periodo.id,
+            periodo_id=self.periodo.id,
             cliente_id=CLIENTE,
             tienda_id=TIENDA,
             usuario="empleado",
@@ -202,7 +206,7 @@ class PruebasAveriadosVencimientos(unittest.TestCase):
             fue_cargado=True,
         ))
         excel = ExcelImportado(
-            periodo_id=periodo.id,
+            periodo_id=self.periodo.id,
             cliente_id=CLIENTE,
             nombre_archivo="averiados-vencidos.xlsx",
             usuario_importador="tester",
@@ -222,7 +226,7 @@ class PruebasAveriadosVencimientos(unittest.TestCase):
         ))
         db.session.flush()
 
-        resultados = ejecutar_auditoria(periodo)
+        resultados = ejecutar_auditoria(self.periodo)
 
         self.assertEqual(len(resultados), 1)
         resultado = resultados[0]
@@ -232,6 +236,42 @@ class PruebasAveriadosVencimientos(unittest.TestCase):
         self.assertEqual(resultado.cantidad_vencida, 12)
         self.assertEqual(resultado.stock_esperado, 64)
         self.assertEqual(resultado.diferencia, 0)
+
+    def test_motor_no_mezcla_averiado_de_otro_periodo_con_misma_fecha(self):
+        otro = InventarioPeriodo(
+            cliente_id=CLIENTE, tienda_id=TIENDA, numero=2,
+            fecha_desde="2026-08-01", fecha_hasta="2026-08-08",
+            dias_periodo=7, estado="Abierto", usuario_creador="tester",
+        )
+        db.session.add(otro)
+        db.session.flush()
+        with self.app.test_request_context():
+            session["cliente_id"] = CLIENTE
+            empleado_service.registrar_averiado(
+                tienda_id=TIENDA, usuario="empleado", categoria="Pruebas",
+                producto=PRODUCTO, cantidad=7, ume="Unidad",
+                detalle="Pertenece a otro período", fecha="2026-08-03",
+                periodo_id=otro.id,
+            )
+        RegistroAveriado.query.update(
+            {RegistroAveriado.sinc_estado: "sincronizado"},
+            synchronize_session=False,
+        )
+        db.session.flush()
+
+        from core.auditoria import _mermas_vencidos
+        merma, _vencidos = _mermas_vencidos(self.periodo, PRODUCTO, TIENDA)
+        self.assertEqual(merma, 0)
+
+    def test_fecha_del_averiado_debe_pertenecer_al_periodo(self):
+        with self.app.test_request_context():
+            session["cliente_id"] = CLIENTE
+            with self.assertRaisesRegex(ValueError, "debe estar entre"):
+                empleado_service.registrar_averiado(
+                    tienda_id=TIENDA, usuario="empleado", categoria="Pruebas",
+                    producto=PRODUCTO, cantidad=1, ume="Unidad", detalle="",
+                    fecha="2026-08-20", periodo_id=self.periodo.id,
+                )
 
 
 if __name__ == "__main__":

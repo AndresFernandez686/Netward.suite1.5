@@ -88,8 +88,7 @@ def estado_actualizacion_auditoria(periodo, *, catalogo_pendiente: bool = False)
         (db.session.query(db.func.max(RegistroAveriado.creado)).filter(
             RegistroAveriado.cliente_id == periodo.cliente_id,
             RegistroAveriado.tienda_id == periodo.tienda_id,
-            RegistroAveriado.fecha >= periodo.fecha_desde,
-            RegistroAveriado.fecha <= periodo.fecha_hasta,
+            RegistroAveriado.periodo_id == periodo.id,
         ).scalar(), "Averiado o merma registrado"),
         (db.session.query(db.func.max(RegistroVencimiento.creado)).filter(
             RegistroVencimiento.cliente_id == periodo.cliente_id,

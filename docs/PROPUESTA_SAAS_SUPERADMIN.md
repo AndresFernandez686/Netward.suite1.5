@@ -32,7 +32,7 @@ Es un usuario interno de Netward. Puede:
 
 - crear y activar empresas clientes;
 - asignar planes y límites;
-- asigna mas de una tienda a un mismo usuario
+- asignar más de una tienda a un mismo usuario;
 - consultar el estado de las suscripciones;
 - suspender o reactivar una empresa;
 - crear al primer usuario dueño de cada empresa;
@@ -182,7 +182,7 @@ Pantallas principales:
 Ejemplo inicial:
 
 | Característica | Básico | Profesional | Empresa |
-|---|---:|---:|---:|
+| --- | ---: | ---: | ---: |
 | Tiendas | 1 | 5 | Personalizado |
 | Usuarios | 5 | 25 | Personalizado |
 | Facturas PDF por mes | 100 | 1.000 | Personalizado |
@@ -414,5 +414,3 @@ Para la primera versión comercial se recomienda:
 Esta opción aprovecha el aislamiento ya implementado, reduce el riesgo de
 mezclar información entre clientes y permite convertir Netward en SaaS de
 forma gradual sin rehacer inmediatamente todo el motor de inventario.
-
-Porque rehacer??

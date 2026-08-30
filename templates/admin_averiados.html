@@ -15,21 +15,14 @@
   <h3 class="panel__title">Filtros</h3>
   <form method="get" action="{{ url_for('admin_averiados') }}#averiados-filtros" class="filters" data-loading-text="Filtrando..." data-button-loading-only="1">
     <label class="field">
-      <span class="field__label">Tienda</span>
-      <select name="tienda">
-        <option value="Todas" {{ 'selected' if tienda_f == 'Todas' }}>Todas las tiendas</option>
-        {% for t in tiendas %}
-        <option value="{{ t.id }}" {{ 'selected' if tienda_f == t.id }}>{{ t.nombre }}</option>
+      <span class="field__label">Período contable</span>
+      <select name="periodo_id" required>
+        {% for p in periodos %}
+        <option value="{{ p.id }}" {{ 'selected' if periodo_f and periodo_f.id == p.id }}>
+          #{{ p.numero }} · {{ tiendas_map.get(p.tienda_id, p.tienda_id) }} · {{ p.fecha_desde }} a {{ p.fecha_hasta }} · {{ p.estado }}
+        </option>
         {% endfor %}
       </select>
-    </label>
-    <label class="field">
-      <span class="field__label">Desde</span>
-      <input type="date" name="desde" value="{{ desde }}" />
-    </label>
-    <label class="field">
-      <span class="field__label">Hasta</span>
-      <input type="date" name="hasta" value="{{ hasta }}" />
     </label>
     <div class="filters__actions">
       <button type="submit" class="btn btn--primary">Filtrar</button>
@@ -39,9 +32,7 @@
   <div style="display:flex;justify-content:flex-end;margin-top:10px;">
     <form method="post" action="{{ url_for('admin_averiados_revisar') }}"
           data-confirm-message="¿Marcar como revisados los registros filtrados actualmente?">
-      <input type="hidden" name="tienda" value="{{ tienda_f }}" />
-      <input type="hidden" name="desde" value="{{ desde }}" />
-      <input type="hidden" name="hasta" value="{{ hasta }}" />
+      <input type="hidden" name="periodo_id" value="{{ periodo_f.id if periodo_f else '' }}" />
       <button type="submit" class="btn btn--ghost">Marcar filtrados como revisados</button>
     </form>
   </div>
@@ -59,6 +50,7 @@
     <table class="table">
       <thead>
         <tr>
+          <th>Período</th>
           <th>Fecha</th>
           <th>Tienda</th>
           <th>Empleado</th>
@@ -72,6 +64,7 @@
       <tbody>
         {% for r in registros %}
         <tr>
+          <td><span class="badge badge--neutral">#{{ periodo_f.numero }}</span></td>
           <td class="muted">{{ r.fecha }}<br><small>{{ r.hora }}</small></td>
           <td><span class="badge badge--blue">{{ r.tienda_id }}</span></td>
           <td class="muted">{{ r.usuario }}</td>

@@ -4,10 +4,28 @@
 {% block subheading %}Carga productos dañados o averiados{% endblock %}
 
 {% block content %}
+{% if periodos_abiertos %}
+<section class="card card--skip-collapse">
+  <form method="get" action="{{ url_for('empleado_averiado') }}" class="filters" data-loading-text="Cambiando período..." data-button-loading-only="1">
+    <label class="field">
+      <span class="field__label">Período contable del averiado</span>
+      <select name="periodo_id" onchange="this.form.requestSubmit()">
+        {% for p in periodos_abiertos %}
+        <option value="{{ p.id }}" {{ 'selected' if periodo_activo and p.id == periodo_activo.id }}>
+          #{{ p.numero }} · {{ p.fecha_desde }} a {{ p.fecha_hasta }} · {{ p.estado }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <noscript><button type="submit" class="btn btn--primary">Seleccionar</button></noscript>
+  </form>
+</section>
+
 <section class="card card--skip-collapse">
   <h3 class="panel__title">Nuevo registro</h3>
 
   <form method="post" action="{{ url_for('empleado_averiado') }}" id="form-averiado" data-loading-text="Guardando...">
+    <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}" />
     <div class="inv-form__grid inv-form__grid--averiado">
 
       {# Producto #}
@@ -53,7 +71,7 @@
       {# Fecha #}
       <label class="field">
         <span class="field__label">Fecha</span>
-        <input type="date" name="fecha" value="{{ hoy }}" />
+        <input type="date" name="fecha" value="{{ fecha_averiado }}" min="{{ periodo_activo.fecha_desde }}" max="{{ periodo_activo.fecha_hasta }}" required />
       </label>
 
       {# Boton #}
@@ -71,11 +89,19 @@
     </div>
   </form>
 </section>
+{% else %}
+<section class="card card--skip-collapse">
+  <div class="empty">
+    <p>No hay un período contable abierto para registrar averiados.</p>
+    <span class="muted">Solicita al administrador que abra un período para tu tienda.</span>
+  </div>
+</section>
+{% endif %}
 
 {# Registros recientes #}
-{% if recientes %}
+{% if periodo_activo and recientes %}
 <section class="card card--skip-collapse">
-  <h3 class="panel__title">Registros recientes <span class="badge badge--neutral">{{ recientes|length }}</span></h3>
+  <h3 class="panel__title">Averiados del período #{{ periodo_activo.numero }} <span class="badge badge--neutral">{{ recientes|length }}</span></h3>
   <div class="table-wrap">
     <table class="table table--averiado-mobile">
       <thead>
@@ -108,11 +134,11 @@
     </table>
   </div>
 </section>
-{% else %}
+{% elif periodo_activo %}
 <section class="card card--skip-collapse">
   <div class="empty">
-    <p>No hay registros de averiados aún.</p>
-    <span class="muted">Usa el formulario de arriba para registrar productos dañados.</span>
+    <p>No hay averiados cargados en este período.</p>
+    <span class="muted">Los registros de otros períodos permanecen separados.</span>
   </div>
 </section>
 {% endif %}

@@ -307,6 +307,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         db.session.add(RegistroAveriado(
             cliente_id=CLIENTE,
             tienda_id=TIENDA,
+            periodo_id=periodo.id,
             fecha="2026-08-03",
             usuario="empleado",
             categoria="Pruebas",
@@ -496,6 +497,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         db.session.add(RegistroAveriado(
             cliente_id=CLIENTE,
             tienda_id=TIENDA,
+            periodo_id=periodo.id,
             fecha="2026-08-03",
             usuario="empleado",
             categoria="Pruebas",
@@ -553,7 +555,8 @@ class PruebasMotorAuditoria(unittest.TestCase):
         self.agregar_conteo(periodo, producto, 4)
         self.agregar_excel(periodo, producto, stock_inicial=10, costo=1000)
         db.session.add(RegistroAveriado(
-            cliente_id=CLIENTE, tienda_id=TIENDA, fecha="2026-08-03",
+            cliente_id=CLIENTE, tienda_id=TIENDA, periodo_id=periodo.id,
+            fecha="2026-08-03",
             usuario="empleado", categoria="Pruebas", producto=producto.nombre,
             cantidad=3, cantidad_unidades=3, sinc_estado="sincronizado",
         ))
@@ -576,7 +579,8 @@ class PruebasMotorAuditoria(unittest.TestCase):
         self.agregar_excel(periodo, producto, stock_inicial=10, costo=1000)
         db.session.add_all([
             RegistroAveriado(
-                cliente_id=CLIENTE, tienda_id=TIENDA, fecha="2026-08-03",
+                cliente_id=CLIENTE, tienda_id=TIENDA, periodo_id=periodo.id,
+                fecha="2026-08-03",
                 usuario="empleado", categoria="Pruebas", producto=producto.nombre,
                 cantidad=3, cantidad_unidades=3, sinc_estado="sincronizado",
             ),

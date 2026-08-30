@@ -151,9 +151,10 @@ def _mermas_vencidos(periodo: InventarioPeriodo, producto_nombre: str,
     pnorm = _norm(producto_nombre)
     averiados = (
         RegistroAveriado.query
-        .filter_by(cliente_id=periodo.cliente_id, tienda_id=tienda_id, sinc_estado="sincronizado")
-        .filter(RegistroAveriado.fecha >= periodo.fecha_desde)
-        .filter(RegistroAveriado.fecha <= periodo.fecha_hasta)
+        .filter_by(
+            cliente_id=periodo.cliente_id, tienda_id=tienda_id,
+            periodo_id=periodo.id, sinc_estado="sincronizado",
+        )
         .filter(db.func.lower(RegistroAveriado.producto) == pnorm)
         .all()
     )

@@ -444,6 +444,8 @@ def ensure_multitenant_schema():
 
             _add_column_if_missing(conn, "registros_averiados",
                                    "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
+            _add_column_if_missing(conn, "registros_averiados",
+                                   "periodo_id INTEGER", "periodo_id")
             _add_column_if_missing(conn, "registros_vencimiento",
                                    "sinc_estado VARCHAR(20) NOT NULL DEFAULT 'pendiente'", "sinc_estado")
             _add_column_if_missing(conn, "usuarios",
@@ -464,6 +466,7 @@ def ensure_multitenant_schema():
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_tiendas_cliente_id ON tiendas(cliente_id)")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_usuarios_cliente_id ON usuarios(cliente_id)")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_productos_catalogo_version ON productos(catalogo_version)")
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_registros_averiados_periodo_id ON registros_averiados(periodo_id)")
 
             # Nuevas tablas del módulo de auditoría (creadas por SQLAlchemy en init_db,
             # aquí solo migramos columnas faltantes si la tabla ya existía)
@@ -584,7 +587,7 @@ def init_db():
             )
         with db.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        if version != "20260828_03":
+        if version != "20260829_04":
             raise RuntimeError(
                 f"Esquema PostgreSQL desactualizado ({version or 'sin version'}). "
                 "Ejecuta `alembic upgrade head`."
@@ -980,6 +983,7 @@ def inject_globals():
     # Solo consultar notificaciones si hay sesion activa de administrador
     if session.get("rol") == "administrador" and session.get("usuario"):
         cliente_id = get_cliente_filtro()
+        username_actual = str(session.get("usuario") or "")
         nexa_seccion = _nexa_seccion_actual()
         nexa_definicion = NEXA_SECCIONES[nexa_seccion]
         ctx.update(
@@ -995,7 +999,7 @@ def inject_globals():
             ctx["notif_vencimientos"] = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, sinc_estado="sincronizado", revisado=False).count()
             ctx["notif_admin_unread"] = NotificacionUsuario.query.filter_by(
                 cliente_id=cliente_id,
-                username=session.get("usuario"),
+                username=username_actual,
                 leida=False,
             ).count()
             from core.inventario import estado_sincronizacion_catalogo
@@ -1005,7 +1009,7 @@ def inject_globals():
             )["total"]
             ctx["notif_admin_unread"] = len(_construir_alertas_admin(
                 cliente_id,
-                session.get("usuario"),
+                username_actual,
                 session.get("admin_tienda_id", "ALL"),
             ))
         except Exception:
@@ -1761,7 +1765,23 @@ def empleado_averiado():
     cliente_id = get_cliente_filtro()
     tienda_id = session["tienda_id"]
     usuario   = session["usuario"]
-    context = empleado_service.build_averiado_context(tienda_id=tienda_id)
+    periodo_post_id = request.form.get("periodo_id", type=int) if request.method == "POST" else None
+    periodo_activo, periodos_abiertos = _resolve_periodo_seleccionado_empleado(
+        cliente_id, tienda_id,
+    )
+    context = empleado_service.build_averiado_context(
+        cliente_id=cliente_id,
+        tienda_id=tienda_id,
+        periodo_id=periodo_activo.id if periodo_activo else None,
+    )
+    context.update(
+        periodo_activo=periodo_activo,
+        periodos_abiertos=periodos_abiertos,
+        fecha_averiado=(
+            min(max(today_local_iso(), periodo_activo.fecha_desde), periodo_activo.fecha_hasta)
+            if periodo_activo else today_local_iso()
+        ),
+    )
 
     if request.method == "POST":
         categoria = request.form.get("categoria", "")
@@ -1779,7 +1799,13 @@ def empleado_averiado():
         detalle   = (request.form.get("detalle") or "").strip()
         fecha     = request.form.get("fecha", today_local_iso())
 
-        if not producto:
+        if (
+            periodo_post_id is None
+            or periodo_activo is None
+            or periodo_activo.id != periodo_post_id
+        ):
+            flash("No hay un período contable abierto para registrar el averiado.", "warning")
+        elif not producto:
             flash("Selecciona un producto.", "warning")
         elif producto_disponible_usuario(
             cliente_id, usuario, producto, categoria
@@ -1794,12 +1820,17 @@ def empleado_averiado():
         elif cantidad <= 0:
             flash("Ingresa una cantidad válida.", "warning")
         else:
-            cu, desc = empleado_service.registrar_averiado(
-                tienda_id=tienda_id, usuario=usuario,
-                categoria=categoria, producto=producto,
-                cantidad=cantidad, ume=ume,
-                detalle=detalle, fecha=fecha,
-            )
+            try:
+                cu, desc = empleado_service.registrar_averiado(
+                    tienda_id=tienda_id, usuario=usuario,
+                    categoria=categoria, producto=producto,
+                    cantidad=cantidad, ume=ume,
+                    detalle=detalle, fecha=fecha,
+                    periodo_id=periodo_post_id,
+                )
+            except ValueError as exc:
+                flash(str(exc), "warning")
+                return render_template("empleado_averiado.html", **context)
             db.session.commit()
             nombre_d = _re.sub(r"\s+x\s+un(?:idad|\.?)\s*$", "", producto, flags=_re.IGNORECASE)
             msg = f"Averiado registrado: {nombre_d} — {cantidad:g} {ume}"
@@ -1807,7 +1838,7 @@ def empleado_averiado():
                 msg += f" → {desc}"
             msg += " (pendiente de sincronización)"
             flash(msg, "success")
-            return redirect(url_for("empleado_averiado"))
+            return redirect(url_for("empleado_averiado", periodo_id=periodo_activo.id))
 
     return render_template("empleado_averiado.html", **context)
 
@@ -1816,10 +1847,19 @@ def empleado_averiado():
 @login_required(rol="empleado")
 def averiado_eliminar(reg_id):
     reg = db.session.get(RegistroAveriado, reg_id)
-    if reg and reg.tienda_id == session["tienda_id"]:
+    if (
+        reg
+        and reg.cliente_id == get_cliente_filtro()
+        and reg.tienda_id == session["tienda_id"]
+        and reg.usuario == session["usuario"]
+        and reg.sinc_estado == "pendiente"
+    ):
+        periodo_id = reg.periodo_id
         db.session.delete(reg)
         db.session.commit()
         flash("Registro eliminado.", "info")
+        return redirect(url_for("empleado_averiado", periodo_id=periodo_id))
+    flash("Solo puedes eliminar tus averiados pendientes de sincronización.", "warning")
     return redirect(url_for("empleado_averiado"))
 
 
@@ -2434,8 +2474,9 @@ def usuario_editar(usuario_id):
 def admin_alertas():
     cliente_id = get_cliente_filtro()
     tienda_sel = get_tienda_filtro()
+    username_actual = str(session.get("usuario") or "")
     alertas = _construir_alertas_admin(
-        cliente_id, session.get("usuario"), tienda_sel,
+        cliente_id, username_actual, tienda_sel,
     )
     resumen = {}
     for alerta in alertas:
@@ -2649,7 +2690,9 @@ def admin_alerta_ir(tipo, referencia_id):
         if registro:
             tipo_guardado = "alerta_averiado"
             titulo = f"Averiado · {registro.producto}"
-            destino = url_for("admin_averiados", tienda=registro.tienda_id) + "#averiados-lista"
+            destino = url_for(
+                "admin_averiados", periodo_id=registro.periodo_id,
+            ) + "#averiados-lista"
     elif tipo == "catalogo" and referencia_id == 0:
         from core.inventario import estado_sincronizacion_catalogo
         estado = estado_sincronizacion_catalogo(cliente_id, detallado=True)
@@ -3235,33 +3278,40 @@ def delivery_toggle(prod_id):
 @login_required(rol="administrador")
 def admin_averiados():
     cliente_id = get_cliente_filtro()
-    tienda_f  = request.args.get("tienda", "Todas")
-    desde     = request.args.get("desde", date.today().replace(day=1).isoformat())
-    hasta     = request.args.get("hasta", date.today().isoformat())
-    tiendas   = Tienda.query.filter_by(cliente_id=cliente_id).all()
+    periodos = (
+        InventarioPeriodo.query.filter_by(cliente_id=cliente_id)
+        .order_by(InventarioPeriodo.id.desc()).all()
+    )
+    periodo_id = request.args.get("periodo_id", type=int)
+    periodo_f = next((p for p in periodos if p.id == periodo_id), None)
+    if periodo_f is None and periodos:
+        periodo_f = periodos[0]
+        periodo_id = periodo_f.id
+    tiendas_map = {
+        tienda.id: tienda.nombre
+        for tienda in Tienda.query.filter_by(cliente_id=cliente_id).all()
+    }
     local_notice = pop_view_notice(session, "admin_averiados_notice")
 
-    # Al abrir la vista, se consideran vistas las notificaciones sincronizadas.
-    RegistroAveriado.query.filter_by(
-        cliente_id=cliente_id,
-        sinc_estado="sincronizado",
-        revisado=False,
-    ).update({"revisado": True}, synchronize_session=False)
-    db.session.commit()
-
-    q = RegistroAveriado.query.filter(
-        RegistroAveriado.cliente_id == cliente_id,
-        RegistroAveriado.sinc_estado == "sincronizado",
-        RegistroAveriado.fecha >= desde,
-        RegistroAveriado.fecha <= hasta,
-    )
-    if tienda_f != "Todas":
-        q = q.filter_by(tienda_id=tienda_f)
-    registros = q.order_by(RegistroAveriado.creado.desc()).all()
+    registros = []
+    if periodo_f is not None:
+        # Reconoce solo las alertas del período abierto, sin ocultar las de otros.
+        RegistroAveriado.query.filter_by(
+            cliente_id=cliente_id, periodo_id=periodo_f.id,
+            sinc_estado="sincronizado", revisado=False,
+        ).update({"revisado": True}, synchronize_session=False)
+        db.session.commit()
+        registros = (
+            RegistroAveriado.query.filter_by(
+                cliente_id=cliente_id, periodo_id=periodo_f.id,
+                sinc_estado="sincronizado",
+            )
+            .order_by(RegistroAveriado.creado.desc()).all()
+        )
 
     return render_template("admin_averiados.html",
-                           registros=registros, tiendas=tiendas,
-                           tienda_f=tienda_f, desde=desde, hasta=hasta,
+                           registros=registros, periodos=periodos,
+                           periodo_f=periodo_f, tiendas_map=tiendas_map,
                            local_notice=local_notice,
                            notif_averiados=0,
                            hide_global_flash=True)
@@ -3271,25 +3321,26 @@ def admin_averiados():
 @login_required(rol="administrador")
 def admin_averiados_revisar():
     cliente_id = get_cliente_filtro()
-    tienda_f  = request.form.get("tienda", "Todas")
-    desde     = request.form.get("desde", date.today().replace(day=1).isoformat())
-    hasta     = request.form.get("hasta", date.today().isoformat())
+    periodo_id = request.form.get("periodo_id", type=int)
+    periodo = InventarioPeriodo.query.filter_by(
+        id=periodo_id, cliente_id=cliente_id,
+    ).first()
+    if periodo is None:
+        flash("Selecciona un período contable válido.", "warning")
+        return redirect(url_for("admin_averiados"))
 
     q = RegistroAveriado.query.filter(
         RegistroAveriado.cliente_id == cliente_id,
+        RegistroAveriado.periodo_id == periodo.id,
         RegistroAveriado.sinc_estado == "sincronizado",
         RegistroAveriado.revisado.is_(False),
-        RegistroAveriado.fecha >= desde,
-        RegistroAveriado.fecha <= hasta,
     )
-    if tienda_f != "Todas":
-        q = q.filter(RegistroAveriado.tienda_id == tienda_f)
 
     revisados = q.update({"revisado": True}, synchronize_session=False)
     db.session.commit()
     set_view_notice(session, "admin_averiados_notice",
                     f"Registros marcados como revisados: {revisados}.", "success")
-    return redirect(url_for("admin_averiados", tienda=tienda_f, desde=desde, hasta=hasta) + "#averiados-lista")
+    return redirect(url_for("admin_averiados", periodo_id=periodo.id) + "#averiados-lista")
 
 
 # --------------------------------------------------------------------------- #
@@ -3764,6 +3815,7 @@ def admin_auditoria_ejecutar(periodo_id):
     forzar = request.form.get("forzar")
     excel_imp = (ExcelImportado.query.filter_by(periodo_id=periodo_id)
                  .order_by(ExcelImportado.id.desc()).first())
+    descartados = 0
     if excel_imp:
         # Las filas confirmadas como "sin producto" no son cambios aplicables
         # del catálogo y deben quedar fuera de Auditoría, tal como informa la

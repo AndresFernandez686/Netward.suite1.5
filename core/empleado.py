@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime
 import json
 from typing import Callable, Optional
-from sqlalchemy import or_
+from sqlalchemy import false, or_
 
 from flask import session
 
@@ -656,24 +656,51 @@ def guardar_carrito_transaccional(
         raise
 
 
-def build_averiado_context(*, tienda_id: str):
+def build_averiado_context(*, cliente_id: str, tienda_id: str, periodo_id: int | None):
+    recientes = []
+    if periodo_id is not None:
+        recientes = (
+            RegistroAveriado.query.filter_by(
+                cliente_id=cliente_id, tienda_id=tienda_id, periodo_id=periodo_id,
+            )
+            .order_by(RegistroAveriado.creado.desc()).limit(30).all()
+        )
     return {
         "productos": get_productos_db(
-            cliente_id=session.get("cliente_id", "C001"),
+            cliente_id=cliente_id,
             username=session.get("usuario", ""),
         ),
         "categorias": CATEGORIAS,
-        "recientes": RegistroAveriado.query.filter_by(tienda_id=tienda_id).order_by(RegistroAveriado.creado.desc()).limit(30).all(),
+        "recientes": recientes,
         "hoy": today_local_iso(),
     }
 
 
 def registrar_averiado(*, tienda_id: str, usuario: str, categoria: str, producto: str,
-                       cantidad: int, ume: str, detalle: str, fecha: str):
+                       cantidad: int, ume: str, detalle: str, fecha: str,
+                       periodo_id: int):
+    cliente_id = session.get("cliente_id", "C001")
+    periodo = db.session.get(InventarioPeriodo, periodo_id)
+    if (
+        periodo is None
+        or periodo.cliente_id != cliente_id
+        or periodo.tienda_id != tienda_id
+        or periodo.estado not in ("Abierto", "Pendiente", "Cargado")
+    ):
+        raise ValueError("Selecciona un período contable abierto y válido.")
+    try:
+        datetime.strptime(fecha, "%Y-%m-%d")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("La fecha del averiado no es válida.") from exc
+    if not (periodo.fecha_desde <= fecha <= periodo.fecha_hasta):
+        raise ValueError(
+            f"La fecha del averiado debe estar entre {periodo.fecha_desde} "
+            f"y {periodo.fecha_hasta}."
+        )
     cu, desc = convertir_ume(producto, ume, cantidad)
     db.session.add(RegistroAveriado(
-        cliente_id=session.get("cliente_id", "C001"),
-        tienda_id=tienda_id, fecha=fecha,
+        cliente_id=cliente_id,
+        tienda_id=tienda_id, periodo_id=periodo.id, fecha=fecha,
         hora=now_local_time_str(),
         usuario=usuario, categoria=categoria,
         producto=producto, cantidad=cantidad,
@@ -734,7 +761,14 @@ def build_sincronizacion_context(*, cliente_id: str, tienda_id: str, periodo_id=
     pend_inv = _pendientes_inventario_usuario(
         cliente_id, tienda_id, usuario, periodo_id=periodo_id
     ).count()
-    pend_aver = RegistroAveriado.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, sinc_estado="pendiente").count()
+    averiados_q = RegistroAveriado.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id,
+        usuario=usuario, sinc_estado="pendiente",
+    )
+    averiados_q = averiados_q.filter(
+        RegistroAveriado.periodo_id == int(periodo_id) if periodo_id is not None else false()
+    )
+    pend_aver = averiados_q.count()
     pend_venc = RegistroVencimiento.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, sinc_estado="pendiente").count()
     catalogo_pendiente, catalogo_cambios = catalogo_pendiente_usuario(
         cliente_id,
@@ -785,7 +819,14 @@ def procesar_sincronizacion(*, cliente_id: str, tienda_id: str, usuario: str,
         item.sinc_estado = "sincronizado"
     n_inv = len(pendientes)
 
-    pend_aver = RegistroAveriado.query.filter_by(cliente_id=cliente_id, tienda_id=tienda_id, usuario=usuario, sinc_estado="pendiente").all()
+    averiados_q = RegistroAveriado.query.filter_by(
+        cliente_id=cliente_id, tienda_id=tienda_id,
+        usuario=usuario, sinc_estado="pendiente",
+    )
+    averiados_q = averiados_q.filter(
+        RegistroAveriado.periodo_id == int(periodo_id) if periodo_id is not None else false()
+    )
+    pend_aver = averiados_q.all()
     for reg in pend_aver:
         reg.sinc_estado = "sincronizado"
     n_aver = len(pend_aver)

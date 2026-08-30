@@ -302,6 +302,14 @@ class RegistroAveriado(BaseModel):
     id = db.Column(db.Integer, primary_key=True)
     cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
     tienda_id = db.Column(db.String(10), nullable=False)
+    # Nullable conserva registros históricos que no pudieron asignarse de forma
+    # inequívoca durante la migración. Toda carga nueva exige un período.
+    periodo_id = db.Column(
+        db.Integer,
+        db.ForeignKey("inventario_periodos.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     fecha = db.Column(db.String(20), nullable=False)
     hora = db.Column(db.String(20), default="")
     usuario = db.Column(db.String(80), nullable=False)
