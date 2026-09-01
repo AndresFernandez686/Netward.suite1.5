@@ -3862,6 +3862,14 @@ def admin_auditoria(periodo_id):
         AuditoriaResultado.severidad.desc(),
         AuditoriaResultado.impacto.desc(),
     ).all()
+    # Prioridad visual: primero cualquier diferencia matemática distinta de cero,
+    # incluso si el estado defensivo es "Sin datos"; luego los productos sin diferencia.
+    # Dentro de cada grupo se muestran primero las diferencias de mayor magnitud.
+    resultados.sort(key=lambda item: (
+        abs(float(item.diferencia or 0)) < 0.01,
+        -abs(float(item.diferencia or 0)),
+        str(item.producto_nombre or "").casefold(),
+    ))
     facturas_pendientes_auditoria = (
         FacturaCompraDetalle.query.join(FacturaCompra)
         .filter(
@@ -3977,9 +3985,24 @@ def _nexa_serializar_mensajes(conversacion, limite=20):
             "answer": item.respuesta,
             "status": item.estado,
             "created_at": item.creado.isoformat() if item.creado else None,
+            "product_table": _nexa_tabla_producto_desde_json(item.contexto_json),
         }
         for item in consultas
     ]
+
+
+def _nexa_tabla_producto_desde_json(contexto_json):
+    """Extrae solo la tabla segura y estructurada que puede renderizar el cliente."""
+    try:
+        contexto = _json.loads(contexto_json or "{}")
+    except (TypeError, ValueError, _json.JSONDecodeError):
+        return None
+    tabla = contexto.get("tabla_visual") if isinstance(contexto, dict) else None
+    if not isinstance(tabla, dict):
+        return None
+    if not isinstance(tabla.get("columnas"), list) or not isinstance(tabla.get("fila"), dict):
+        return None
+    return tabla
 
 
 def _nexa_guardar_consulta(
@@ -4133,6 +4156,7 @@ def admin_asistente_consultar(periodo_id):
             error=respuesta["error"],
             provider=respuesta["provider"],
             model=respuesta["model"],
+            product_table=contexto.get("tabla_visual"),
             consultation_id=consulta.id,
             conversation_id=conversacion.id,
         ), 503
@@ -4142,6 +4166,7 @@ def admin_asistente_consultar(periodo_id):
         provider=respuesta["provider"],
         model=respuesta["model"],
         fallback=respuesta["fallback"],
+        product_table=contexto.get("tabla_visual"),
         consultation_id=consulta.id,
         conversation_id=conversacion.id,
     )

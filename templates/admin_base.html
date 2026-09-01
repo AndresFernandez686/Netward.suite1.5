@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=asset_v) }}" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=asset_v) }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=asset_v ~ '-nexa-product-table-1') }}" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body class="admin-body {% block body_class %}{% endblock %}">
@@ -252,6 +252,78 @@
         return item;
       }
 
+      function formatProductTableValue(value, type) {
+        if (value === null || typeof value === 'undefined' || value === '') return '—';
+        if (type === 'numero' || type === 'numero_firmado' || type === 'moneda') {
+          var numeric = Number(value);
+          if (!Number.isFinite(numeric)) return String(value);
+          var formatted = new Intl.NumberFormat('es-PY', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2
+          }).format(numeric);
+          if (type === 'numero_firmado' && numeric > 0) formatted = '+' + formatted;
+          return type === 'moneda' ? 'Gs. ' + formatted : formatted;
+        }
+        return String(value);
+      }
+
+      function appendProductTable(data) {
+        if (!data || !Array.isArray(data.columnas) || !data.fila) return null;
+        var card = document.createElement('section');
+        card.className = 'audit-ai-product-card' +
+          (data.diferencia_evaluable === false ? ' is-provisional' : '');
+        card.setAttribute('aria-label', 'Datos del producto consultado');
+
+        var title = document.createElement('strong');
+        title.className = 'audit-ai-product-card__title';
+        title.textContent = data.titulo || data.fila.producto || 'Producto consultado';
+        card.appendChild(title);
+
+        var scroller = document.createElement('div');
+        scroller.className = 'audit-ai-product-table-wrap';
+        var table = document.createElement('table');
+        table.className = 'audit-ai-product-table';
+        var thead = document.createElement('thead');
+        var headerRow = document.createElement('tr');
+        var body = document.createElement('tbody');
+        var dataRow = document.createElement('tr');
+
+        data.columnas.forEach(function (column) {
+          if (!column || !column.clave) return;
+          var th = document.createElement('th');
+          th.scope = 'col';
+          th.textContent = column.etiqueta || column.clave;
+          if (column.fuente) th.title = 'Fuente: ' + column.fuente;
+          headerRow.appendChild(th);
+
+          var td = document.createElement('td');
+          td.textContent = formatProductTableValue(data.fila[column.clave], column.tipo);
+          if (column.fuente) {
+            td.title = 'Fuente: ' + column.fuente;
+            td.setAttribute('aria-label', (column.etiqueta || column.clave) +
+              ': ' + td.textContent + '. Fuente: ' + column.fuente);
+          }
+          if (column.tipo === 'estado') td.className = 'is-status';
+          dataRow.appendChild(td);
+        });
+
+        thead.appendChild(headerRow);
+        body.appendChild(dataRow);
+        table.append(thead, body);
+        scroller.appendChild(table);
+        card.appendChild(scroller);
+
+        if (data.nota) {
+          var note = document.createElement('small');
+          note.className = 'audit-ai-product-card__note';
+          note.textContent = data.nota;
+          card.appendChild(note);
+        }
+        messages.appendChild(card);
+        messages.scrollTop = messages.scrollHeight;
+        return card;
+      }
+
       function appendGreeting() {
         if (!messages.children.length) {
           appendMessage(
@@ -266,6 +338,7 @@
         messages.textContent = '';
         (items || []).forEach(function (exchange) {
           appendMessage('user', exchange.question || '');
+          appendProductTable(exchange.product_table);
           appendMessage('assistant', exchange.answer || '', exchange.status === 'error');
         });
         appendGreeting();
@@ -428,12 +501,18 @@
           .then(function (data) {
             pending.remove();
             currentConversationId = data.conversation_id || currentConversationId;
-            if (sequence === requestSequence) appendMessage('assistant', data.answer);
+            if (sequence === requestSequence) {
+              appendProductTable(data.product_table);
+              appendMessage('assistant', data.answer);
+            }
           })
           .catch(function (error) {
             pending.remove();
             if (error.responseData && error.responseData.conversation_id) {
               currentConversationId = error.responseData.conversation_id;
+            }
+            if (sequence === requestSequence && error.responseData) {
+              appendProductTable(error.responseData.product_table);
             }
             if (sequence === requestSequence) appendMessage('assistant', error.message || 'No fue posible obtener la explicación.');
           })

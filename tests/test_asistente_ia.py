@@ -153,6 +153,48 @@ class PruebasAsistenteIA(unittest.TestCase):
             contexto["formulas"]["diferencia"],
             "venta teórica - venta real",
         )
+        self.assertEqual(len(contexto["tabla_visual"]["fila"]), 9)
+        self.assertTrue(contexto["tabla_visual"]["diferencia_evaluable"])
+        self.assertEqual(contexto["operaciones"][2]["nombre"], "Venta teórica")
+        self.assertIn("10 + 20 + 5 - 3", contexto["operaciones"][2]["sustitucion"])
+
+    def test_sin_datos_identifica_ceros_tecnicos_y_explica_venta_negativa(self):
+        self.resultado.producto_nombre = "Alfajor cookies and cream x un."
+        self.resultado.articulo_codigo = ""
+        self.resultado.stock_inicial_excel = 0
+        self.resultado.stock_esperado = 0
+        self.resultado.compras = 0
+        self.resultado.otros_ingresos = 0
+        self.resultado.ventas = 0
+        self.resultado.otras_salidas = 0
+        self.resultado.cantidad_merma = 0
+        self.resultado.cantidad_vencida = 0
+        self.resultado.conteo_empleado = 5
+        self.resultado.ajuste_admin = 0
+        self.resultado.conteo_final = 5
+        self.resultado.venta_teorica = -5
+        self.resultado.diferencia = -5
+        self.resultado.tipo_diferencia = "correcto"
+        self.resultado.costo_unitario = None
+        self.resultado.impacto = 0
+        self.resultado.estado_auditoria = "Sin datos"
+        self.resultado.evidencia = (
+            "Sin datos de Inventario oficial. No se calcula una diferencia real; "
+            "requiere revisión manual."
+        )
+        db.session.commit()
+
+        contexto = build_product_context(self.periodo, self.resultado)
+        respuesta = local_explanation(contexto)
+
+        self.assertFalse(contexto["calidad_datos"]["diferencia_evaluable"])
+        self.assertIn("Inventario oficial", contexto["calidad_datos"]["faltan_fuentes"])
+        self.assertIn("valor técnico", contexto["calculo"]["fuente_stock_inicial"])
+        self.assertIn("0 + 0 + 0 - 5 - 0 - 0 - 0 = -5", respuesta)
+        self.assertIn("no significa que se hayan vendido unidades negativas", respuesta)
+        self.assertIn("no un faltante o sobrante oficial", respuesta)
+        self.assertEqual(contexto["tabla_visual"]["fila"]["diferencia"], -5)
+        self.assertFalse(contexto["tabla_visual"]["diferencia_evaluable"])
 
     def test_explicacion_usa_venta_teorica_menos_venta_real(self):
         self.resultado.stock_inicial_excel = 136

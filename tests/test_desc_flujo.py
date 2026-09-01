@@ -114,6 +114,19 @@ class PruebasFlujoDesc(unittest.TestCase):
         self.assertIn("sustituye cada valor", plantilla)
         self.assertIn("por qué el sistema esperaba ese número", plantilla)
 
+    def test_auditoria_prioriza_diferencias_y_omite_boton_superior_de_asistente(self):
+        plantilla = (ROOT / "templates" / "admin_auditoria.html").read_text(
+            encoding="utf-8"
+        )
+        aplicacion = (ROOT / "app.py").read_text(encoding="utf-8")
+        base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
+
+        self.assertNotIn("Asistente de auditoría</button>", plantilla)
+        self.assertIn("Explicar cálculo", plantilla)
+        self.assertIn("abs(float(item.diferencia or 0)) < 0.01", aplicacion)
+        self.assertIn("function appendProductTable(data)", base)
+        self.assertIn("product_table", base)
+
     def test_documentacion_oficial_no_muestra_tarjetas_de_resumen(self):
         plantilla = (ROOT / "templates" / "admin_desc.html").read_text(
             encoding="utf-8"
