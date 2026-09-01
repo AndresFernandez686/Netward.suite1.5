@@ -1,5 +1,6 @@
 {% extends 'admin_base.html' %}
 {% block title %}Inventario Admin - {{ app_nombre }}{% endblock %}
+{% block admin_back_button %}{% endblock %}
 {% block heading %}Gestion de Inventario{% endblock %}
 {% block subheading %}Visualizacion y control por sucursal{% endblock %}
 
@@ -115,8 +116,15 @@
   </section>
 
   <section class="inventory-details" id="inventario-detalle" {% if categoria_filtro == 'Todas' and alerta_filtro == 'Todos' %}style="display:none"{% endif %}>
+    {% if alerta_filtro == 'Bajo stock' and not categorias_render %}
+    <section class="card card--skip-collapse">
+      <div class="empty">
+        <p>No hay productos cargados con bajo stock para la tienda seleccionada.</p>
+      </div>
+    </section>
+    {% endif %}
     {% for cat in categorias_render %}
-    <section class="card card--skip-collapse inventory-category-card" data-category="{{ cat }}" id="categoria-{{ cat|lower|replace(' ', '-') }}" {% if categoria_filtro == 'Todas' or (categoria_filtro != cat and alerta_filtro == 'Todos') %}style="display:none"{% endif %}>
+    <section class="card card--skip-collapse inventory-category-card" data-category="{{ cat }}" id="categoria-{{ cat|lower|replace(' ', '-') }}" {% if (alerta_filtro == 'Todos' and categoria_filtro == 'Todas') or (categoria_filtro != 'Todas' and categoria_filtro != cat) %}style="display:none"{% endif %}>
       <div class="cart__head inventory-category-card__head">
         <h3 class="panel__title">{{ cat }}</h3>
         <div class="metrics">

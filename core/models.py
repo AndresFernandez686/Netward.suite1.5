@@ -671,6 +671,33 @@ class AuditoriaResultado(BaseModel):
     )
 
 
+class AsistenteIAConversacion(BaseModel):
+    """Hilo persistente de Nexa aislado por empresa y administrador."""
+    __tablename__ = "asistente_ia_conversaciones"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.String(10), nullable=False, default="C001", index=True)
+    usuario = db.Column(db.String(80), nullable=False, index=True)
+    titulo = db.Column(db.String(120), nullable=False, default="Nueva conversación")
+    seccion_inicial = db.Column(db.String(40), nullable=False, default="resumen")
+    creado = db.Column(db.DateTime, default=utc_now, nullable=False)
+    actualizado = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False, index=True)
+
+    consultas = db.relationship(
+        "AsistenteIAConsulta",
+        back_populates="conversacion",
+        lazy=True,
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        db.Index(
+            "ix_asistente_conversaciones_cliente_usuario_actualizado",
+            "cliente_id", "usuario", "actualizado",
+        ),
+    )
+
+
 class AsistenteIAConsulta(BaseModel):
     """Trazabilidad de consultas explicativas; nunca modifica la auditoría."""
     __tablename__ = "asistente_ia_consultas"
@@ -681,7 +708,13 @@ class AsistenteIAConsulta(BaseModel):
     periodo_id = db.Column(
         db.Integer,
         db.ForeignKey("inventario_periodos.id"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    conversacion_id = db.Column(
+        db.Integer,
+        db.ForeignKey("asistente_ia_conversaciones.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     resultado_id = db.Column(
@@ -700,6 +733,8 @@ class AsistenteIAConsulta(BaseModel):
     estado = db.Column(db.String(20), nullable=False, default="ok")
     error = db.Column(db.String(500), nullable=False, default="")
     creado = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)
+
+    conversacion = db.relationship("AsistenteIAConversacion", back_populates="consultas")
 
 
 class Justificacion(BaseModel):

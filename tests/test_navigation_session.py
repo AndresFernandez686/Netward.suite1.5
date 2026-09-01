@@ -28,12 +28,20 @@ class PruebasNavegacionSesion(unittest.TestCase):
         self.assertNotIn("btn--back", inicio)
         self.assertNotIn("Volver atrás", inicio)
 
+    def test_reporte_gerencial_vuelve_a_la_auditoria_del_periodo(self):
+        reporte = (ROOT / "templates" / "admin_reporte_gerencial.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Volver atrás", reporte)
+        self.assertIn("url_for('admin_auditoria', periodo_id=periodo.id)", reporte)
+
     def test_nexa_global_usa_preguntas_contextuales_en_admin(self):
         base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
         auditoria = (ROOT / "templates" / "admin_auditoria.html").read_text(encoding="utf-8")
 
-        self.assertIn("nexa-topbar-button", base)
+        self.assertIn("nexa-floating-button", base)
+        self.assertNotIn("nexa-topbar-button", base)
         self.assertIn("{% for pregunta, etiqueta in nexa_preguntas %}", base)
         self.assertIn("data-section=\"{{ nexa_seccion }}\"", base)
         self.assertIn('"documentacion": {', app_source)
@@ -41,6 +49,19 @@ class PruebasNavegacionSesion(unittest.TestCase):
         self.assertIn("def admin_nexa_consultar", app_source)
         self.assertNotIn('id="auditAiDrawer"', auditoria)
         self.assertIn("data-ai-url", auditoria)
+
+    def test_nexa_conserva_y_muestra_tres_conversaciones(self):
+        base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        models = (ROOT / "core" / "models.py").read_text(encoding="utf-8")
+
+        self.assertIn('id="auditAiHistory"', base)
+        self.assertIn("Últimas 3 conversaciones", base)
+        self.assertIn("conversation_id: currentConversationId", base)
+        self.assertIn("loadConversations(true)", base)
+        self.assertIn("def admin_nexa_conversaciones", app_source)
+        self.assertIn(".limit(3)", app_source)
+        self.assertIn("class AsistenteIAConversacion", models)
 
     def test_nexa_es_panel_integrado_y_empuja_el_contenido(self):
         base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
@@ -50,8 +71,10 @@ class PruebasNavegacionSesion(unittest.TestCase):
         self.assertNotIn("audit-ai-overlay", base)
         self.assertIn("document.body.classList.add('nexa-is-open')", base)
         self.assertIn(".admin-stage > .content", estilos)
+        self.assertIn("grid-row: 1 / span 2", estilos)
+        self.assertIn("height: calc(100vh - 64px)", estilos)
         self.assertIn("flex-basis: clamp(350px, 30vw, 420px)", estilos)
-        self.assertIn(".admin-stage { flex-direction: column; }", estilos)
+        self.assertIn("grid-template-rows: auto auto minmax(0, 1fr)", estilos)
         self.assertNotIn(".audit-ai-overlay", estilos)
 
     def test_periodos_no_muestra_tarjeta_para_cargar_excel(self):

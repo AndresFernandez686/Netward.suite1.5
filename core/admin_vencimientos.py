@@ -17,7 +17,12 @@ def build_admin_vencimientos_context(*, cliente_id: str, tiendas, tienda_f: str,
         RegistroVencimiento.fecha >= desde,
         RegistroVencimiento.fecha <= hasta,
     )
-    registros = q.order_by(RegistroVencimiento.creado.desc()).all()
+    # Las fechas se guardan en formato ISO (AAAA-MM-DD), por lo que el orden
+    # ascendente coloca primero los vencimientos más próximos.
+    registros = q.order_by(
+        RegistroVencimiento.fecha_vencimiento.asc(),
+        RegistroVencimiento.creado.desc(),
+    ).all()
 
     return {
         "registros": registros,

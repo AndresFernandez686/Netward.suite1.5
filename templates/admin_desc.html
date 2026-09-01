@@ -1,5 +1,6 @@
 ﻿{% extends 'admin_base.html' %}
 {% block title %}Documentación Oficial - {{ app_nombre }}{% endblock %}
+{% block admin_back_button %}{% endblock %}
 {% block heading %}Documentación Oficial{% endblock %}
 {% block subheading %}Inventario XLS/XLSX y facturas PDF de compras para auditoría{% endblock %}
 
@@ -103,7 +104,15 @@
         <h3 class="panel__title">Facturas de compras</h3>
         <p class="muted">Carga una o varias facturas PDF. Puedes buscar y vincular productos de Impulsivo, Por Kilos y Fanee.</p>
       </div>
-      {% if facturas_periodo %}<span class="badge badge--green">{{ facturas_periodo|length }} factura(s)</span>{% endif %}
+      {% if facturas_periodo %}
+      <div class="desc-invoice-head-actions">
+        <span class="badge badge--green">{{ facturas_periodo|length }} factura(s)</span>
+        <a class="btn btn--ghost btn--sm"
+           href="{{ url_for('desc.desc_facturas_periodo_descargar', periodo_id=periodo_seleccionado.id) }}">
+          ↓ {{ 'Descargar factura' if facturas_periodo|length == 1 else 'Descargar todas' }}
+        </a>
+      </div>
+      {% endif %}
     </div>
 
     {% if periodo_seleccionado %}
@@ -323,49 +332,11 @@
         {% endif %}
       </div>
       <div class="desc-excel-head-actions">
-        {% if facturas_periodo %}
-        <button class="btn btn--primary" id="datos-ver-facturas" type="button">
-          📄 {{ 'Ver factura' if facturas_periodo|length == 1 else 'Ver facturas' }}
-          <span class="badge">{{ facturas_periodo|length }}</span>
-        </button>
-        <a class="btn btn--ghost" id="datos-descargar-facturas"
-           href="{{ url_for('desc.desc_facturas_periodo_descargar', periodo_id=periodo_seleccionado.id) }}">
-          ↓ {{ 'Descargar factura' if facturas_periodo|length == 1 else 'Descargar todas' }}
-        </a>
-        {% endif %}
         {% if excel_detalles %}
         <label class="desc-excel-search"><span class="sr-only">Buscar fila</span><input type="search" id="excel-data-search" placeholder="Buscar producto o código…"></label>
         {% endif %}
       </div>
     </div>
-    {% if facturas_periodo %}
-    <div class="desc-document-inline desc-data-invoices" id="datos-facturas-inline" hidden>
-      <div class="desc-document-inline__head">
-        {% if facturas_periodo|length > 1 %}
-        <label class="desc-data-invoices__select">
-          <span>Factura</span>
-          <select id="datos-factura-select" aria-label="Seleccionar factura para visualizar">
-            {% for factura in facturas_periodo %}
-            <option data-pdf-url="{{ url_for('desc.desc_factura_pdf', factura_id=factura.id) }}"
-                    data-filename="{{ factura.nombre_archivo|e }}">
-              {{ factura.proveedor }} · {{ factura.numero_factura }} · {{ factura.nombre_archivo }}
-            </option>
-            {% endfor %}
-          </select>
-        </label>
-        {% else %}
-        {% set factura = facturas_periodo[0] %}
-        <strong id="datos-factura-title">{{ factura.nombre_archivo }}</strong>
-        <select id="datos-factura-select" hidden aria-label="Factura seleccionada">
-          <option selected data-pdf-url="{{ url_for('desc.desc_factura_pdf', factura_id=factura.id) }}"
-                  data-filename="{{ factura.nombre_archivo|e }}">{{ factura.nombre_archivo }}</option>
-        </select>
-        {% endif %}
-        <button class="btn btn--ghost btn--sm" id="datos-cerrar-facturas" type="button">Cerrar</button>
-      </div>
-      <iframe id="datos-factura-frame" title="Vista previa de la factura PDF"></iframe>
-    </div>
-    {% endif %}
     {% if excel_seleccionado and excel_detalles %}
     <div class="desc-excel-notice" id="excel-edit-status">{% if excel_historico %}Vista histórica de solo lectura. Este archivo fue reemplazado por una importación posterior.{% else %}Haz clic en cualquier celda para modificarla. Guarda antes de volver a ejecutar Auditoría.{% endif %}</div>
     <div class="desc-excel-grid-wrap">
@@ -517,12 +488,6 @@
     var periodoSelect = document.getElementById('periodo-select');
     var btnVerDatos = document.getElementById('btn-ver-datos');
     var datosCard = document.getElementById('datos-extraidos-card');
-    var datosVerFacturas = document.getElementById('datos-ver-facturas');
-    var datosFacturasInline = document.getElementById('datos-facturas-inline');
-    var datosFacturaSelect = document.getElementById('datos-factura-select');
-    var datosFacturaFrame = document.getElementById('datos-factura-frame');
-    var datosFacturaTitle = document.getElementById('datos-factura-title');
-    var datosCerrarFacturas = document.getElementById('datos-cerrar-facturas');
     var invoiceFiles = document.getElementById('invoice-files');
     var invoiceFileLabel = document.getElementById('invoice-file-label');
     var invoiceFileList = document.getElementById('invoice-file-list');
@@ -552,34 +517,6 @@
       if (!invoiceAnalysisSelect) return null;
       return invoiceAnalysisSelect.options[invoiceAnalysisSelect.selectedIndex] || null;
     }
-
-    function selectedDataInvoiceOption() {
-      if (!datosFacturaSelect) return null;
-      return datosFacturaSelect.options[datosFacturaSelect.selectedIndex] || null;
-    }
-
-    function showDataInvoice() {
-      var option = selectedDataInvoiceOption();
-      if (!option || !datosFacturasInline || !datosFacturaFrame) return;
-      datosFacturaFrame.src = option.dataset.pdfUrl;
-      if (datosFacturaTitle) datosFacturaTitle.textContent = option.dataset.filename || 'Factura';
-      datosFacturasInline.hidden = false;
-      datosFacturasInline.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-
-    if (datosVerFacturas) datosVerFacturas.addEventListener('click', function() {
-      if (datosFacturasInline && !datosFacturasInline.hidden) {
-        datosFacturasInline.hidden = true;
-        if (datosFacturaFrame) datosFacturaFrame.removeAttribute('src');
-        return;
-      }
-      showDataInvoice();
-    });
-    if (datosFacturaSelect) datosFacturaSelect.addEventListener('change', showDataInvoice);
-    if (datosCerrarFacturas) datosCerrarFacturas.addEventListener('click', function() {
-      datosFacturasInline.hidden = true;
-      datosFacturaFrame.removeAttribute('src');
-    });
 
     function setAnalysisMessage(message, detail, isError) {
       if (!invoiceAnalysisEmpty || !invoiceAnalysisResult) return;

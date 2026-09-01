@@ -19,7 +19,7 @@ instalaciones anteriores. No deben aplicarse para crear una instalación nueva.
 La aplicación rechaza el arranque sobre PostgreSQL si no existe
 `alembic_version` o si no corresponde con la revisión esperada.
 
-La revisión vigente es `20260829_04`. Protege la trazabilidad de las
+La revisión vigente es `20260831_05`. Protege la trazabilidad de las
 re-ejecuciones de Auditoría: cada resultado conserva su ID, las consultas de
 Nexa pueden quedar sin resultado si este se elimina y una justificación impide
 eliminar accidentalmente el resultado que documenta.

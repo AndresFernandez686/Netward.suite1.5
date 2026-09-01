@@ -17,7 +17,10 @@ from core.ai_assistant import (
     explain,
     local_explanation,
 )
-from core.models import AsistenteIAConsulta, AuditoriaResultado, InventarioPeriodo, db
+from core.models import (
+    AsistenteIAConversacion, AsistenteIAConsulta,
+    AuditoriaResultado, InventarioPeriodo, db,
+)
 
 
 class PruebasAsistenteIA(unittest.TestCase):
@@ -227,6 +230,7 @@ class PruebasAsistenteIA(unittest.TestCase):
     def test_adaptadores_soportados_extraen_texto(self, http_json):
         responses = {
             "openai_compatible": ({"choices": [{"message": {"content": "compatible"}}]}, "compatible"),
+            "nvidia": ({"choices": [{"message": {"content": "nvidia"}}]}, "nvidia"),
             "anthropic": ({"content": [{"type": "text", "text": "anthropic"}]}, "anthropic"),
             "gemini": ({"candidates": [{"content": {"parts": [{"text": "gemini"}]}}]}, "gemini"),
             "ollama": ({"message": {"content": "ollama"}}, "ollama"),
@@ -237,6 +241,120 @@ class PruebasAsistenteIA(unittest.TestCase):
             with self.subTest(provider=provider):
                 http_json.return_value = body
                 self.assertEqual(_call_provider(self.config(provider), "Explica", {}), expected)
+
+    @patch("core.ai_assistant._http_json")
+    def test_nvidia_usa_kimi_sin_stream_y_sin_filtrar_la_clave(self, http_json):
+        http_json.return_value = {
+            "choices": [{"message": {"content": "Respuesta administrativa"}}]
+        }
+        config = self.config(
+            "nvidia",
+            model="moonshotai/kimi-k3",
+            base_url="https://integrate.api.nvidia.com/v1",
+            temperature=1,
+            max_output_tokens=16384,
+            reasoning_effort="max",
+            seed=0,
+        )
+
+        answer = _call_provider(config, "Explica la diferencia", {"alcance": "periodo"})
+
+        self.assertEqual(answer, "Respuesta administrativa")
+        url, payload, headers, _timeout = http_json.call_args.args
+        self.assertEqual(url, "https://integrate.api.nvidia.com/v1/chat/completions")
+        self.assertEqual(payload["model"], "moonshotai/kimi-k3")
+        self.assertEqual(payload["reasoning_effort"], "max")
+        self.assertEqual(payload["seed"], 0)
+        self.assertFalse(payload["stream"])
+        self.assertEqual(headers["Accept"], "application/json")
+        self.assertNotIn("secreto", json.dumps(payload))
+
+    @patch("core.ai_assistant._http_json")
+    def test_gemini_usa_endpoint_oficial_y_clave_en_header(self, http_json):
+        http_json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "Respuesta Gemini"}]}}]
+        }
+        config = self.config(
+            "gemini",
+            model="gemini-3.6-flash",
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+        )
+
+        answer = _call_provider(
+            config,
+            "Continua la revision",
+            {"alcance": "periodo"},
+            [{"question": "Que revisamos", "answer": "El periodo actual"}],
+        )
+
+        self.assertEqual(answer, "Respuesta Gemini")
+        url, payload, headers, timeout = http_json.call_args.args
+        self.assertEqual(
+            url,
+            "https://generativelanguage.googleapis.com/v1beta/"
+            "models/gemini-3.6-flash:generateContent",
+        )
+        self.assertEqual(headers, {"x-goog-api-key": "secreto"})
+        self.assertNotIn("secreto", json.dumps(payload))
+        prompt = payload["contents"][0]["parts"][0]["text"]
+        self.assertIn("Que revisamos", prompt)
+        self.assertIn("El periodo actual", prompt)
+        self.assertEqual(timeout, config.timeout)
+
+    @patch("core.ai_assistant._http_json")
+    def test_historial_se_incluye_para_mantener_continuidad(self, http_json):
+        http_json.return_value = {
+            "choices": [{"message": {"content": "Respuesta consistente"}}]
+        }
+        history = [{
+            "question": "¿Qué producto estábamos revisando?",
+            "answer": "Estábamos revisando Almendrado x unidad.",
+        }]
+
+        _call_provider(
+            self.config("nvidia", reasoning_effort="high"),
+            "Continúa con la explicación.",
+            {"alcance": "producto"},
+            history,
+        )
+
+        payload = http_json.call_args.args[1]
+        prompt = payload["messages"][1]["content"]
+        self.assertIn("Conversación anterior", prompt)
+        self.assertIn("Almendrado x unidad", prompt)
+        self.assertIn("Pregunta actual del administrador", prompt)
+
+    def test_conversacion_admite_consultas_generales_sin_periodo(self):
+        conversacion = AsistenteIAConversacion(
+            cliente_id="IA1",
+            usuario="admin",
+            titulo="Revisar catálogo",
+            seccion_inicial="catalogo",
+        )
+        db.session.add(conversacion)
+        db.session.flush()
+        consulta = AsistenteIAConsulta(
+            conversacion_id=conversacion.id,
+            cliente_id="IA1",
+            tienda_id="ALL",
+            periodo_id=None,
+            usuario="admin",
+            tipo="seccion",
+            pregunta="¿Qué debo revisar?",
+            respuesta="Revisa los cambios pendientes.",
+            proveedor="local",
+            modelo="reglas-locales",
+            contexto_json="{}",
+            estado="ok",
+            error="",
+        )
+        db.session.add(consulta)
+        db.session.commit()
+
+        guardada = db.session.get(AsistenteIAConsulta, consulta.id)
+        self.assertIsNone(guardada.periodo_id)
+        self.assertEqual(guardada.conversacion_id, conversacion.id)
+        self.assertEqual(guardada.conversacion.titulo, "Revisar catálogo")
 
     def test_configuracion_invalida_no_activa_modo_local(self):
         env = {"AI_ENABLED": "true", "AI_PROVIDER": "openai_compatible", "AI_MODEL": "x",

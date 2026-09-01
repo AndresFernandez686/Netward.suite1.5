@@ -35,7 +35,7 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     FacturaCompra, FacturaCompraDetalle,
                     AuditoriaResultado,
                     Justificacion, ProductoRelacionado, ConfiguracionSistema,
-                    NotificacionUsuario, AsistenteIAConsulta)
+                    NotificacionUsuario, AsistenteIAConversacion, AsistenteIAConsulta)
 from core.auditoria import (ejecutar_auditoria, build_reporte_gerencial,
                             marcar_resultado_revisado)
 from core.auditoria_estado import (
@@ -587,7 +587,7 @@ def init_db():
             )
         with db.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        if version != "20260829_04":
+        if version != "20260831_05":
             raise RuntimeError(
                 f"Esquema PostgreSQL desactualizado ({version or 'sin version'}). "
                 "Ejecuta `alembic upgrade head`."
@@ -1031,7 +1031,7 @@ def index():
     if "usuario" not in session:
         return redirect(url_for("login"))
     if session.get("rol") == "administrador":
-        return redirect(url_for("admin_dashboard"))
+        return redirect(url_for("admin_inventario"))
     return redirect(url_for("empleado_inventario"))
 
 
@@ -2312,27 +2312,10 @@ def admin_precios():
     }
     precios_map = {p.producto_nombre: p for p in ProductoPrecio.query.all()}
 
-    total_prod = Producto.query.count()
-    con_precio = sum(
-        1 for p in Producto.query.all()
-        if precios_map.get(p.nombre) and precios_map[p.nombre].precio
-    )
-    porcentaje = round(con_precio / total_prod * 100, 1) if total_prod else 0
-
-    # Valor estimado calculable con los precios actuales
-    precios = _precios_lookup()
-    valor_estimado = 0.0
-    for i in _items_sincronizados("ALL"):
-        pp = precios.get(i.producto.strip().lower())
-        if pp and pp.precio:
-            valor_estimado += (i.cantidad or 0) * pp.precio
-
     return render_template("admin_precios.html",
                            productos_por_cat=productos_por_cat,
                            categorias=CATEGORIAS,
                            precios_map=precios_map,
-                           con_precio=con_precio, total_prod=total_prod,
-                           porcentaje=porcentaje, valor_estimado=valor_estimado,
                            active_tab=active_tab,
                            local_notice=local_notice,
                            hide_global_flash=True)
@@ -3925,6 +3908,167 @@ def admin_auditoria(periodo_id):
     )
 
 
+def _nexa_conversacion_query(cliente_id):
+    return AsistenteIAConversacion.query.filter_by(
+        cliente_id=cliente_id,
+        usuario=str(session.get("usuario") or ""),
+    )
+
+
+def _nexa_resolver_conversacion(cliente_id, payload, seccion, pregunta):
+    conversation_id = payload.get("conversation_id")
+    explicit_id = conversation_id not in (None, "")
+    if not explicit_id:
+        conversation_id = session.get("nexa_conversacion_id")
+    if conversation_id not in (None, ""):
+        try:
+            conversation_id = int(conversation_id)
+        except (TypeError, ValueError):
+            abort(400)
+        conversacion = _nexa_conversacion_query(cliente_id).filter_by(id=conversation_id).first()
+        if conversacion is None and explicit_id:
+            abort(404)
+    else:
+        conversacion = None
+    if conversacion is None:
+        conversacion = AsistenteIAConversacion(
+            cliente_id=cliente_id,
+            usuario=str(session.get("usuario") or ""),
+            titulo=(pregunta.strip() or "Nueva conversación")[:120],
+            seccion_inicial=seccion[:40],
+        )
+        db.session.add(conversacion)
+        db.session.flush()
+    session.pop("nexa_nueva_conversacion", None)
+    session["nexa_conversacion_id"] = conversacion.id
+    return conversacion
+
+
+def _nexa_historial_modelo(conversacion, limite=6):
+    consultas = (
+        AsistenteIAConsulta.query
+        .filter(
+            AsistenteIAConsulta.conversacion_id == conversacion.id,
+            AsistenteIAConsulta.estado.in_(("ok", "fallback")),
+        )
+        .order_by(AsistenteIAConsulta.id.desc())
+        .limit(limite)
+        .all()
+    )
+    consultas.reverse()
+    return [
+        {"question": item.pregunta, "answer": item.respuesta}
+        for item in consultas
+    ]
+
+
+def _nexa_serializar_mensajes(conversacion, limite=20):
+    consultas = (
+        AsistenteIAConsulta.query
+        .filter_by(conversacion_id=conversacion.id)
+        .order_by(AsistenteIAConsulta.id.desc())
+        .limit(limite)
+        .all()
+    )
+    consultas.reverse()
+    return [
+        {
+            "question": item.pregunta,
+            "answer": item.respuesta,
+            "status": item.estado,
+            "created_at": item.creado.isoformat() if item.creado else None,
+        }
+        for item in consultas
+    ]
+
+
+def _nexa_guardar_consulta(
+    *, conversacion, cliente_id, tienda_id, periodo, resultado, tipo,
+    pregunta, contexto, respuesta,
+):
+    consulta = AsistenteIAConsulta(
+        conversacion_id=conversacion.id,
+        cliente_id=cliente_id,
+        tienda_id=tienda_id or "ALL",
+        periodo_id=periodo.id if periodo is not None else None,
+        resultado_id=resultado.id if resultado is not None else None,
+        usuario=str(session.get("usuario") or ""),
+        tipo=tipo,
+        pregunta=pregunta,
+        respuesta=respuesta["answer"] or respuesta["error"],
+        proveedor=respuesta["provider"],
+        modelo=respuesta["model"],
+        contexto_json=_json.dumps(contexto, ensure_ascii=False),
+        estado=("fallback" if respuesta["fallback"] else
+                ("ok" if respuesta["ok"] else "error")),
+        error=respuesta["error"],
+    )
+    conversacion.actualizado = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.session.add(consulta)
+    db.session.commit()
+    return consulta
+
+
+@app.route("/admin/asistente/conversaciones")
+@login_required(rol="administrador")
+def admin_nexa_conversaciones():
+    cliente_id = get_cliente_filtro()
+    conversaciones = (
+        _nexa_conversacion_query(cliente_id)
+        .order_by(AsistenteIAConversacion.actualizado.desc(), AsistenteIAConversacion.id.desc())
+        .limit(3)
+        .all()
+    )
+    active_id = session.get("nexa_conversacion_id")
+    activa = None
+    if active_id not in (None, ""):
+        try:
+            activa = _nexa_conversacion_query(cliente_id).filter_by(id=int(active_id)).first()
+        except (TypeError, ValueError):
+            activa = None
+    if (
+        activa is None
+        and conversaciones
+        and not session.get("nexa_nueva_conversacion")
+    ):
+        activa = conversaciones[0]
+        session["nexa_conversacion_id"] = activa.id
+    return jsonify(
+        ok=True,
+        active_conversation_id=activa.id if activa else None,
+        conversations=[{
+            "id": item.id,
+            "title": item.titulo,
+            "section": item.seccion_inicial,
+            "updated_at": item.actualizado.isoformat() if item.actualizado else None,
+        } for item in conversaciones],
+        messages=_nexa_serializar_mensajes(activa) if activa else [],
+    )
+
+
+@app.route("/admin/asistente/conversaciones/nueva", methods=["POST"])
+@login_required(rol="administrador")
+def admin_nexa_conversacion_nueva():
+    session.pop("nexa_conversacion_id", None)
+    session["nexa_nueva_conversacion"] = True
+    return jsonify(ok=True, active_conversation_id=None, messages=[])
+
+
+@app.route("/admin/asistente/conversaciones/<int:conversation_id>/seleccionar", methods=["POST"])
+@login_required(rol="administrador")
+def admin_nexa_conversacion_seleccionar(conversation_id):
+    conversacion = _nexa_conversacion_query(get_cliente_filtro()).filter_by(
+        id=conversation_id,
+    ).first_or_404()
+    session.pop("nexa_nueva_conversacion", None)
+    session["nexa_conversacion_id"] = conversacion.id
+    return jsonify(
+        ok=True,
+        active_conversation_id=conversacion.id,
+        messages=_nexa_serializar_mensajes(conversacion),
+    )
+
+
 @app.route("/admin/periodos/<int:periodo_id>/asistente/consultar", methods=["POST"])
 @login_required(rol="administrador")
 def admin_asistente_consultar(periodo_id):
@@ -3961,25 +4105,28 @@ def admin_asistente_consultar(periodo_id):
         if resultado is not None
         else build_period_context(periodo)
     )
-    respuesta = explain(pregunta, contexto)
-    consulta = AsistenteIAConsulta(
+    conversacion = _nexa_resolver_conversacion(
+        cliente_id,
+        payload,
+        "auditoria",
+        pregunta,
+    )
+    respuesta = explain(
+        pregunta,
+        contexto,
+        history=_nexa_historial_modelo(conversacion),
+    )
+    consulta = _nexa_guardar_consulta(
+        conversacion=conversacion,
         cliente_id=cliente_id,
         tienda_id=periodo.tienda_id,
-        periodo_id=periodo.id,
-        resultado_id=resultado.id if resultado is not None else None,
-        usuario=session["usuario"],
+        periodo=periodo,
+        resultado=resultado,
         tipo="producto" if resultado is not None else "periodo",
         pregunta=pregunta,
-        respuesta=respuesta["answer"] or respuesta["error"],
-        proveedor=respuesta["provider"],
-        modelo=respuesta["model"],
-        contexto_json=_json.dumps(contexto, ensure_ascii=False),
-        estado=("fallback" if respuesta["fallback"] else
-                ("ok" if respuesta["ok"] else "error")),
-        error=respuesta["error"],
+        contexto=contexto,
+        respuesta=respuesta,
     )
-    db.session.add(consulta)
-    db.session.commit()
     if not respuesta["ok"]:
         return jsonify(
             ok=False,
@@ -3987,6 +4134,7 @@ def admin_asistente_consultar(periodo_id):
             provider=respuesta["provider"],
             model=respuesta["model"],
             consultation_id=consulta.id,
+            conversation_id=conversacion.id,
         ), 503
     return jsonify(
         ok=True,
@@ -3995,6 +4143,7 @@ def admin_asistente_consultar(periodo_id):
         model=respuesta["model"],
         fallback=respuesta["fallback"],
         consultation_id=consulta.id,
+        conversation_id=conversacion.id,
     )
 
 
@@ -4030,31 +4179,23 @@ def admin_nexa_consultar():
         if periodo is not None and seccion == "auditoria"
         else _nexa_contexto_seccion(seccion, cliente_id)
     )
-    respuesta = explain(pregunta, contexto)
-    consulta_id = None
-    # El esquema actual exige un período para la trazabilidad. Las consultas
-    # de una pantalla con período se conservan; las generales siguen siendo
-    # estrictamente de solo lectura y no inventan una asociación contable.
-    if periodo is not None:
-        consulta = AsistenteIAConsulta(
-            cliente_id=cliente_id,
-            tienda_id=periodo.tienda_id,
-            periodo_id=periodo.id,
-            resultado_id=None,
-            usuario=session["usuario"],
-            tipo="seccion",
-            pregunta=pregunta,
-            respuesta=respuesta["answer"] or respuesta["error"],
-            proveedor=respuesta["provider"],
-            modelo=respuesta["model"],
-            contexto_json=_json.dumps(contexto, ensure_ascii=False),
-            estado=("fallback" if respuesta["fallback"] else
-                    ("ok" if respuesta["ok"] else "error")),
-            error=respuesta["error"],
-        )
-        db.session.add(consulta)
-        db.session.commit()
-        consulta_id = consulta.id
+    conversacion = _nexa_resolver_conversacion(cliente_id, payload, seccion, pregunta)
+    respuesta = explain(
+        pregunta,
+        contexto,
+        history=_nexa_historial_modelo(conversacion),
+    )
+    consulta = _nexa_guardar_consulta(
+        conversacion=conversacion,
+        cliente_id=cliente_id,
+        tienda_id=periodo.tienda_id if periodo is not None else "ALL",
+        periodo=periodo,
+        resultado=None,
+        tipo="seccion",
+        pregunta=pregunta,
+        contexto=contexto,
+        respuesta=respuesta,
+    )
 
     if not respuesta["ok"]:
         return jsonify(
@@ -4062,7 +4203,8 @@ def admin_nexa_consultar():
             error=respuesta["error"],
             provider=respuesta["provider"],
             model=respuesta["model"],
-            consultation_id=consulta_id,
+            consultation_id=consulta.id,
+            conversation_id=conversacion.id,
         ), 503
     return jsonify(
         ok=True,
@@ -4070,7 +4212,8 @@ def admin_nexa_consultar():
         provider=respuesta["provider"],
         model=respuesta["model"],
         fallback=respuesta["fallback"],
-        consultation_id=consulta_id,
+        consultation_id=consulta.id,
+        conversation_id=conversacion.id,
     )
 
 

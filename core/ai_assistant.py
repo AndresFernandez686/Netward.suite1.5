@@ -16,7 +16,9 @@ from urllib import parse, request
 from core.models import AuditoriaResultado, InventarioPeriodo, Justificacion
 
 
-PROVEEDORES = {"openai", "openai_compatible", "anthropic", "gemini", "ollama", "custom"}
+PROVEEDORES = {
+    "openai", "openai_compatible", "nvidia", "anthropic", "gemini", "ollama", "custom",
+}
 
 
 def _env_float(name: str, default: float, minimum: float, maximum: float) -> float:
@@ -47,12 +49,17 @@ class AIConfig:
     temperature: float
     custom_headers: dict[str, str]
     local_fallback_enabled: bool = False
+    reasoning_effort: str = ""
+    seed: int = 0
 
     @classmethod
     def from_env(cls) -> "AIConfig":
         provider = os.getenv("AI_PROVIDER", "openai").strip().lower()
         if provider not in PROVEEDORES:
             provider = "custom"
+        reasoning_effort = os.getenv("AI_REASONING_EFFORT", "").strip().lower()
+        if reasoning_effort not in {"low", "high", "max"}:
+            reasoning_effort = "max" if provider == "nvidia" else ""
         try:
             headers = json.loads(os.getenv("AI_CUSTOM_HEADERS_JSON", "{}") or "{}")
             if not isinstance(headers, dict):
@@ -66,12 +73,14 @@ class AIConfig:
             api_key=os.getenv("AI_API_KEY", "").strip(),
             base_url=os.getenv("AI_BASE_URL", "").strip(),
             timeout=_env_float("AI_TIMEOUT_SECONDS", 30, 1, 120),
-            max_output_tokens=_env_int("AI_MAX_OUTPUT_TOKENS", 1200, 100, 4000),
+            max_output_tokens=_env_int("AI_MAX_OUTPUT_TOKENS", 1200, 100, 65536),
             temperature=_env_float("AI_TEMPERATURE", 0.2, 0, 2),
             custom_headers={str(k): str(v) for k, v in headers.items()},
             local_fallback_enabled=os.getenv(
                 "AI_LOCAL_FALLBACK_ENABLED", "false"
             ).strip().lower() in {"1", "true", "yes", "si", "sí"},
+            reasoning_effort=reasoning_effort,
+            seed=_env_int("AI_SEED", 0, -9_007_199_254_740_991, 9_007_199_254_740_991),
         )
 
     def public_status(self) -> dict[str, Any]:
@@ -159,9 +168,26 @@ def _http_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeo
         raise AIProviderError("El proveedor devolvió una respuesta no válida.") from exc
 
 
-def _prompt(question: str, context: dict[str, Any]) -> str:
-    return "Pregunta del administrador:\n" + question + "\n\nDatos de Netward (JSON):\n" + json.dumps(
-        context, ensure_ascii=False, separators=(",", ":")
+def _prompt(
+    question: str,
+    context: dict[str, Any],
+    history: list[dict[str, str]] | None = None,
+) -> str:
+    previous = []
+    for exchange in (history or [])[-6:]:
+        previous.append(
+            "Administrador: " + str(exchange.get("question") or "").strip()[:1000]
+            + "\nNexa: " + str(exchange.get("answer") or "").strip()[:4000]
+        )
+    history_block = (
+        "Conversación anterior (solo como continuidad; los datos actuales de Netward "
+        "tienen prioridad):\n" + "\n\n".join(previous) + "\n\n"
+        if previous else ""
+    )
+    return history_block + "Pregunta actual del administrador:\n" + question + (
+        "\n\nDatos actuales de Netward (JSON):\n" + json.dumps(
+            context, ensure_ascii=False, separators=(",", ":")
+        )
     )
 
 
@@ -178,8 +204,13 @@ def _extract_openai(data: dict[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
-def _call_provider(config: AIConfig, question: str, context: dict[str, Any]) -> str:
-    user_prompt = _prompt(question, context)
+def _call_provider(
+    config: AIConfig,
+    question: str,
+    context: dict[str, Any],
+    history: list[dict[str, str]] | None = None,
+) -> str:
+    user_prompt = _prompt(question, context, history)
     provider = config.provider
     if provider == "openai":
         data = _http_json(
@@ -199,6 +230,29 @@ def _call_provider(config: AIConfig, question: str, context: dict[str, Any]) -> 
         )
         choices = data.get("choices") or []
         answer = str(((choices[0].get("message") or {}).get("content") if choices else "") or "").strip()
+    elif provider == "nvidia":
+        payload = {
+            "model": config.model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_INSTRUCTIONS},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": config.max_output_tokens,
+            "seed": config.seed,
+            "stream": False,
+            "temperature": config.temperature,
+            "reasoning_effort": config.reasoning_effort or "max",
+        }
+        data = _http_json(
+            _join(config.base_url or "https://integrate.api.nvidia.com/v1", "chat/completions"),
+            payload,
+            {"Authorization": f"Bearer {config.api_key}", "Accept": "application/json"},
+            config.timeout,
+        )
+        choices = data.get("choices") or []
+        answer = str(
+            ((choices[0].get("message") or {}).get("content") if choices else "") or ""
+        ).strip()
     elif provider == "anthropic":
         data = _http_json(
             _join(config.base_url or "https://api.anthropic.com/v1", "messages"),
@@ -210,13 +264,12 @@ def _call_provider(config: AIConfig, question: str, context: dict[str, Any]) -> 
     elif provider == "gemini":
         base = config.base_url or "https://generativelanguage.googleapis.com/v1beta"
         url = _join(base, f"models/{parse.quote(config.model, safe='')}:generateContent")
-        url += ("&" if "?" in url else "?") + parse.urlencode({"key": config.api_key})
         data = _http_json(
             url,
             {"systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTIONS}]},
              "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
              "generationConfig": {"temperature": config.temperature, "maxOutputTokens": config.max_output_tokens}},
-            {}, config.timeout,
+            {"x-goog-api-key": config.api_key}, config.timeout,
         )
         candidates = data.get("candidates") or []
         parts = ((candidates[0].get("content") or {}).get("parts") if candidates else []) or []
@@ -488,7 +541,12 @@ def local_explanation(context: dict[str, Any]) -> str:
     )
 
 
-def explain(question: str, context: dict[str, Any], config: AIConfig | None = None) -> dict[str, Any]:
+def explain(
+    question: str,
+    context: dict[str, Any],
+    config: AIConfig | None = None,
+    history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     config = config or AIConfig.from_env()
     status = config.public_status()
     if not status["configured"]:
@@ -499,7 +557,7 @@ def explain(question: str, context: dict[str, Any], config: AIConfig | None = No
         return {"ok": False, "answer": "", "provider": config.provider,
                 "model": config.model, "fallback": False, "error": error}
     try:
-        return {"ok": True, "answer": _call_provider(config, question, context),
+        return {"ok": True, "answer": _call_provider(config, question, context, history),
                 "provider": config.provider, "model": config.model,
                 "fallback": False, "error": ""}
     except (AIProviderError, ValueError, TypeError) as exc:

@@ -168,21 +168,6 @@
 </section>
 {% endfor %}
 
-<section class="panel" style="margin-top:16px;">
-  <div class="panel__head"><h3>Resumen de precios</h3></div>
-  <div style="display:flex;gap:24px;flex-wrap:wrap;">
-    <div>
-      <p class="kpi-card__label">Productos con precio</p>
-      <p class="kpi-card__value">{{ con_precio }} de {{ total_prod }}</p>
-      <p class="kpi-card__sub">{{ porcentaje }}% del catálogo</p>
-    </div>
-    <div>
-      <p class="kpi-card__label">Valor estimado calculable</p>
-      <p class="kpi-card__value">$ {{ '{:,.0f}'.format(valor_estimado).replace(',', '.') }}</p>
-      <p class="kpi-card__sub">Con los precios actuales</p>
-    </div>
-  </div>
-</section>
 {% endblock %}
 
 {% block scripts %}

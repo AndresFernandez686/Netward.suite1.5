@@ -201,7 +201,9 @@ def build_admin_inventory_context(
                 continue
             if estado_filtro == "No cargado" and cargado:
                 continue
-            if alerta_filtro == "Bajo stock" and nivel not in ("warning", "critical"):
+            if alerta_filtro == "Bajo stock" and (
+                not cargado or nivel not in ("warning", "critical")
+            ):
                 continue
             filas_categoria.append(fila)
 
@@ -230,6 +232,9 @@ def build_admin_inventory_context(
         stock_total_general += stock_total
         valor_total_general += valor_total
         bajo_stock_total += bajo_stock
+
+    if alerta_filtro == "Bajo stock":
+        categorias_render = [categoria for categoria in categorias_render if data[categoria]]
 
     tiendas = list(tiendas)
     tienda_label = "Todas las tiendas" if tienda_id == "ALL" else next((t.nombre for t in tiendas if t.id == tienda_id), tienda_id)
