@@ -96,6 +96,13 @@ def _migrar_consultas_anteriores(connection) -> None:
     )).mappings().all()
     for row in rows:
         creado = row["creado"] or datetime.utcnow()
+        if not isinstance(creado, datetime):
+            try:
+                creado = datetime.fromisoformat(str(creado).replace("Z", "+00:00"))
+                if creado.tzinfo is not None:
+                    creado = creado.replace(tzinfo=None)
+            except (TypeError, ValueError):
+                creado = datetime.utcnow()
         titulo = (str(row["pregunta"] or "Conversación anterior").strip() or "Conversación anterior")[:120]
         conversation_id = connection.execute(
             sa.insert(conversaciones).values(
@@ -118,6 +125,12 @@ def _migrar_consultas_anteriores(connection) -> None:
 
 def upgrade() -> None:
     connection = op.get_bind()
+    # SQLite puede dejar esta tabla auxiliar si una ejecución anterior se interrumpió.
+    # Nunca contiene datos oficiales: Alembic la usa solo durante batch_alter_table.
+    if connection.dialect.name == "sqlite":
+        connection.exec_driver_sql(
+            "DROP TABLE IF EXISTS _alembic_tmp_asistente_ia_consultas"
+        )
     _crear_tabla(connection)
     _adaptar_consultas(connection)
     _migrar_consultas_anteriores(connection)

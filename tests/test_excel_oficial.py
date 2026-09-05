@@ -261,7 +261,7 @@ class PruebasExcelOficial(unittest.TestCase):
             precios_map={},
         )
         salida = next(fila for fila in filas_salida if fila[0] == PRODUCTO)
-        self.assertEqual(salida[1:9], [10, 5, 2, 1, 8, 8, 6, 2])
+        self.assertEqual(salida[1:9], [10, 5, 2, 1, 8, 8, 6, -2])
 
     def test_falta_columna_necesaria_no_se_convierte_en_cero(self):
         headers = [h for h in HEADERS if h != "compras"]
@@ -348,6 +348,8 @@ class PruebasExcelOficial(unittest.TestCase):
         self.assertEqual(almendrado.stockfinal, 166)
         self.assertEqual(almendrado.ventateorica, -30)
         self.assertEqual(almendrado.ventareal, 83)
+        # El detalle importado conserva el valor bruto informado por el Excel.
+        # La convención estándar se aplica al recalcular el resultado de auditoría.
         self.assertEqual(almendrado.diferencia, -113)
         self.assertEqual(compras_producto, 4270)
 
@@ -660,12 +662,12 @@ class PruebasExcelOficial(unittest.TestCase):
         self.assertEqual(fila[7], 6)
         self.assertEqual(resumen["vr_sys"], 0)
 
-    def test_diferencia_es_venta_teorica_menos_venta_real(self):
+    def test_diferencia_es_venta_real_menos_venta_teorica(self):
         fila, _ = self.procesar(venta_real_excel=6)
 
         self.assertEqual(fila[6], 8)
         self.assertEqual(fila[7], 6)
-        self.assertEqual(fila[8], 2)
+        self.assertEqual(fila[8], -2)
 
 
 if __name__ == "__main__":

@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=asset_v) }}" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=asset_v ~ '-nexa-product-table-1') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=asset_v ~ '-editable-caret-1') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=asset_v ~ '-catalog-name-soft-1') }}" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body class="admin-body {% block body_class %}{% endblock %}">
@@ -136,9 +136,13 @@
          data-section="{{ nexa_seccion }}" data-period-id="{{ nexa_periodo_id or '' }}">
     <header class="audit-ai-header">
       <div><span class="audit-ai-kicker">NEXA · ASISTENTE ADMINISTRATIVA</span><h2 id="auditAiTitle">{{ nexa_titulo }}</h2></div>
-      <button type="button" class="audit-ai-close" id="auditAiClose" aria-label="Cerrar Nexa">×</button>
+      <div class="audit-ai-header__actions">
+        <button type="button" class="audit-ai-maximize" id="auditAiMaximize"
+                aria-label="Maximizar Nexa" aria-pressed="false" title="Maximizar">⛶</button>
+        <button type="button" class="audit-ai-close" id="auditAiClose" aria-label="Cerrar Nexa">×</button>
+      </div>
     </header>
-    <div class="audit-ai-status"><span class="{{ 'is-connected' if nexa_estado.configured else 'is-local' }}"></span>{{ nexa_estado.label }} · {{ nexa_estado.provider }} / {{ nexa_estado.model }}</div>
+    <div class="audit-ai-status"><span class="{{ 'is-connected' if nexa_estado.configured else 'is-local' }}"></span>{{ nexa_estado.label }}</div>
     <div class="audit-ai-conversation-toolbar">
       <button type="button" id="auditAiNewConversation">＋ Nueva conversación</button>
       <button type="button" id="auditAiHistoryToggle" aria-expanded="false" aria-controls="auditAiHistory">
@@ -153,8 +157,12 @@
     <div class="audit-ai-notice">Nexa explica y orienta con los datos de este apartado. No modifica registros ni cálculos.</div>
     <div class="audit-ai-messages" id="auditAiMessages" aria-live="polite"></div>
     <div class="audit-ai-prompts" id="auditAiPrompts">
+      <strong class="audit-ai-prompts__title">Prueba una de estas opciones para empezar</strong>
       {% for pregunta, etiqueta in nexa_preguntas %}
-      <button type="button" data-ai-question="{{ pregunta|e }}">{{ etiqueta }}</button>
+      <button type="button" data-ai-question="{{ pregunta|e }}">
+        <span class="audit-ai-prompts__icon" aria-hidden="true">{{ ['◇', '▤', '□'][loop.index0] }}</span>
+        <span>{{ etiqueta }}</span>
+      </button>
       {% endfor %}
     </div>
     <form class="audit-ai-form" id="auditAiForm">
@@ -224,11 +232,13 @@
       var question = document.getElementById('auditAiQuestion');
       var send = document.getElementById('auditAiSend');
       var form = document.getElementById('auditAiForm');
+      var maximize = document.getElementById('auditAiMaximize');
       var newConversation = document.getElementById('auditAiNewConversation');
       var historyToggle = document.getElementById('auditAiHistoryToggle');
       var historyPanel = document.getElementById('auditAiHistory');
       var historyList = document.getElementById('auditAiHistoryList');
       var historyCount = document.getElementById('auditAiHistoryCount');
+      var prompts = document.getElementById('auditAiPrompts');
       if (!drawer || !messages || !question || !send || !form) return;
 
       var currentResultId = '';
@@ -341,6 +351,7 @@
           appendProductTable(exchange.product_table);
           appendMessage('assistant', exchange.answer || '', exchange.status === 'error');
         });
+        if (prompts) prompts.hidden = Boolean(items && items.length);
         appendGreeting();
       }
 
@@ -379,6 +390,7 @@
       function loadConversations(renderMessages) {
         return fetch(drawer.dataset.conversationsUrl, {
           credentials: 'same-origin',
+          cache: 'no-store',
           headers: {'Accept': 'application/json'}
         })
           .then(function (response) {
@@ -430,10 +442,8 @@
           .then(function () {
             currentConversationId = null;
             messages.textContent = '';
+            if (prompts) prompts.hidden = false;
             appendGreeting();
-            if (historyPanel) historyPanel.hidden = true;
-            if (historyToggle) historyToggle.setAttribute('aria-expanded', 'false');
-            renderConversationHistory([]);
             return loadConversations(false);
           })
           .catch(function (error) {
@@ -460,16 +470,36 @@
 
       function closeAssistant() {
         drawer.classList.remove('is-open');
+        drawer.classList.remove('is-maximized');
         drawer.setAttribute('aria-hidden', 'true');
         document.body.classList.remove('nexa-is-open');
+        document.body.classList.remove('nexa-is-maximized');
+        if (maximize) {
+          maximize.setAttribute('aria-pressed', 'false');
+          maximize.setAttribute('aria-label', 'Maximizar Nexa');
+          maximize.title = 'Maximizar';
+        }
         document.querySelectorAll('[data-ai-open]').forEach(function (trigger) {
           trigger.setAttribute('aria-expanded', 'false');
         });
       }
 
+      function toggleMaximizeAssistant() {
+        var maximized = !drawer.classList.contains('is-maximized');
+        drawer.classList.toggle('is-maximized', maximized);
+        document.body.classList.toggle('nexa-is-maximized', maximized);
+        if (maximize) {
+          maximize.setAttribute('aria-pressed', String(maximized));
+          maximize.setAttribute('aria-label', maximized ? 'Restaurar tamaño de Nexa' : 'Maximizar Nexa');
+          maximize.title = maximized ? 'Restaurar tamaño' : 'Maximizar';
+        }
+        messages.scrollTop = messages.scrollHeight;
+      }
+
       function askAssistant(value) {
         value = (value || '').trim();
         if (!value || requestPending) return;
+        if (prompts) prompts.hidden = true;
         var sequence = ++requestSequence;
         appendMessage('user', value);
         requestPending = true;
@@ -532,6 +562,7 @@
         button.addEventListener('click', function () { askAssistant(button.dataset.aiQuestion); });
       });
       if (newConversation) newConversation.addEventListener('click', startNewConversation);
+      if (maximize) maximize.addEventListener('click', toggleMaximizeAssistant);
       if (historyToggle && historyPanel) historyToggle.addEventListener('click', function () {
         historyPanel.hidden = !historyPanel.hidden;
         historyToggle.setAttribute('aria-expanded', historyPanel.hidden ? 'false' : 'true');

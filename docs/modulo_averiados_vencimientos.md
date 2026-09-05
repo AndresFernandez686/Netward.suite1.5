@@ -23,7 +23,8 @@ vencidos         = sum(r.cantidad_unidades for r in registros_vencimiento del pe
 venta_teorica  -= mermas_averiados + vencidos
 ```
 Esto las descuenta una sola vez como bajas no imputables al empleado. La diferencia
-residual se calcula luego como `venta_teorica - venta_real`.
+residual se calcula luego como `venta_real - venta_teorica`: un resultado positivo
+es sobrante y uno negativo es faltante.
 
 ## Rutas empleado
 | Método | Ruta | Acción |

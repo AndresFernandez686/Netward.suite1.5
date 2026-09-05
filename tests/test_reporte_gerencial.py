@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from flask import Flask
 
@@ -8,6 +9,7 @@ from core.models import AuditoriaResultado, InventarioPeriodo, db
 
 CLIENTE = "TEST"
 TIENDA = "TTEST"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class PruebasReporteGerencial(unittest.TestCase):
@@ -170,6 +172,41 @@ class PruebasReporteGerencial(unittest.TestCase):
             [fila.producto_nombre for fila in self.reporte["alertas_criticas"]],
             ["Producto mayor", "Producto medio"],
         )
+
+    def test_reporte_incluye_explicacion_causal_en_lenguaje_natural(self):
+        plantilla = (ROOT / "templates" / "admin_reporte_gerencial.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertTrue(all(hasattr(fila, "explicacion_causal") for fila in self.reporte["faltantes"]))
+        self.assertIn("Por qué no coincide", plantilla)
+        self.assertIn("r.explicacion_causal.por_que_no_coincide", plantilla)
+        self.assertIn("Ver causas posibles", plantilla)
+
+    def test_interfaz_compacta_sin_tarjetas_superiores_y_con_acciones(self):
+        plantilla = (ROOT / "templates" / "admin_reporte_gerencial.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('class="report-hero"', plantilla)
+        self.assertNotIn("Total pérdida estimada", plantilla)
+        self.assertNotIn("Productos con faltante</div>", plantilla)
+        self.assertNotIn("Principal causa</div>", plantilla)
+        self.assertIn('id="reportPrint"', plantilla)
+        self.assertNotIn('id="reportToggleSections"', plantilla)
+        self.assertNotIn("data-report-section", plantilla)
+        self.assertIn("card--skip-collapse", plantilla)
+        self.assertIn("window.print()", plantilla)
+        self.assertIn("admin_auditoria_exportar", plantilla)
+        self.assertIn('data-difference-filter="faltante"', plantilla)
+        self.assertIn('data-difference-filter="sobrante"', plantilla)
+        self.assertIn('data-difference-filter="todos"', plantilla)
+        self.assertIn("Productos faltantes", plantilla)
+        self.assertIn("Productos sobrantes", plantilla)
+        self.assertIn("Diferencia por faltante", plantilla)
+        self.assertIn("Diferencia por sobrante", plantilla)
+        self.assertNotIn("Trazabilidad de cargas", plantilla)
+        self.assertNotIn("<img", plantilla)
 
     def test_delta_perdidas(self):
         comparacion = self.reporte["comparacion"]

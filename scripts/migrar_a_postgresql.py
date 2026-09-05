@@ -44,7 +44,7 @@ from scripts.database_maintenance import (
 )
 
 
-REVISION_ESPERADA = "20260831_05"
+REVISION_ESPERADA = "20260904_07"
 
 
 def _database_url() -> str:

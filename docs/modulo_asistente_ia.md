@@ -96,8 +96,8 @@ se envían claves, contraseñas ni acceso directo a la base de datos.
 ## Reglas de explicación
 
 - Una fila **Sin datos** no se presenta como diferencia real confirmada.
-- La diferencia se explica siempre como venta teórica menos venta real.
-- Una diferencia positiva es faltante y una negativa es sobrante.
+- La diferencia se explica siempre como venta real menos venta teórica, equivalente a stock físico menos stock esperado.
+- Una diferencia positiva es sobrante y una negativa es faltante.
 - El impacto económico se explica usando exclusivamente el precio interno del
   sistema.
 - Un producto **Sin costo** se presenta con impacto no calculable, no como pérdida

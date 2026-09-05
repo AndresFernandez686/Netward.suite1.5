@@ -20,7 +20,7 @@ HEADERS_AUDITORIA = [
     "Compras", "Promedio Compras Histórico", "Factor Desvío Compra",
     "Ventas usadas", "Ventas Delivery", "Otros Ingresos", "Otras Salidas", "Stock Final Excel",
     "Stock Esperado Sistema", "Venta Teórica", "Conteo Empleado", "Ajuste Admin",
-    "Stock Final Físico", "Diferencia (VT - VR)", "Tipo Diferencia", "Severidad",
+    "Stock Final Físico", "Diferencia (VR - VT)", "Tipo Diferencia", "Severidad",
     "Costo Unitario", "Fuente Costo", "Impacto",
     "Cantidad Merma", "Cantidad Vencida", "Diferencia Anterior Compensada",
     "Posible Causa Principal", "Evidencia", "Nivel de Confianza",

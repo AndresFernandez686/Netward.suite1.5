@@ -19,6 +19,7 @@ from .models import (
 )
 from .excel_importer import empaques_compatibles
 from .ajustes import ajuste_es_baja_no_imputable
+from .auditoria_causal import explicar_causa_diferencia
 
 # ─── Constantes ──────────────────────────────────────────────────────────────
 CAUSAS = [
@@ -446,7 +447,8 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             - total_merma - total_venc
         )
 
-        # 5. Venta teórica y diferencia oficial.
+        # 5. Venta teórica y diferencia oficial con convención contable:
+        # positivo = sobrante; negativo = faltante.
         # El conteo cargado (más ajustes que impactan) es el stock final físico.
         # Las bajas no imputables se descuentan una sola vez como salidas.
         venta_teorica = (
@@ -454,13 +456,14 @@ def ejecutar_auditoria(periodo: InventarioPeriodo) -> list[AuditoriaResultado]:
             - conteo_final - otras_salidas
             - total_merma - total_venc
         )
-        diferencia = venta_teorica - ventas
+        # Es equivalente a conteo_final - stock_esperado.
+        diferencia = ventas - venta_teorica
         if abs(diferencia) < 0.01:
             tipo_diferencia = "correcto"
         elif diferencia > 0:
-            tipo_diferencia = "faltante"
-        else:
             tipo_diferencia = "sobrante"
+        else:
+            tipo_diferencia = "faltante"
 
         # 6. Costo y fuente
         costo_unit, fuente_costo = _precio_unitario(
@@ -784,17 +787,22 @@ def marcar_resultado_revisado(
 
 def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
     """Arma el contexto para la vista del reporte gerencial."""
-    resultados = (
+    resultados_diferencia = (
         AuditoriaResultado.query
         .filter_by(periodo_id=periodo.id)
         .filter(AuditoriaResultado.estado_auditoria != "Archivado")
-        .filter(AuditoriaResultado.tipo_diferencia == "faltante")
+        .filter(AuditoriaResultado.tipo_diferencia.in_(["faltante", "sobrante"]))
         .order_by(AuditoriaResultado.impacto.desc())
         .all()
     )
-    total_perdida = sum(r.impacto for r in resultados)
+    for resultado in resultados_diferencia:
+        resultado.explicacion_causal = explicar_causa_diferencia(resultado)
+    faltantes = [r for r in resultados_diferencia if r.tipo_diferencia == "faltante"]
+    sobrantes = [r for r in resultados_diferencia if r.tipo_diferencia == "sobrante"]
+    total_perdida = sum(r.impacto for r in faltantes)
+    total_sobrante = sum(r.impacto for r in sobrantes)
     por_causa: dict[str, dict] = {}
-    for r in resultados:
+    for r in faltantes:
         c = r.causa_sugerida
         if c not in por_causa:
             por_causa[c] = {"cantidad": 0, "importe": 0.0}
@@ -806,7 +814,7 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
         reverse=True,
     )
 
-    alertas_criticas = [r for r in resultados if r.severidad == "Crítico"]
+    alertas_criticas = [r for r in faltantes if r.severidad == "Crítico"]
     cargas = (
         ConteoDetalle.query
         .filter_by(periodo_id=periodo.id, fue_cargado=True)
@@ -840,7 +848,7 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
             .all()
         )
         perdida_anterior = sum(r.impacto for r in res_ant)
-        faltantes_actual = len(resultados)
+        faltantes_actual = len(faltantes)
         faltantes_anterior = len(res_ant)
         criticos_actual = len(alertas_criticas)
         criticos_anterior = sum(1 for r in res_ant if r.severidad == "Crítico")
@@ -871,8 +879,10 @@ def build_reporte_gerencial(periodo: InventarioPeriodo) -> dict:
 
     return {
         "periodo": periodo,
-        "faltantes": resultados,
+        "faltantes": faltantes,
+        "sobrantes": sobrantes,
         "total_perdida": total_perdida,
+        "total_sobrante": total_sobrante,
         "por_causa": por_causa,
         "por_causa_ordenado": por_causa_ordenado,
         "causa_dominante": causa_dominante,

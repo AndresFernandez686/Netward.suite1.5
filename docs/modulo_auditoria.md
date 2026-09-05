@@ -20,11 +20,11 @@ Conteo Final    = conteo_empleado + ajuste_admin
 Stock Inicial   = stock_final del período anterior  ← regla de continuidad
 Stock Esperado  = stock_inicial + compras + otros_ingresos - ventas - otras_salidas - mermas - vencidos
 Venta Teórica   = stock_inicial + compras + otros_ingresos - conteo_final - otras_salidas - mermas - vencidos
-Diferencia      = venta_teórica - venta_real
+Diferencia      = venta_real - venta_teórica
 Impacto         = |diferencia| × costo_unitario
 ```
 
-Una diferencia positiva representa faltante y una negativa representa sobrante.
+Una diferencia positiva representa sobrante y una negativa representa faltante.
 Mermas, averiados y vencidos son bajas no imputables: reducen la venta teórica una sola vez.
 
 ## Causas sugeridas (prioridad)

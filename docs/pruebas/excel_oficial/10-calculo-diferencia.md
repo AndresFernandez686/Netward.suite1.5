@@ -4,7 +4,7 @@
 
 Validar la fórmula:
 
-`Diferencia = Venta Teórica - Venta Real`
+`Diferencia = Venta Real - Venta Teórica`
 
 ## Datos y pasos
 
@@ -14,10 +14,10 @@ Validar la fórmula:
 
 ## Resultado esperado
 
-`Diferencia = 8 - 6 = 2`.
+`Diferencia = 6 - 8 = -2`.
 
 ## Resultado obtenido
 
-**APROBADO.** La diferencia calculada fue 2.
+**APROBADO.** La diferencia calculada fue -2 (`faltante`).
 
-Prueba: `test_diferencia_es_venta_teorica_menos_venta_real`.
+Prueba: `test_columnas_y_filas_reordenadas_no_cambian_los_datos`.

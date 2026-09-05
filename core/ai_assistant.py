@@ -9,15 +9,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+import re
+import unicodedata
 from typing import Any
 from urllib import error as urlerror
 from urllib import parse, request
 
 from core.models import AuditoriaResultado, InventarioPeriodo, Justificacion
+from core.auditoria_causal import explicar_causa_diferencia
 
 
 PROVEEDORES = {
-    "openai", "openai_compatible", "nvidia", "anthropic", "gemini", "ollama", "custom",
+    "openai", "openai_compatible", "nvidia", "anthropic", "gemini", "custom",
 }
 
 
@@ -72,7 +75,7 @@ class AIConfig:
             model=os.getenv("AI_MODEL", "").strip(),
             api_key=os.getenv("AI_API_KEY", "").strip(),
             base_url=os.getenv("AI_BASE_URL", "").strip(),
-            timeout=_env_float("AI_TIMEOUT_SECONDS", 30, 1, 120),
+            timeout=_env_float("AI_TIMEOUT_SECONDS", 120, 1, 300),
             max_output_tokens=_env_int("AI_MAX_OUTPUT_TOKENS", 1200, 100, 65536),
             temperature=_env_float("AI_TEMPERATURE", 0.2, 0, 2),
             custom_headers={str(k): str(v) for k, v in headers.items()},
@@ -85,7 +88,7 @@ class AIConfig:
 
     def public_status(self) -> dict[str, Any]:
         endpoint_ready = self.provider not in {"openai_compatible", "custom"} or bool(self.base_url)
-        auth_ready = self.provider in {"ollama", "custom"} or bool(self.api_key)
+        auth_ready = self.provider == "custom" or bool(self.api_key)
         configured = self.enabled and bool(self.model) and endpoint_ready and auth_ready
         local_active = not configured and self.local_fallback_enabled
         return {
@@ -110,14 +113,18 @@ SYSTEM_INSTRUCTIONS = """Eres Nexa, la asistente inteligente de administración 
 Responde en español claro, directo y profesional. Tu función es ayudar al administrador
 a comprender la pantalla y los datos del módulo actual, detectar pendientes y decidir
 qué debería verificar primero.
-Explica únicamente con los datos estructurados suministrados. El motor de Netward es
+Explica únicamente con el informe Markdown y los datos estructurados suministrados. El motor de Netward es
 la fuente oficial: no cambies diferencias, causas, severidad ni estados. Distingue
 hechos de hipótesis, menciona evidencia faltante y sugiere verificaciones concretas.
+Usa analisis_causal como eje de la respuesta: explica en lenguaje natural por qué el
+stock esperado no coincide con el conteo y qué evento operativo podría producirlo. No
+respondas solamente repitiendo la diferencia. Si la causa no está demostrada, dilo de
+forma explícita y presenta las hipótesis priorizadas con la prueba necesaria para confirmarlas.
 Solo cuando el alcance sea "producto", muestra siempre las fórmulas de stock final físico,
 venta teórica, diferencia e impacto; sustituye las variables por sus valores reales y
 explica la fuente del stock inicial y de la venta real. La diferencia oficial es siempre
-venta teórica menos venta real: positiva significa faltante y negativa significa sobrante.
-No uses la antigua comparación conteo final menos stock esperado.
+venta real menos venta teórica: positiva significa sobrante y negativa significa faltante.
+Esta fórmula equivale a conteo final físico menos stock esperado.
 Las mermas/averiados y los vencidos son bajas no imputables al empleado: ya están
 descontados una vez de la venta teórica y nunca deben reutilizarse para justificar la
 diferencia residual ni sumarse a su impacto económico.
@@ -134,7 +141,11 @@ Para productos, la aplicación antepone el cálculo oficial determinista. En tu 
 adicional, empieza con una conclusión específica, usa datos.operaciones y origenes_datos para
 explicar la causa probable sin repetir toda la tabla, y termina con verificaciones priorizadas.
 Usa texto plano legible: no uses tablas Markdown, signos de numeral para títulos ni dobles
-asteriscos, porque la interfaz ya muestra la tabla numérica."""
+asteriscos, porque la interfaz ya muestra la tabla numérica.
+Usa la conversación anterior para continuar el razonamiento: no repitas la misma
+respuesta salvo que el administrador lo solicite. Si los datos disponibles no permiten
+responder, dilo de forma directa, identifica la información faltante y formula una sola
+pregunta aclaratoria concreta."""
 
 
 def _join(base: str, suffix: str) -> str:
@@ -193,10 +204,22 @@ def _prompt(
         "tienen prioridad):\n" + "\n\n".join(previous) + "\n\n"
         if previous else ""
     )
-    return history_block + "Pregunta actual del administrador:\n" + question + (
-        "\n\nDatos actuales de Netward (JSON):\n" + json.dumps(
-            context, ensure_ascii=False, separators=(",", ":")
+    report_markdown = str(context.get("informe_markdown") or "").strip()
+    extra_context = {key: value for key, value in context.items() if key != "informe_markdown"}
+    report_block = (
+        "\n\nInforme completo del período (Markdown; fuente oficial de Netward):\n"
+        + report_markdown
+        if report_markdown else ""
+    )
+    extra_block = (
+        "\n\nContexto adicional estructurado (JSON):\n" + json.dumps(
+            extra_context, ensure_ascii=False, separators=(",", ":")
         )
+        if extra_context else ""
+    )
+    return (
+        history_block + "Pregunta actual del administrador:\n" + question
+        + report_block + extra_block
     )
 
 
@@ -283,15 +306,6 @@ def _call_provider(
         candidates = data.get("candidates") or []
         parts = ((candidates[0].get("content") or {}).get("parts") if candidates else []) or []
         answer = "\n".join(str(p.get("text", "")) for p in parts if isinstance(p, dict)).strip()
-    elif provider == "ollama":
-        data = _http_json(
-            _join(config.base_url or "http://localhost:11434", "api/chat"),
-            {"model": config.model, "messages": [{"role": "system", "content": SYSTEM_INSTRUCTIONS},
-              {"role": "user", "content": user_prompt}], "stream": False,
-             "options": {"temperature": config.temperature}},
-            {}, config.timeout,
-        )
-        answer = str((data.get("message") or {}).get("content") or "").strip()
     else:
         headers = dict(config.custom_headers)
         if config.api_key and "Authorization" not in headers:
@@ -424,7 +438,7 @@ def build_product_context(periodo: InventarioPeriodo, resultado: AuditoriaResult
         f"- {_fmt_num(vencidos)} = {_fmt_num(venta_teorica)}"
     )
     sustitucion_diferencia = (
-        f"{_fmt_num(venta_teorica)} - {_fmt_num(ventas)} = {_fmt_num(diferencia, signed=True)}"
+        f"{_fmt_num(ventas)} - {_fmt_num(venta_teorica)} = {_fmt_num(diferencia, signed=True)}"
     )
 
     advertencias = []
@@ -462,7 +476,7 @@ def build_product_context(periodo: InventarioPeriodo, resultado: AuditoriaResult
         },
         {
             "orden": 4, "nombre": "Diferencia matemática",
-            "formula": "venta teórica - venta real",
+            "formula": "venta real - venta teórica",
             "sustitucion": sustitucion_diferencia, "resultado": diferencia,
             "es_resultado_oficial_evaluable": diferencia_evaluable,
         },
@@ -490,7 +504,7 @@ def build_product_context(periodo: InventarioPeriodo, resultado: AuditoriaResult
             {"clave": "stock_final", "etiqueta": "Stock físico", "tipo": "numero", "fuente": fuente_conteo},
             {"clave": "venta_teorica", "etiqueta": "V. teórica", "tipo": "numero", "fuente": "fórmula del motor"},
             {"clave": "venta_real", "etiqueta": "V. real", "tipo": "numero", "fuente": fuente_ventas},
-            {"clave": "diferencia", "etiqueta": "Diferencia", "tipo": "numero_firmado", "fuente": "venta teórica - venta real"},
+            {"clave": "diferencia", "etiqueta": "Diferencia", "tipo": "numero_firmado", "fuente": "venta real - venta teórica"},
             {"clave": "impacto", "etiqueta": "Impacto", "tipo": "moneda", "fuente": resultado.fuente_costo},
             {"clave": "estado", "etiqueta": "Estado", "tipo": "estado", "fuente": "motor de auditoría"},
         ],
@@ -512,6 +526,7 @@ def build_product_context(periodo: InventarioPeriodo, resultado: AuditoriaResult
         ),
     }
 
+    analisis_causal = explicar_causa_diferencia(resultado)
     return {
         "alcance": "producto",
         "periodo": {"id": periodo.id, "numero": periodo.numero, "desde": periodo.fecha_desde,
@@ -538,9 +553,9 @@ def build_product_context(periodo: InventarioPeriodo, resultado: AuditoriaResult
             "stock_final_fisico": "conteo del empleado + ajuste administrativo",
             "stock_esperado": "stock inicial aplicado + compras + otros ingresos - venta real - otras salidas - mermas - vencidos",
             "venta_teorica": "stock inicial aplicado + compras + otros ingresos - stock final físico - otras salidas - mermas - vencidos",
-            "diferencia": "venta teórica - venta real",
+            "diferencia": "venta real - venta teórica",
             "impacto": "valor absoluto de la diferencia × costo unitario",
-            "regla_signo": "positivo = faltante; negativo = sobrante, solo si la diferencia es evaluable",
+            "regla_signo": "positivo = sobrante; negativo = faltante, solo si la diferencia es evaluable",
         },
         "origenes_datos": {
             "stock_inicial_anterior": {"valor": stock_anterior, "origen": "conteo final del último período cerrado comparable",
@@ -569,9 +584,10 @@ def build_product_context(periodo: InventarioPeriodo, resultado: AuditoriaResult
             "regla_interpretacion": (
                 "La diferencia es solo una traza matemática provisional y no debe clasificarse como faltante o sobrante."
                 if not diferencia_evaluable else
-                "La diferencia puede interpretarse con la regla positiva=faltante y negativa=sobrante."
+                "La diferencia puede interpretarse con la regla positiva=sobrante y negativa=faltante."
             ),
         },
+        "analisis_causal": analisis_causal,
         "tabla_visual": tabla_visual,
         "formato_respuesta_requerido": [
             "Conclusión específica para el producto",
@@ -595,31 +611,113 @@ def build_product_context(periodo: InventarioPeriodo, resultado: AuditoriaResult
     }
 
 
-def build_period_context(periodo: InventarioPeriodo) -> dict[str, Any]:
+def _md_cell(value: Any) -> str:
+    """Convierte un valor en una celda Markdown segura y compacta."""
+    if value is None or value == "":
+        return "—"
+    return str(value).replace("|", "\\|").replace("\r", " ").replace("\n", " ").strip()
+
+
+def build_period_report_markdown(periodo: InventarioPeriodo) -> tuple[str, dict[str, Any]]:
+    """Genera una instantánea Markdown completa de la auditoría del período."""
     resultados = AuditoriaResultado.query.filter_by(
         periodo_id=periodo.id, cliente_id=periodo.cliente_id
     ).filter(
         AuditoriaResultado.estado_auditoria != "Archivado"
     ).order_by(AuditoriaResultado.impacto.desc()).all()
-    return {
+    resumen = {
+        "productos": len(resultados),
+        "faltantes": sum(r.tipo_diferencia == "faltante" for r in resultados),
+        "sobrantes": sum(r.tipo_diferencia == "sobrante" for r in resultados),
+        "compensados": sum(r.tipo_diferencia == "compensado" for r in resultados),
+        "criticos": sum(r.severidad == "Crítico" for r in resultados),
+        "pendientes": sum(r.estado_auditoria in {"Pendiente", "Sin datos"} for r in resultados),
+        "impacto_faltantes": _num(sum(
+            r.impacto or 0 for r in resultados if r.tipo_diferencia == "faltante"
+        )),
+    }
+    lines = [
+        f"# Informe de auditoría — Período #{periodo.numero}", "",
+        "## Identificación", "",
+        f"- Empresa: {_md_cell(periodo.cliente_id)}",
+        f"- Tienda: {_md_cell(periodo.tienda_id)}",
+        f"- Rango: {_md_cell(periodo.fecha_desde)} a {_md_cell(periodo.fecha_hasta)}",
+        f"- Estado: {_md_cell(periodo.estado)}", "",
+        "## Resumen ejecutivo", "",
+        f"- Productos evaluados: {resumen['productos']}",
+        f"- Faltantes: {resumen['faltantes']}",
+        f"- Sobrantes: {resumen['sobrantes']}",
+        f"- Compensados: {resumen['compensados']}",
+        f"- Críticos: {resumen['criticos']}",
+        f"- Pendientes o sin datos: {resumen['pendientes']}",
+        f"- Impacto de faltantes: {_fmt_num(resumen['impacto_faltantes'])} Gs.", "",
+        "## Reglas oficiales de cálculo", "",
+        "- Stock final físico = conteo del empleado + ajuste administrativo.",
+        "- Venta teórica = stock inicial aplicado + compras + otros ingresos - stock final físico - otras salidas - mermas - vencidos.",
+        "- Diferencia = venta real - venta teórica = stock físico - stock esperado. Positiva significa sobrante; negativa significa faltante.",
+        "- Mermas/averiados y vencidos ya se descuentan una vez y no justifican nuevamente la diferencia residual.", "",
+        "## Detalle completo por producto", "",
+        "| Código | Producto | Categoría | Stock inicial anterior | Stock inicial Excel | Compras | Otros ingresos | Venta real | Delivery (informativo) | Otras salidas | Merma/averiado | Vencidos | Stock esperado | Conteo empleado | Ajuste admin | Stock final físico | Venta teórica | Diferencia | Tipo | Costo unitario | Impacto | Fuente costo | Causa | Evidencia | Confianza | Severidad | Estado | Usuario conteo | Usuario ajuste |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---|---|---|---|---|---|---|---|",
+    ]
+    for item in resultados:
+        values = [
+            item.articulo_codigo, item.producto_nombre, item.categoria,
+            _fmt_num(item.stock_inicial_anterior), _fmt_num(item.stock_inicial_excel),
+            _fmt_num(item.compras), _fmt_num(item.otros_ingresos), _fmt_num(item.ventas),
+            _fmt_num(item.ventas_delivery), _fmt_num(item.otras_salidas),
+            _fmt_num(item.cantidad_merma), _fmt_num(item.cantidad_vencida),
+            _fmt_num(item.stock_esperado), _fmt_num(item.conteo_empleado),
+            _fmt_num(item.ajuste_admin, signed=True), _fmt_num(item.conteo_final),
+            _fmt_num(item.venta_teorica), _fmt_num(item.diferencia, signed=True),
+            item.tipo_diferencia,
+            "Sin costo" if item.costo_unitario is None else _fmt_num(item.costo_unitario),
+            _fmt_num(item.impacto), item.fuente_costo, item.causa_sugerida,
+            item.evidencia, item.nivel_confianza, item.severidad, item.estado_auditoria,
+            item.usuario_conteo, item.usuario_ajuste,
+        ]
+        lines.append("| " + " | ".join(_md_cell(value) for value in values) + " |")
+
+    lines.extend(["", "## Justificaciones registradas", ""])
+    justificaciones = []
+    for item in resultados:
+        for justification in item.justificaciones:
+            justificaciones.append(
+                f"- {_md_cell(item.producto_nombre)}: {_md_cell(justification.causa)}; "
+                f"cantidad {_fmt_num(justification.cantidad_justificada)}; "
+                f"observación: {_md_cell(justification.observacion)}; "
+                f"usuario: {_md_cell(justification.usuario)}."
+            )
+    lines.extend(justificaciones or ["- No hay justificaciones registradas."])
+    return "\n".join(lines).strip(), resumen
+
+
+def refresh_period_report_markdown(periodo: InventarioPeriodo) -> str:
+    """Reconstruye y deja lista la instantánea; el llamador controla el commit."""
+    markdown, _resumen = build_period_report_markdown(periodo)
+    periodo.informe_ia_markdown = markdown
+    from core.models import utc_now
+    periodo.informe_ia_generado = utc_now()
+    return markdown
+
+
+def build_period_context(periodo: InventarioPeriodo) -> dict[str, Any]:
+    markdown = str(periodo.informe_ia_markdown or "").strip()
+    resumen = None
+    if not markdown:
+        markdown, resumen = build_period_report_markdown(periodo)
+        periodo.informe_ia_markdown = markdown
+        from core.models import utc_now
+        periodo.informe_ia_generado = utc_now()
+    context = {
         "alcance": "periodo",
         "periodo": {"id": periodo.id, "numero": periodo.numero, "tienda_id": periodo.tienda_id,
                     "desde": periodo.fecha_desde, "hasta": periodo.fecha_hasta, "estado": periodo.estado},
-        "resumen": {
-            "productos": len(resultados),
-            "faltantes": sum(r.tipo_diferencia == "faltante" for r in resultados),
-            "sobrantes": sum(r.tipo_diferencia == "sobrante" for r in resultados),
-            "compensados": sum(r.tipo_diferencia == "compensado" for r in resultados),
-            "criticos": sum(r.severidad == "Crítico" for r in resultados),
-            "pendientes": sum(r.estado_auditoria in {"Pendiente", "Sin datos"} for r in resultados),
-            "impacto_faltantes": _num(sum(r.impacto or 0 for r in resultados if r.tipo_diferencia == "faltante")),
-        },
-        "principales_resultados": [{"producto": r.producto_nombre, "tipo": r.tipo_diferencia,
-                                    "diferencia": _num(r.diferencia), "impacto": _num(r.impacto),
-                                    "severidad": r.severidad, "causa": r.causa_sugerida,
-                                    "estado": r.estado_auditoria}
-                                   for r in resultados[:15]],
+        "informe_markdown": markdown,
     }
+    if resumen is not None:
+        context["resumen"] = resumen
+    return context
 
 
 def local_explanation(context: dict[str, Any]) -> str:
@@ -637,7 +735,12 @@ def local_explanation(context: dict[str, Any]) -> str:
             "Esta respuesta es informativa y no modifica ningún dato del sistema."
         )
     if context["alcance"] == "periodo":
-        r = context["resumen"]
+        r = context.get("resumen")
+        if r is None:
+            return (
+                "El informe completo del período está disponible y se utilizó como contexto. "
+                "Configura el proveedor de IA para obtener un análisis específico de la consulta."
+            )
         if not r["productos"]:
             return "Este período todavía no tiene resultados de auditoría. Ejecuta la auditoría y verifica que exista un inventario y un Excel vinculados."
         return (
@@ -649,6 +752,7 @@ def local_explanation(context: dict[str, Any]) -> str:
     product = context["producto"]["nombre"]
     calc = context["calculo"]
     diag = context["diagnostico_oficial"]
+    causal = context.get("analisis_causal") or {}
     quality = context.get("calidad_datos") or {}
     origins = context.get("origenes_datos") or {}
     operations = {item["nombre"]: item for item in context.get("operaciones") or []}
@@ -661,9 +765,9 @@ def local_explanation(context: dict[str, Any]) -> str:
             "una diferencia real."
         )
     elif calc["diferencia"] > 0:
-        significado = "El signo positivo indica faltante: la venta teórica supera la venta real registrada."
+        significado = "El signo positivo indica sobrante: el stock físico supera el stock esperado."
     elif calc["diferencia"] < 0:
-        significado = "El signo negativo indica sobrante: la venta real supera la venta teórica."
+        significado = "El signo negativo indica faltante: el stock físico es menor que el stock esperado."
     else:
         significado = "El resultado cero indica que la venta teórica coincide con la venta real."
     costo = calc["costo_unitario"]
@@ -718,9 +822,18 @@ def local_explanation(context: dict[str, Any]) -> str:
     difference_step = operations.get("Diferencia matemática") or {}
     source_excel = (origins.get("stock_inicial_excel") or {}).get("origen", "Excel oficial del período")
     source_count = (origins.get("stock_final_fisico") or {}).get("origen", "inventario físico")
+    hypotheses = causal.get("hipotesis") or []
+    hypotheses_text = ""
+    if hypotheses:
+        hypotheses_text = "\nCausas que pueden producir este desbalance\n" + "\n".join(
+            f"{index}) {item['causa']}: {item['por_que']} Para confirmarlo: {item['verificar']}"
+            for index, item in enumerate(hypotheses, 1)
+        ) + "\n"
     return (
         f"Conclusión para {product}\n"
         f"Estado oficial: {diag['estado']}. {significado}\n"
+        f"Por qué no coincide: {causal.get('por_que_no_coincide', significado)}\n"
+        f"Conclusión causal: {causal.get('resumen', '')}\n"
         f"{missing_text}\n"
         "1. Stock final físico\n"
         "Fórmula: inventario cargado por el empleado + ajuste administrativo\n"
@@ -736,19 +849,89 @@ def local_explanation(context: dict[str, Any]) -> str:
         f"{calc['fuente_stock_inicial']}. Los movimientos de compras y entradas provienen de "
         f"{source_excel}. {bajas_text}{anomaly_text}\n"
         "4. Diferencia\n"
-        "Fórmula: venta teórica - venta real\n"
+        "Fórmula: venta real - venta teórica (equivale a stock físico - stock esperado)\n"
         f"Sustitución: {difference_step.get('sustitucion')} unidades. La venta real proviene de "
         f"{calc['fuente_ventas']}. {significado}\n\n"
         f"{impacto_text.replace('4. Impacto', '5. Impacto')}\n\n"
         f"6. Diagnóstico\nCausa sugerida: {diag['causa']} (confianza {diag['confianza']}, "
         f"severidad {diag['severidad']}). Evidencia: {diag['evidencia'] or 'sin evidencia adicional.'}"
-        f"{continuity}{previous_text}\n\n"
+        f"{continuity}{previous_text}\n{hypotheses_text}\n"
         "Qué verificar primero\n"
         "1) Vinculación y fila del producto en el Excel oficial.\n"
         "2) Stock inicial y compras/otros ingresos del período.\n"
         "3) Conteo final físico y unidad de medida.\n"
         "4) Venta real, otras salidas, mermas y vencimientos.\n"
         "Esta explicación no modifica el resultado oficial."
+    )
+
+
+def _normalizar_intencion(texto: str) -> str:
+    """Normaliza mensajes cortos para el enrutador local sin depender del modelo."""
+    normalizado = unicodedata.normalize("NFD", str(texto or "").strip().lower())
+    sin_acentos = "".join(
+        caracter for caracter in normalizado
+        if unicodedata.category(caracter) != "Mn"
+    )
+    return re.sub(r"[^a-z0-9 ]+", " ", sin_acentos).strip()
+
+
+def local_smalltalk(question: str, context: dict[str, Any]) -> str | None:
+    """Responde cortesías localmente sin realizar una solicitud externa."""
+    texto = _normalizar_intencion(question)
+    palabras = set(texto.split())
+    if not texto or len(texto.split()) > 8:
+        return None
+
+    terminos_netward = {
+        "auditoria", "producto", "falta", "faltante", "sobrante", "diferencia", "formula",
+        "calculo", "impacto", "inventario", "periodo", "stock", "conteo", "venta",
+        "compra", "merma", "vencido", "causa", "evidencia",
+    }
+    if palabras & terminos_netward:
+        return None
+
+    if palabras & {"hola", "buenas", "buenos", "saludos", "hey"}:
+        alcance = str(context.get("alcance") or "esta pantalla")
+        return (
+            "¡Hola! Soy Nexa. Estoy lista para ayudarte a entender los datos de "
+            f"{alcance}, explicar una diferencia o indicarte qué conviene revisar primero."
+        )
+    if palabras & {"gracias", "agradecido", "agradecida"}:
+        return "De nada. Cuando quieras, seguimos revisando los datos de Netward."
+    if palabras & {"adios", "chau"} or texto in {"hasta luego", "nos vemos"}:
+        return "Hasta luego. La conversación quedará disponible para continuar después."
+    return None
+
+
+def local_fallback_answer(
+    question: str,
+    context: dict[str, Any],
+    history: list[dict[str, str]] | None = None,
+) -> str:
+    """Respaldo honesto: explica datos conocidos y evita respuestas genéricas repetidas."""
+    social = local_smalltalk(question, context)
+    if social:
+        return social
+
+    texto = _normalizar_intencion(question)
+    terminos_netward = {
+        "auditoria", "producto", "falta", "faltante", "sobrante", "diferencia", "formula",
+        "calculo", "impacto", "inventario", "periodo", "stock", "conteo", "venta",
+        "compra", "merma", "vencido", "resumen", "revisar", "causa", "evidencia",
+    }
+    if set(texto.split()) & terminos_netward:
+        return local_explanation(context)
+
+    continuidad = ""
+    if history:
+        anterior = str(history[-1].get("question") or "").strip()[:180]
+        if anterior:
+            continuidad = f" Entiendo que esto continúa la consulta anterior: “{anterior}”."
+    return (
+        "No puedo responder esa pregunta con seguridad usando solamente los datos que "
+        "Netward proporcionó en esta pantalla. No voy a inventar una respuesta ni repetir "
+        f"un análisis que no corresponde.{continuidad} ¿Qué dato o producto específico "
+        "quieres que consulte dentro de Netward?"
     )
 
 
@@ -759,11 +942,20 @@ def explain(
     history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     config = config or AIConfig.from_env()
+    # Dentro de un período toda consulta debe llegar al proveedor junto con el
+    # informe completo; el enrutador local solo atiende pantallas sin ese informe.
+    social_answer = (
+        None if context.get("informe_markdown")
+        else local_smalltalk(question, context)
+    )
+    if social_answer:
+        return {"ok": True, "answer": social_answer, "provider": "local",
+                "model": "enrutador-nexa", "fallback": False, "error": ""}
     status = config.public_status()
     if not status["configured"]:
         error = "Nexa no está configurada. Verifica AI_ENABLED, AI_MODEL y AI_API_KEY."
         if config.local_fallback_enabled:
-            return {"ok": True, "answer": local_explanation(context), "provider": "local",
+            return {"ok": True, "answer": local_fallback_answer(question, context, history), "provider": "local",
                     "model": "reglas-locales", "fallback": True, "error": error}
         return {"ok": False, "answer": "", "provider": config.provider,
                 "model": config.model, "fallback": False, "error": error}
@@ -778,7 +970,7 @@ def explain(
     except (AIProviderError, ValueError, TypeError) as exc:
         error = str(exc)[:500]
         if config.local_fallback_enabled:
-            return {"ok": True, "answer": local_explanation(context),
+            return {"ok": True, "answer": local_fallback_answer(question, context, history),
                     "provider": "local", "model": "reglas-locales",
                     "fallback": True, "error": error}
         return {"ok": False, "answer": "", "provider": config.provider,

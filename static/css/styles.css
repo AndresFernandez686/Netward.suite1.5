@@ -27,6 +27,19 @@
 
 * { box-sizing: border-box; }
 
+/* El cursor de inserción solo debe aparecer en controles realmente editables.
+   Esto también neutraliza el caret de navegación del navegador sobre títulos y textos. */
+:where(body, body *) { caret-color: transparent; }
+:where(
+  input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]):not([readonly]):not([disabled]),
+  textarea:not([readonly]):not([disabled]),
+  [contenteditable="true"],
+  [contenteditable="plaintext-only"]
+) {
+  caret-color: auto;
+  cursor: text;
+}
+
 html { background: var(--bg); }
 
 body {

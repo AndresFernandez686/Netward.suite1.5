@@ -110,9 +110,11 @@
           <tr class="catalog-product-row" data-product-name="{{ p.nombre }}">
             <td>
               <div class="catalog-product-name">
-                <input type="text" name="nombre" value="{{ p.nombre }}" maxlength="160" required
+                <input class="catalog-product-name__input" type="text" name="nombre" value="{{ p.nombre }}" maxlength="160" required
                        aria-label="Nombre de {{ p.nombre }}" form="catalog-edit-{{ p.id }}" />
-                <button type="submit" class="btn btn--ghost btn--sm" form="catalog-edit-{{ p.id }}">Editar nombre</button>
+                <button type="submit" class="catalog-product-name__save" form="catalog-edit-{{ p.id }}">
+                  <span aria-hidden="true">✎</span><span>Editar nombre</span>
+                </button>
               </div>
               <input type="hidden" name="ids" value="{{ p.id }}" />
             </td>

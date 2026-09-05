@@ -38,6 +38,7 @@ from core.models import (db, Cliente, Tienda, Usuario, Producto, InventarioItem,
                     NotificacionUsuario, AsistenteIAConversacion, AsistenteIAConsulta)
 from core.auditoria import (ejecutar_auditoria, build_reporte_gerencial,
                             marcar_resultado_revisado)
+from core.auditoria_causal import explicar_causa_diferencia
 from core.auditoria_estado import (
     estado_actualizacion_auditoria, marcar_cambio_auditoria, marcar_cambio_catalogo,
 )
@@ -67,7 +68,8 @@ from core.periodos import (
     total_conteo_con_ajustes,
 )
 from core.ai_assistant import (AIConfig, build_period_context,
-                               build_product_context, explain)
+                               build_product_context, explain,
+                               refresh_period_report_markdown)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"), override=True)
@@ -477,6 +479,10 @@ def ensure_multitenant_schema():
             ]
             for tbl in audit_tables:
                 _add_column_if_missing(conn, tbl, "cliente_id VARCHAR(10) NOT NULL DEFAULT 'C001'", "cliente_id")
+            _add_column_if_missing(conn, "inventario_periodos",
+                                   "informe_ia_markdown TEXT", "informe_ia_markdown")
+            _add_column_if_missing(conn, "inventario_periodos",
+                                   "informe_ia_generado TIMESTAMP", "informe_ia_generado")
             _add_column_if_missing(conn, "ajustes_inventario",
                                    "impacta_stock BOOLEAN NOT NULL DEFAULT 1", "impacta_stock")
             for col_sql, col_name in [
@@ -587,7 +593,7 @@ def init_db():
             )
         with db.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        if version != "20260831_05":
+        if version != "20260904_07":
             raise RuntimeError(
                 f"Esquema PostgreSQL desactualizado ({version or 'sin version'}). "
                 "Ejecuta `alembic upgrade head`."
@@ -762,9 +768,9 @@ NEXA_SECCIONES = {
         "contexto": "Períodos, diferencias y evidencia",
         "orientacion": "Empieza por resultados críticos, pendientes y diferencias de mayor impacto.",
         "preguntas": [
-            ("Muéstrame las fórmulas y explica cómo se obtuvieron los resultados.", "Ver fórmulas"),
-            ("¿Cuáles son las evidencias más importantes?", "Ver evidencias"),
-            ("¿Qué debería verificar primero el administrador?", "Qué revisar primero"),
+            ("Proporciona la información principal de este período y destaca lo más importante.", "Proporcionar la información principal"),
+            ("Resume todo el informe de este período, sus resultados y pendientes.", "Resumir mi período"),
+            ("Analicemos este período: explícame qué ocurrió y qué debería revisar.", "Analizar mi período"),
         ],
     },
     "relaciones": {
@@ -3821,6 +3827,8 @@ def admin_auditoria_ejecutar(periodo_id):
     from core.factura_ocr import FacturaError
     try:
         resultados = ejecutar_auditoria(periodo)
+        # Deja listo el informe completo para todas las consultas posteriores a Nexa.
+        refresh_period_report_markdown(periodo)
         db.session.commit()
         faltantes = sum(1 for r in resultados if r.tipo_diferencia == "faltante")
         aviso_incompleta = " (auditoría incompleta: hay productos sin vincular)" if forzar else ""
@@ -3870,6 +3878,8 @@ def admin_auditoria(periodo_id):
         -abs(float(item.diferencia or 0)),
         str(item.producto_nombre or "").casefold(),
     ))
+    for resultado in resultados:
+        resultado.explicacion_causal = explicar_causa_diferencia(resultado)
     facturas_pendientes_auditoria = (
         FacturaCompraDetalle.query.join(FacturaCompra)
         .filter(
@@ -4009,6 +4019,12 @@ def _nexa_guardar_consulta(
     *, conversacion, cliente_id, tienda_id, periodo, resultado, tipo,
     pregunta, contexto, respuesta,
 ):
+    # El informe Markdown ya vive una sola vez en inventario_periodos. No se duplica
+    # dentro de cada mensaje; aquí conservamos solo el contexto específico/trazable.
+    contexto_trazable = {
+        clave: valor for clave, valor in contexto.items()
+        if clave != "informe_markdown"
+    }
     consulta = AsistenteIAConsulta(
         conversacion_id=conversacion.id,
         cliente_id=cliente_id,
@@ -4021,7 +4037,7 @@ def _nexa_guardar_consulta(
         respuesta=respuesta["answer"] or respuesta["error"],
         proveedor=respuesta["provider"],
         modelo=respuesta["model"],
-        contexto_json=_json.dumps(contexto, ensure_ascii=False),
+        contexto_json=_json.dumps(contexto_trazable, ensure_ascii=False),
         estado=("fallback" if respuesta["fallback"] else
                 ("ok" if respuesta["ok"] else "error")),
         error=respuesta["error"],
@@ -4128,6 +4144,13 @@ def admin_asistente_consultar(periodo_id):
         if resultado is not None
         else build_period_context(periodo)
     )
+    if resultado is not None:
+        contexto["informe_markdown"] = (
+            periodo.informe_ia_markdown or refresh_period_report_markdown(periodo)
+        )
+    if db.session.is_modified(periodo, include_collections=False):
+        # Para períodos históricos sin instantánea, se guarda antes de esperar a la API.
+        db.session.commit()
     conversacion = _nexa_resolver_conversacion(
         cliente_id,
         payload,
@@ -4204,6 +4227,8 @@ def admin_nexa_consultar():
         if periodo is not None and seccion == "auditoria"
         else _nexa_contexto_seccion(seccion, cliente_id)
     )
+    if periodo is not None and db.session.is_modified(periodo, include_collections=False):
+        db.session.commit()
     conversacion = _nexa_resolver_conversacion(cliente_id, payload, seccion, pregunta)
     respuesta = explain(
         pregunta,
@@ -4216,7 +4241,7 @@ def admin_nexa_consultar():
         tienda_id=periodo.tienda_id if periodo is not None else "ALL",
         periodo=periodo,
         resultado=None,
-        tipo="seccion",
+        tipo="periodo" if periodo is not None and seccion == "auditoria" else "seccion",
         pregunta=pregunta,
         contexto=contexto,
         respuesta=respuesta,
@@ -4287,6 +4312,11 @@ def admin_justificar(periodo_id, resultado_id):
         periodo_obj = db.session.get(InventarioPeriodo, periodo_id)
         if periodo_obj and periodo_obj.estado == "Conciliado":
             periodo_obj.estado = "Auditado"
+    else:
+        periodo_obj = db.session.get(InventarioPeriodo, periodo_id)
+    if periodo_obj is not None:
+        db.session.flush()
+        refresh_period_report_markdown(periodo_obj)
     db.session.commit()
     flash("Justificación guardada.", "success")
     return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
@@ -4304,6 +4334,11 @@ def admin_marcar_revisado(periodo_id, resultado_id):
         and resultado.periodo_id == periodo_id
     ):
         marcar_resultado_revisado(resultado, session["usuario"])
+        periodo = db.session.get(InventarioPeriodo, periodo_id)
+        if periodo is None:
+            abort(404)
+        db.session.flush()
+        refresh_period_report_markdown(periodo)
         db.session.commit()
         flash("Marcado como revisado.", "success")
     return redirect(url_for("admin_auditoria", periodo_id=periodo_id))
@@ -4355,7 +4390,7 @@ def admin_auditoria_exportar(periodo_id):
         "Compras", "Promedio Compras Histórico", "Factor Desvío Compra",
         "Ventas (inventario oficial)", "Ventas Delivery (info)", "Otros Ingresos", "Otras Salidas", "Stock Final oficial",
         "Stock Esperado Sistema", "Venta Teórica", "Conteo Empleado", "Ajuste Admin",
-        "Stock Final Físico", "Diferencia (VT - VR)", "Tipo Diferencia", "Severidad",
+        "Stock Final Físico", "Diferencia (VR - VT)", "Tipo Diferencia", "Severidad",
         "Costo Unitario", "Fuente Costo", "Impacto",
         "Cantidad Merma", "Cantidad Vencida", "Diferencia Anterior Compensada",
         "Posible Causa Principal", "Evidencia", "Nivel de Confianza",

@@ -353,7 +353,8 @@ def _procesar_filas(filas_raw: list, stock_map: dict, ventas_map: dict,
 
         # ── Diferencia ────────────────────────────────────────────────────
         vr  = _f(fila[layout["vr"]])
-        dif = round(vt - vr, 3)
+        # Convención contable: positivo = sobrante; negativo = faltante.
+        dif = round(vr - vt, 3)
         fila[layout["dif"]] = dif
 
         # ── Guardar SF para snapshot ───────────────────────────────────────
@@ -1323,7 +1324,7 @@ def desc_excel_datos_guardar(excel_id):
                     - float(detalle.otrassalidas or 0),
                     3,
                 )
-                diferencia = round(venta_teorica - float(detalle.ventareal or 0), 3)
+                diferencia = round(float(detalle.ventareal or 0) - venta_teorica, 3)
                 for campo, valor in (
                     ("ventateorica", venta_teorica),
                     ("diferencia", diferencia),

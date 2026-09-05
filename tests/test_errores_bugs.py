@@ -116,7 +116,7 @@ class PruebasErroresBugs(unittest.TestCase):
 
         self.assertEqual(len(resultados), 1)
         resultado = resultados[0]
-        self.assertEqual(resultado.diferencia, -5)
+        self.assertEqual(resultado.diferencia, 5)
         self.assertIsNone(resultado.costo_unitario)
         self.assertEqual(resultado.impacto, 0)
         self.assertEqual(resultado.fuente_costo, "Sin costo")

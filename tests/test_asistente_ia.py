@@ -13,6 +13,7 @@ from core.ai_assistant import (
     _call_provider,
     _http_json,
     build_period_context,
+    build_period_report_markdown,
     build_product_context,
     explain,
     local_explanation,
@@ -57,7 +58,7 @@ class PruebasAsistenteIA(unittest.TestCase):
             categoria="Impulsivo", articulo_codigo="A-1", stock_inicial_excel=10,
             compras=20, otros_ingresos=5, ventas=8, otras_salidas=2,
             cantidad_merma=1, cantidad_vencida=1, stock_esperado=23,
-            venta_teorica=28, conteo_empleado=3, conteo_final=3, diferencia=20,
+            venta_teorica=28, conteo_empleado=3, conteo_final=3, diferencia=-20,
             tipo_diferencia="faltante", costo_unitario=1000, impacto=20000,
             causa_sugerida="Error de conteo", nivel_confianza="Medio",
             severidad="Revisar", estado_auditoria="Pendiente", evidencia="Conteo menor al esperado",
@@ -134,8 +135,8 @@ class PruebasAsistenteIA(unittest.TestCase):
         self.assertIn("Alfajor", respuesta["answer"])
         self.assertIn("Fórmula: stock inicial + compras", respuesta["answer"])
         self.assertIn("10 + 20 + 5 - 3 - 2 - 1 - 1 = 28", respuesta["answer"])
-        self.assertIn("28 - 8 = +20", respuesta["answer"])
-        self.assertIn("|+20| × 1.000 = 20.000 Gs.", respuesta["answer"])
+        self.assertIn("8 - 28 = -20", respuesta["answer"])
+        self.assertIn("|-20| × 1.000 = 20.000 Gs.", respuesta["answer"])
 
     def test_contexto_incluye_formulas_y_fuentes_del_resultado(self):
         contexto = build_product_context(self.periodo, self.resultado)
@@ -151,7 +152,7 @@ class PruebasAsistenteIA(unittest.TestCase):
         )
         self.assertEqual(
             contexto["formulas"]["diferencia"],
-            "venta teórica - venta real",
+            "venta real - venta teórica",
         )
         self.assertEqual(len(contexto["tabla_visual"]["fila"]), 9)
         self.assertTrue(contexto["tabla_visual"]["diferencia_evaluable"])
@@ -173,7 +174,7 @@ class PruebasAsistenteIA(unittest.TestCase):
         self.resultado.ajuste_admin = 0
         self.resultado.conteo_final = 5
         self.resultado.venta_teorica = -5
-        self.resultado.diferencia = -5
+        self.resultado.diferencia = 5
         self.resultado.tipo_diferencia = "correcto"
         self.resultado.costo_unitario = None
         self.resultado.impacto = 0
@@ -193,7 +194,9 @@ class PruebasAsistenteIA(unittest.TestCase):
         self.assertIn("0 + 0 + 0 - 5 - 0 - 0 - 0 = -5", respuesta)
         self.assertIn("no significa que se hayan vendido unidades negativas", respuesta)
         self.assertIn("no un faltante o sobrante oficial", respuesta)
-        self.assertEqual(contexto["tabla_visual"]["fila"]["diferencia"], -5)
+        self.assertIn("analisis_causal", contexto)
+        self.assertIn("no pueden conciliarse oficialmente", contexto["analisis_causal"]["por_que_no_coincide"])
+        self.assertEqual(contexto["tabla_visual"]["fila"]["diferencia"], 5)
         self.assertFalse(contexto["tabla_visual"]["diferencia_evaluable"])
 
     def test_explicacion_usa_venta_teorica_menos_venta_real(self):
@@ -208,7 +211,7 @@ class PruebasAsistenteIA(unittest.TestCase):
         self.resultado.conteo_empleado = 5
         self.resultado.conteo_final = 5
         self.resultado.venta_teorica = 179
-        self.resultado.diferencia = -77
+        self.resultado.diferencia = 77
         self.resultado.tipo_diferencia = "sobrante"
         self.resultado.impacto = 77000
         db.session.commit()
@@ -221,8 +224,8 @@ class PruebasAsistenteIA(unittest.TestCase):
         )["answer"]
 
         self.assertIn("136 + 48 + 0 - 5 - 0 - 0 - 0 = 179", respuesta)
-        self.assertIn("179 - 256 = -77", respuesta)
-        self.assertIn("El signo negativo indica sobrante", respuesta)
+        self.assertIn("256 - 179 = +77", respuesta)
+        self.assertIn("El signo positivo indica sobrante", respuesta)
 
     def test_contexto_de_producto_solo_busca_anterior_de_misma_empresa_y_tienda(self):
         otro_periodo = InventarioPeriodo(
@@ -244,6 +247,24 @@ class PruebasAsistenteIA(unittest.TestCase):
         self.assertEqual(contexto["resumen"]["productos"], 1)
         self.assertEqual(contexto["resumen"]["faltantes"], 1)
         self.assertEqual(contexto["resumen"]["impacto_faltantes"], 20000)
+        self.assertIn("# Informe de auditoría", contexto["informe_markdown"])
+        self.assertIn("Alfajor", contexto["informe_markdown"])
+
+    @patch("core.ai_assistant._http_json")
+    def test_consulta_periodo_envia_informe_markdown_completo(self, http_json):
+        http_json.return_value = {"choices": [{"message": {"content": "Análisis"}}]}
+        markdown, _resumen = build_period_report_markdown(self.periodo)
+
+        _call_provider(
+            self.config("nvidia"),
+            "Resume mi período",
+            {"alcance": "periodo", "informe_markdown": markdown},
+        )
+
+        prompt = http_json.call_args.args[1]["messages"][1]["content"]
+        self.assertIn("Pregunta actual del administrador:\nResume mi período", prompt)
+        self.assertIn("Informe completo del período (Markdown", prompt)
+        self.assertIn("Alfajor", prompt)
 
     def test_bot_local_explica_contexto_de_cualquier_seccion(self):
         respuesta = local_explanation({
@@ -275,7 +296,6 @@ class PruebasAsistenteIA(unittest.TestCase):
             "nvidia": ({"choices": [{"message": {"content": "nvidia"}}]}, "nvidia"),
             "anthropic": ({"content": [{"type": "text", "text": "anthropic"}]}, "anthropic"),
             "gemini": ({"candidates": [{"content": {"parts": [{"text": "gemini"}]}}]}, "gemini"),
-            "ollama": ({"message": {"content": "ollama"}}, "ollama"),
             "custom": ({"answer": "custom"}, "custom"),
         }
         self.assertEqual(PROVEEDORES, {"openai", *responses.keys()})
@@ -405,7 +425,7 @@ class PruebasAsistenteIA(unittest.TestCase):
             config = AIConfig.from_env()
         self.assertFalse(config.public_status()["configured"])
         self.assertFalse(config.local_fallback_enabled)
-        self.assertEqual(config.timeout, 30)
+        self.assertEqual(config.timeout, 120)
 
     def test_consulta_es_trazable_sin_guardar_claves(self):
         contexto = build_product_context(self.periodo, self.resultado)

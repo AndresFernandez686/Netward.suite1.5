@@ -206,7 +206,7 @@ class PruebaEndToEnd(unittest.TestCase):
         self.assertEqual(resultado.stock_esperado, 10)
         self.assertEqual(resultado.conteo_final, 7)
         self.assertEqual(resultado.venta_teorica, 3)
-        self.assertEqual(resultado.diferencia, 3)
+        self.assertEqual(resultado.diferencia, -3)
         self.assertEqual(resultado.tipo_diferencia, "faltante")
         self.assertEqual(resultado.impacto, 3000)
         self.assertEqual(periodo.estado, "Conciliado")

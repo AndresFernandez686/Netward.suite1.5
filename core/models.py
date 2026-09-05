@@ -382,6 +382,10 @@ class InventarioPeriodo(BaseModel):
     fecha_creacion = db.Column(db.DateTime, default=utc_now)
     fecha_cierre = db.Column(db.DateTime, nullable=True)
     observacion = db.Column(db.String(500), default="")
+    # Instantánea completa que Nexa reutiliza en las consultas del período.
+    # Se genera junto con la auditoría para no reconstruir el informe en cada pregunta.
+    informe_ia_markdown = db.Column(db.Text, nullable=True)
+    informe_ia_generado = db.Column(db.DateTime, nullable=True)
 
     conteos = db.relationship("ConteoDetalle", backref="periodo", lazy=True,
                                cascade="all, delete-orphan")

@@ -1,5 +1,6 @@
 {% extends "admin_base.html" %}
 {% block title %}Reporte Gerencial — Período #{{ periodo.numero }} — {{ app_nombre }}{% endblock %}
+{% block body_class %}report-view{% endblock %}
 {% block heading %}Reporte gerencial{% endblock %}
 {% block subheading %}Período #{{ periodo.numero }} · {{ tienda_nombre }}{% endblock %}
 {% block admin_back_button %}
@@ -8,287 +9,139 @@
 </a>
 {% endblock %}
 
-{% block content %}
-<div class="page-header">
-  <h1 class="page-title">Reporte Gerencial — Período #{{ periodo.numero }}</h1>
-  <p class="page-sub">{{ periodo.fecha_desde }} → {{ periodo.fecha_hasta }} · {{ tienda_nombre }}</p>
-</div>
-
-<div class="audit-toolbar report-toolbar" aria-label="Acciones del reporte gerencial">
-  <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn--ghost btn--sm audit-export">
-    <span aria-hidden="true">↓</span> Exportar Excel completo
-  </a>
-</div>
-
-{# ── Resumen ejecutivo ── #}
-<div class="kpi-grid mb-4">
-  <div class="kpi-card kpi-card--danger">
-    <div class="kpi-value">
-      {% if total_perdida %}
-        Gs.&nbsp;{{ "{:,.0f}".format(total_perdida).replace(",", ".") }}
-      {% else %}Gs. 0{% endif %}
+{% macro tarjeta_producto(r, tipo) -%}
+<article class="report-product-card report-product-card--{{ tipo }}" data-report-product="{{ tipo }}">
+  <header class="report-product-card__header">
+    <div><h3>{{ r.producto_nombre }}</h3>{% if r.categoria %}<span>{{ r.categoria }}</span>{% endif %}</div>
+    <div class="report-product-card__amount">
+      <strong>{% if tipo == 'faltante' %}−{% else %}+{% endif %}{{ "{:,.1f}".format(r.diferencia | abs).replace(",", ".") }}</strong>
+      <span>{% if r.impacto %}Gs. {% if tipo == 'faltante' %}−{% else %}+{% endif %}{{ "{:,.0f}".format(r.impacto | abs).replace(",", ".") }}{% else %}Sin costo{% endif %}</span>
     </div>
-    <div class="kpi-label">Total pérdida estimada</div>
+  </header>
+  <dl class="report-product-card__facts">
+    <div><dt>Código</dt><dd>{{ r.articulo_codigo or '—' }}</dd></div>
+    <div><dt>Conteo físico</dt><dd>{{ "{:,.1f}".format(r.conteo_final or 0).replace(",", ".") }} unid.</dd></div>
+    <div><dt>Stock esperado</dt><dd>{{ "{:,.1f}".format(r.stock_esperado or 0).replace(",", ".") }} unid.</dd></div>
+    <div><dt>Costo unitario</dt><dd>{% if r.costo_unitario %}Gs. {{ "{:,.0f}".format(r.costo_unitario).replace(",", ".") }}{% else %}—{% endif %}</dd></div>
+  </dl>
+  <div class="report-product-card__tags">
+    <span class="badge badge--warning">{{ r.causa_sugerida }}</span>
+    <span class="badge {% if r.nivel_confianza == 'Alto' %}badge--success{% elif r.nivel_confianza == 'Medio' %}badge--warning{% else %}badge--secondary{% endif %}">Confianza {{ r.nivel_confianza | lower }}</span>
+    <span class="badge {% if r.estado_auditoria in ['Justificado', 'Revisado'] %}badge--success{% else %}badge--warning{% endif %}">{{ r.estado_auditoria }}</span>
   </div>
-  <div class="kpi-card kpi-card--warning">
-    <div class="kpi-value">{{ faltantes|length }}</div>
-    <div class="kpi-label">Productos con faltante</div>
+  <div class="report-product-card__explanation">
+    <span class="report-product-card__explanation-label">Por qué no coincide</span>
+    <strong>{{ r.explicacion_causal.etiqueta }}</strong>
+    <p>{{ r.explicacion_causal.por_que_no_coincide }}</p>
+    <small>{{ r.explicacion_causal.resumen }}</small>
+    {% if r.explicacion_causal.hipotesis %}
+    <details><summary>Ver causas posibles</summary><ol>
+      {% for item in r.explicacion_causal.hipotesis %}<li><strong>{{ item.causa }}</strong>: {{ item.por_que }} <span>{{ item.verificar }}</span></li>{% endfor %}
+    </ol></details>
+    {% endif %}
   </div>
-  <div class="kpi-card kpi-card--danger">
-    <div class="kpi-value">{{ alertas_criticas|length }}</div>
-    <div class="kpi-label">Alertas críticas</div>
+</article>
+{%- endmacro %}
+
+{% block content %}
+<div class="report-layout" id="reportLayout">
+  <header class="report-hero">
+    <div class="report-hero__copy">
+      <span class="report-hero__eyebrow">Informe consolidado de auditoría</span>
+      <h1>Reporte gerencial <span>Período #{{ periodo.numero }}</span></h1>
+      <div class="report-hero__meta" aria-label="Datos del reporte">
+        <span><strong>Desde</strong> {{ periodo.fecha_desde }}</span><span><strong>Hasta</strong> {{ periodo.fecha_hasta }}</span><span><strong>Tienda</strong> {{ tienda_nombre }}</span>
+      </div>
+    </div>
+    <div class="report-actions" aria-label="Acciones del reporte gerencial">
+      <a href="{{ url_for('admin_auditoria_exportar', periodo_id=periodo.id) }}" class="btn btn--primary btn--sm report-action report-action--export"><span aria-hidden="true">↓</span><span>Exportar Excel</span></a>
+      <button type="button" class="btn btn--ghost btn--sm report-action" id="reportPrint"><span aria-hidden="true">▣</span><span>Imprimir / PDF</span></button>
+    </div>
+  </header>
+
+  <section class="card card--skip-collapse report-section report-differences">
+    <div class="card__header"><h2 class="card__title">Detalle de productos por diferencia</h2></div>
+    <div class="card__body">
+      <div class="report-difference-toolbar" aria-label="Filtrar productos por diferencia">
+        <div><strong>Productos auditados con diferencias</strong><span id="reportFilterStatus" aria-live="polite">Mostrando faltantes y sobrantes</span></div>
+        <div class="report-difference-filters" role="group" aria-label="Tipo de diferencia">
+          <button type="button" data-difference-filter="faltante" aria-pressed="false">Faltantes <span>{{ faltantes|length }}</span></button>
+          <button type="button" data-difference-filter="sobrante" aria-pressed="false">Sobrantes <span>{{ sobrantes|length }}</span></button>
+          <button type="button" data-difference-filter="todos" class="is-active" aria-pressed="true">Ver todos <span>{{ (faltantes|length) + (sobrantes|length) }}</span></button>
+        </div>
+      </div>
+      <div class="report-difference-grid" id="reportDifferenceGrid">
+        <section class="report-difference-panel report-difference-panel--missing" data-difference-panel="faltante">
+          <header><div><span aria-hidden="true">−</span><h3>Productos faltantes</h3></div><strong>{{ faltantes|length }} producto{% if faltantes|length != 1 %}s{% endif %}</strong></header>
+          <div class="report-product-list">{% for r in faltantes %}{{ tarjeta_producto(r, 'faltante') }}{% else %}<p class="report-panel-empty">No se registraron productos faltantes en este período.</p>{% endfor %}</div>
+        </section>
+        <section class="report-difference-panel report-difference-panel--surplus" data-difference-panel="sobrante">
+          <header><div><span aria-hidden="true">+</span><h3>Productos sobrantes</h3></div><strong>{{ sobrantes|length }} producto{% if sobrantes|length != 1 %}s{% endif %}</strong></header>
+          <div class="report-product-list">{% for r in sobrantes %}{{ tarjeta_producto(r, 'sobrante') }}{% else %}<p class="report-panel-empty">No se registraron productos sobrantes en este período.</p>{% endfor %}</div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <div class="report-bottom-grid">
+    <section class="card card--skip-collapse report-section report-summary report-summary--missing">
+      <div class="card__header report-summary__header">
+        <div class="report-summary__title"><span aria-hidden="true">−</span><div><h2 class="card__title">Diferencia por faltante</h2><p>{{ faltantes|length }} producto{% if faltantes|length != 1 %}s{% endif %} con faltante</p></div></div>
+      </div>
+      <div class="card__body p-0">
+        {% if faltantes %}<div class="table-responsive"><table class="table report-summary-table"><colgroup><col class="report-summary-table__product"><col class="report-summary-table__quantity"><col class="report-summary-table__amount"></colgroup><thead><tr><th>Producto</th><th class="report-summary-table__numeric">Cantidad faltante</th><th class="report-summary-table__numeric">Importe</th></tr></thead><tbody>
+          {% for r in faltantes %}<tr><td><strong>{{ r.producto_nombre }}</strong>{% if r.categoria %}<small>{{ r.categoria }}</small>{% endif %}</td><td class="report-summary-table__numeric report-negative">{{ "{:,.1f}".format(r.diferencia | abs).replace(",", ".") }} unid.</td><td class="report-summary-table__numeric report-negative">{% if r.impacto %}Gs. {{ "{:,.0f}".format(r.impacto | abs).replace(",", ".") }}{% else %}—{% endif %}</td></tr>{% endfor %}
+        </tbody><tfoot><tr><td>Total faltante</td><td class="report-summary-table__numeric report-negative">{{ "{:,.1f}".format(faltantes | sum(attribute='diferencia') | abs).replace(",", ".") }} unid.</td><td class="report-summary-table__numeric report-negative">{% if total_perdida %}Gs. {{ "{:,.0f}".format(total_perdida).replace(",", ".") }}{% else %}—{% endif %}</td></tr></tfoot></table></div>
+        {% else %}<p class="empty-state">No se registraron productos faltantes.</p>{% endif %}
+      </div>
+    </section>
+    <section class="card card--skip-collapse report-section report-summary report-summary--surplus">
+      <div class="card__header report-summary__header">
+        <div class="report-summary__title"><span aria-hidden="true">+</span><div><h2 class="card__title">Diferencia por sobrante</h2><p>{{ sobrantes|length }} producto{% if sobrantes|length != 1 %}s{% endif %} con sobrante</p></div></div>
+      </div>
+      <div class="card__body p-0">
+        {% if sobrantes %}<div class="table-responsive"><table class="table report-summary-table"><colgroup><col class="report-summary-table__product"><col class="report-summary-table__quantity"><col class="report-summary-table__amount"></colgroup><thead><tr><th>Producto</th><th class="report-summary-table__numeric">Cantidad sobrante</th><th class="report-summary-table__numeric">Importe</th></tr></thead><tbody>
+          {% for r in sobrantes %}<tr><td><strong>{{ r.producto_nombre }}</strong>{% if r.categoria %}<small>{{ r.categoria }}</small>{% endif %}</td><td class="report-summary-table__numeric report-positive">{{ "{:,.1f}".format(r.diferencia | abs).replace(",", ".") }} unid.</td><td class="report-summary-table__numeric report-positive">{% if r.impacto %}Gs. {{ "{:,.0f}".format(r.impacto | abs).replace(",", ".") }}{% else %}—{% endif %}</td></tr>{% endfor %}
+        </tbody><tfoot><tr><td>Total sobrante</td><td class="report-summary-table__numeric report-positive">{{ "{:,.1f}".format(sobrantes | sum(attribute='diferencia') | abs).replace(",", ".") }} unid.</td><td class="report-summary-table__numeric report-positive">{% if total_sobrante %}Gs. {{ "{:,.0f}".format(total_sobrante | abs).replace(",", ".") }}{% else %}—{% endif %}</td></tr></tfoot></table></div>{% else %}<p class="empty-state">No se registraron productos sobrantes.</p>{% endif %}
+      </div>
+    </section>
   </div>
-  {% if causa_dominante %}
-  <div class="kpi-card kpi-card--warning">
-    <div class="kpi-value" style="font-size:1rem;">{{ causa_dominante.nombre }}</div>
-    <div class="kpi-label">Principal causa</div>
-    <div class="kpi-sub">Impacto: Gs.&nbsp;{{ "{:,.0f}".format(causa_dominante.importe).replace(",", ".") }}</div>
-  </div>
-  {% else %}
-  <div class="kpi-card kpi-card--info">
-    <div class="kpi-value">{{ periodo.dias_periodo }} días</div>
-    <div class="kpi-label">Duración del período</div>
-  </div>
+
+  {% if comparacion %}
+  <section class="card card--skip-collapse report-section">
+    <div class="card__header"><h2 class="card__title">Comparación contra período anterior (Inv. #{{ comparacion.periodo_anterior.numero }})</h2></div>
+    <div class="card__body"><div class="kpi-grid">
+      <div class="kpi-card kpi-card--{{ comparacion.clase }}"><div class="kpi-value">{{ comparacion.flecha }} {% if comparacion.porcentaje is not none %}{{ comparacion.porcentaje }}%{% else %}Sin cambio{% endif %}</div><div class="kpi-label">Pérdida {{ comparacion.tendencia }}</div></div>
+      <div class="kpi-card"><div class="kpi-value">Gs. {{ "{:,.0f}".format(comparacion.perdida_anterior).replace(",", ".") }}</div><div class="kpi-label">Período anterior</div></div>
+      <div class="kpi-card"><div class="kpi-value">Gs. {{ "{:,.0f}".format(total_perdida).replace(",", ".") }}</div><div class="kpi-label">Período actual</div></div>
+      <div class="kpi-card {% if comparacion.delta_faltantes > 0 %}kpi-card--danger{% elif comparacion.delta_faltantes < 0 %}kpi-card--success{% endif %}"><div class="kpi-value">{% if comparacion.delta_faltantes > 0 %}+{% endif %}{{ comparacion.delta_faltantes }}</div><div class="kpi-label">Cambio en faltantes</div></div>
+    </div></div>
+  </section>
   {% endif %}
 </div>
+{% endblock %}
 
-{# ── Trazabilidad multi-empleado ── #}
-<div class="card mb-4">
-  <div class="card__header"><h2 class="card__title">Trazabilidad de cargas</h2></div>
-  <div class="card__body p-0">
-    {% if cargas %}
-    <div class="table-responsive">
-      <table class="table">
-        <thead><tr><th>Producto</th><th>Conteo válido</th><th>Última carga por</th><th>Sobreescritura</th></tr></thead>
-        <tbody>
-          {% for carga in cargas %}
-          <tr>
-            <td><strong>{{ carga.producto_nombre }}</strong></td>
-            <td>{{ carga.total_unidad_base }} unid.</td>
-            <td>{{ carga.usuario }}</td>
-            <td>{% if carga.fue_sobreescrito %}<span class="badge badge--warning">Sí</span>{% else %}No{% endif %}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="empty-state">No hay cargas registradas para este período.</p>
-    {% endif %}
-  </div>
-</div>
-
-{# ── Comparación contra período anterior ── #}
-{% if comparacion %}
-<div class="card mb-4">
-  <div class="card__header"><h2 class="card__title">Comparación contra período anterior (Inv. #{{ comparacion.periodo_anterior.numero }})</h2></div>
-  <div class="card__body">
-    <div class="kpi-grid">
-      <div class="kpi-card kpi-card--{{ comparacion.clase }}">
-        <div class="kpi-value">
-          {{ comparacion.flecha }}
-          {% if comparacion.porcentaje is not none %}
-            {{ comparacion.porcentaje }}%
-          {% elif comparacion.delta != 0 %}
-            Gs.&nbsp;{{ "{:,.0f}".format(comparacion.delta | abs).replace(",", ".") }}
-          {% else %}Sin cambio{% endif %}
-        </div>
-        <div class="kpi-label">Pérdida {{ comparacion.tendencia }} vs período anterior</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-value">Gs.&nbsp;{{ "{:,.0f}".format(comparacion.perdida_anterior).replace(",", ".") }}</div>
-        <div class="kpi-label">Pérdida período anterior</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-value">Gs.&nbsp;{{ "{:,.0f}".format(total_perdida).replace(",", ".") if total_perdida else "0" }}</div>
-        <div class="kpi-label">Pérdida período actual</div>
-      </div>
-      <div class="kpi-card kpi-card--{{ comparacion.clase }}">
-        <div class="kpi-value" style="font-size:1.1rem;text-transform:capitalize;">{{ comparacion.flecha }} {{ comparacion.tendencia }}</div>
-        <div class="kpi-label">Tendencia</div>
-      </div>
-      <div class="kpi-card {% if comparacion.delta_faltantes > 0 %}kpi-card--danger{% elif comparacion.delta_faltantes < 0 %}kpi-card--success{% endif %}">
-        <div class="kpi-value">{% if comparacion.delta_faltantes > 0 %}+{% endif %}{{ comparacion.delta_faltantes }}</div>
-        <div class="kpi-label">Δ productos con faltante</div>
-      </div>
-      <div class="kpi-card {% if comparacion.delta_criticos > 0 %}kpi-card--danger{% elif comparacion.delta_criticos < 0 %}kpi-card--success{% endif %}">
-        <div class="kpi-value">{% if comparacion.delta_criticos > 0 %}+{% endif %}{{ comparacion.delta_criticos }}</div>
-        <div class="kpi-label">Δ alertas críticas</div>
-      </div>
-    </div>
-  </div>
-</div>
-{% endif %}
-
-{# ── Alertas críticas ── #}
-{% if alertas_criticas %}
-<div class="card mb-4 border-danger">
-  <div class="card__header"><h2 class="card__title text-danger">⚠ Alertas críticas</h2></div>
-  <div class="card__body p-0">
-    <div class="table-responsive">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Producto</th><th>Faltante</th><th>Impacto</th>
-            <th>Causa sugerida</th><th>Confianza</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in alertas_criticas %}
-          <tr style="background:#fff1f2">
-            <td><strong>{{ r.producto_nombre }}</strong></td>
-            <td class="text-danger">{{ r.diferencia }} unid.</td>
-            <td class="text-danger">
-              {% if r.impacto %}Gs. {{ "{:,.0f}".format(r.impacto).replace(",", ".") }}{% else %}—{% endif %}
-            </td>
-            <td><span class="badge badge--warning">{{ r.causa_sugerida }}</span></td>
-            <td>
-              <span class="badge
-                {% if r.nivel_confianza == 'Alto' %}badge--success
-                {% elif r.nivel_confianza == 'Medio' %}badge--warning
-                {% else %}badge--secondary{% endif %}">
-                {{ r.nivel_confianza }}
-              </span>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-{% endif %}
-
-{# ── Resumen por causa ── #}
-{% if por_causa %}
-<div class="card mb-4">
-  <div class="card__header"><h2 class="card__title">Resumen por causa</h2></div>
-  <div class="card__body p-0">
-    <div class="table-responsive">
-      <table class="table">
-        <thead>
-          <tr><th>Causa</th><th>Cantidad de productos</th><th>Importe total</th></tr>
-        </thead>
-        <tbody>
-          {% for causa, datos in por_causa_ordenado %}
-          <tr>
-            <td>{{ causa }}</td>
-            <td>{{ datos.cantidad }}</td>
-            <td>
-              {% if datos.importe %}
-                Gs. {{ "{:,.0f}".format(datos.importe).replace(",", ".") }}
-              {% else %}—{% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-        <tfoot>
-          <tr style="font-weight:700">
-            <td>Total</td>
-            <td>{{ faltantes|length }}</td>
-            <td class="text-danger">
-              {% if total_perdida %}Gs. {{ "{:,.0f}".format(total_perdida).replace(",", ".") }}{% else %}—{% endif %}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  </div>
-</div>
-{% endif %}
-
-{# ── Detalle de faltantes ── #}
-<div class="card mb-4">
-  <div class="card__header"><h2 class="card__title">Detalle de productos con faltante</h2></div>
-  <div class="card__body p-0">
-    {% if not faltantes %}
-      <p class="empty-state">No se registraron faltantes en este período.</p>
-    {% else %}
-    <div class="table-responsive">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Producto</th>
-            <th>Faltante (unid.)</th>
-            <th>Costo unit.</th>
-            <th>Valor perdido</th>
-            <th>Causa</th>
-            <th>Evidencia</th>
-            <th>Confianza</th>
-            <th>Estado</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in faltantes %}
-          <tr {% if r.severidad == 'Crítico' %}style="background:#fff1f2"{% endif %}>
-            <td>
-              <strong>{{ r.producto_nombre }}</strong>
-              {% if r.categoria %}<br><small class="text-muted">{{ r.categoria }}</small>{% endif %}
-            </td>
-            <td class="text-danger text-right">{{ r.diferencia }}</td>
-            <td class="text-right">
-              {% if r.costo_unitario %}Gs. {{ "{:,.0f}".format(r.costo_unitario).replace(",", ".") }}{% else %}—{% endif %}
-            </td>
-            <td class="text-right {% if r.impacto > 0 %}text-danger{% endif %}">
-              {% if r.impacto %}Gs. {{ "{:,.0f}".format(r.impacto).replace(",", ".") }}{% else %}—{% endif %}
-            </td>
-            <td>
-              <span class="badge badge--warning" style="font-size:.75em">{{ r.causa_sugerida }}</span>
-            </td>
-            <td style="font-size:.8em;max-width:240px">{{ r.evidencia | truncate(120) }}</td>
-            <td>
-              <span class="badge
-                {% if r.nivel_confianza == 'Alto' %}badge--success
-                {% elif r.nivel_confianza == 'Medio' %}badge--warning
-                {% else %}badge--secondary{% endif %}">
-                {{ r.nivel_confianza }}
-              </span>
-            </td>
-            <td>
-              <span class="badge
-                {% if r.estado_auditoria == 'Justificado' %}badge--success
-                {% elif r.estado_auditoria == 'Sin diferencia' %}badge--info
-                {% else %}badge--warning{% endif %}">
-                {{ r.estado_auditoria }}
-              </span>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-        <tfoot>
-          <tr style="font-weight:700;background:#f8f8f8">
-            <td>TOTAL</td>
-            <td class="text-danger text-right">
-              {{ faltantes | sum(attribute='diferencia') | abs | round(1) }} unid.
-            </td>
-            <td>—</td>
-            <td class="text-danger text-right">
-              {% if total_perdida %}Gs. {{ "{:,.0f}".format(total_perdida).replace(",", ".") }}{% else %}Gs. 0{% endif %}
-            </td>
-            <td colspan="4"></td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-    {% endif %}
-  </div>
-</div>
-
-<style>
-.kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:1rem; }
-.kpi-card { background:#fff; border-radius:10px; padding:1.2rem 1rem; text-align:center;
-            box-shadow:0 1px 6px rgba(0,0,0,.08); border-top:4px solid #e5e7eb; }
-.kpi-card--danger  { border-color:#ef4444; }
-.kpi-card--warning { border-color:#f59e0b; }
-.kpi-card--info    { border-color:#3b82f6; }
-.kpi-value { font-size:1.6rem; font-weight:700; color:#111; margin-bottom:.25rem; }
-.kpi-label { font-size:.8rem; color:#666; }
-.kpi-sub   { font-size:.75rem; color:#888; margin-top:.15rem; }
-.kpi-card--danger  .kpi-value { color:#dc2626; }
-.kpi-card--warning .kpi-value { color:#b45309; }
-.border-danger { border-left:4px solid #ef4444; }
-.d-flex { display:flex; } .gap-2 { gap:.5rem; } .mb-3 { margin-bottom:1rem; } .mb-4 { margin-bottom:1.5rem; }
-.text-right { text-align:right; } .text-danger { color:#dc2626; }
-.empty-state { padding:2rem; text-align:center; color:#888; }
-</style>
+{% block scripts %}
+<script>
+  (function () {
+    var printButton = document.getElementById('reportPrint');
+    var filterButtons = Array.from(document.querySelectorAll('[data-difference-filter]'));
+    var differencePanels = Array.from(document.querySelectorAll('[data-difference-panel]'));
+    var differenceGrid = document.getElementById('reportDifferenceGrid');
+    var filterStatus = document.getElementById('reportFilterStatus');
+    function applyDifferenceFilter(filter) {
+      differencePanels.forEach(function (panel) { panel.hidden = filter !== 'todos' && panel.dataset.differencePanel !== filter; });
+      filterButtons.forEach(function (button) {
+        var active = button.dataset.differenceFilter === filter;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      if (differenceGrid) differenceGrid.classList.toggle('is-single', filter !== 'todos');
+      if (filterStatus) filterStatus.textContent = filter === 'faltante' ? 'Mostrando solo productos faltantes' : filter === 'sobrante' ? 'Mostrando solo productos sobrantes' : 'Mostrando faltantes y sobrantes';
+    }
+    filterButtons.forEach(function (button) { button.addEventListener('click', function () { applyDifferenceFilter(button.dataset.differenceFilter); }); });
+    if (printButton) printButton.addEventListener('click', function () { window.print(); });
+    applyDifferenceFilter('todos');
+  })();
+</script>
 {% endblock %}

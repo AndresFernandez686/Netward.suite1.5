@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from logging.config import fileConfig
 
 from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from core.models import db
@@ -13,6 +15,9 @@ config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)
 
+# Usa la misma configuración local que app.py, sin reemplazar variables
+# proporcionadas explícitamente por el entorno de despliegue.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 database_url = os.getenv("DATABASE_URL")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))

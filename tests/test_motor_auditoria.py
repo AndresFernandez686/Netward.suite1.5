@@ -336,7 +336,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         self.assertEqual(resultado.venta_teorica, 30)
         self.assertEqual(resultado.diferencia, 0)
 
-    def test_formula_oficial_venta_teorica_menos_venta_real(self):
+    def test_formula_oficial_venta_real_menos_venta_teorica(self):
         producto = self.crear_producto("Bombon suizo x unidad")
         periodo = self.crear_periodo(1)
         self.agregar_conteo(periodo, producto, 5)
@@ -352,7 +352,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         resultado = self.resultado_unico(periodo)
 
         self.assertEqual(resultado.venta_teorica, 179)
-        self.assertEqual(resultado.diferencia, -77)
+        self.assertEqual(resultado.diferencia, 77)
         self.assertEqual(resultado.tipo_diferencia, "sobrante")
         self.assertEqual(resultado.impacto, 500500)
 
@@ -389,7 +389,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         self.assertEqual(resultado.stock_esperado, 10)
         self.assertEqual(resultado.conteo_final, 7)
         self.assertEqual(resultado.venta_teorica, 3)
-        self.assertEqual(resultado.diferencia, 3)
+        self.assertEqual(resultado.diferencia, -3)
         self.assertEqual(resultado.tipo_diferencia, "faltante")
 
     def test_tipos_de_diferencia_y_regla_stock_cero(self):
@@ -449,7 +449,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
 
         resultado = self.resultado_unico(periodo)
 
-        self.assertEqual(resultado.diferencia, 3)
+        self.assertEqual(resultado.diferencia, -3)
         self.assertEqual(resultado.costo_unitario, 500)
         self.assertEqual(resultado.impacto, 1500)
         self.assertEqual(resultado.fuente_costo, "Precio interno")
@@ -475,7 +475,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         producto = self.crear_producto("Error conteo")
         anterior = self.crear_periodo(1)
         self.agregar_resultado_anterior(
-            anterior, producto, conteo_final=10, diferencia=-10
+            anterior, producto, conteo_final=10, diferencia=10
         )
         actual = self.crear_periodo(
             2, desde="2026-08-09", hasta="2026-08-16"
@@ -487,7 +487,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
 
         self.assertEqual(resultado.causa_sugerida, "Error de conteo")
         self.assertEqual(resultado.nivel_confianza, "Medio")
-        self.assertEqual(resultado.diferencia_anterior_compensada, -10)
+        self.assertEqual(resultado.diferencia_anterior_compensada, 10)
 
     def test_merma_reduce_esperado_una_vez_y_no_genera_impacto(self):
         producto = self.crear_producto("Producto con merma")
@@ -565,11 +565,11 @@ class PruebasMotorAuditoria(unittest.TestCase):
         resultado = self.resultado_unico(periodo)
 
         self.assertEqual(resultado.stock_esperado, 7)
-        self.assertEqual(resultado.diferencia, 3)
+        self.assertEqual(resultado.diferencia, -3)
         self.assertEqual(resultado.impacto, 3000)
         self.assertEqual(resultado.causa_sugerida, "Pendiente de revisión")
         self.assertNotEqual(resultado.causa_sugerida, "Merma o averiado")
-        self.assertIn("diferencia residual de +3.0", resultado.evidencia)
+        self.assertIn("diferencia residual de -3.0", resultado.evidencia)
         self.assertIn("independiente de esas bajas", resultado.evidencia)
 
     def test_ajuste_de_baja_ya_registrada_no_duplica_descuento(self):
@@ -638,8 +638,8 @@ class PruebasMotorAuditoria(unittest.TestCase):
             2, desde="2026-08-09", hasta="2026-08-16"
         )
         casos = [
-            ("Confianza alta", -10, 0, "Alto"),
-            ("Confianza media", -10, 3, "Medio"),
+            ("Confianza alta", 10, 0, "Alto"),
+            ("Confianza media", 10, 3, "Medio"),
             ("Confianza baja", 0, 9, "Bajo"),
         ]
         for nombre, diferencia_anterior, conteo_actual, _ in casos:
@@ -692,7 +692,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
         producto = self.crear_producto("Anterior compensado")
         anterior = self.crear_periodo(1)
         self.agregar_resultado_anterior(
-            anterior, producto, conteo_final=10, diferencia=-10
+            anterior, producto, conteo_final=10, diferencia=10
         )
         actual = self.crear_periodo(
             2, desde="2026-08-09", hasta="2026-08-16"
@@ -702,7 +702,7 @@ class PruebasMotorAuditoria(unittest.TestCase):
 
         resultado = self.resultado_unico(actual)
 
-        self.assertEqual(resultado.diferencia_anterior_compensada, -10)
+        self.assertEqual(resultado.diferencia_anterior_compensada, 10)
 
     def test_dif_anterior_inicializado_en_rama_sin_diferencia(self):
         producto = self.crear_producto("Inicialización segura")

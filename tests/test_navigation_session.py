@@ -35,6 +35,14 @@ class PruebasNavegacionSesion(unittest.TestCase):
         self.assertIn("Volver atrás", reporte)
         self.assertIn("url_for('admin_auditoria', periodo_id=periodo.id)", reporte)
 
+    def test_auditoria_del_periodo_vuelve_al_detalle(self):
+        auditoria = (ROOT / "templates" / "admin_auditoria.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Volver atrás", auditoria)
+        self.assertIn("url_for('admin_periodo_detalle', periodo_id=periodo.id)", auditoria)
+
     def test_nexa_global_usa_preguntas_contextuales_en_admin(self):
         base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
@@ -49,6 +57,8 @@ class PruebasNavegacionSesion(unittest.TestCase):
         self.assertIn("def admin_nexa_consultar", app_source)
         self.assertNotIn('id="auditAiDrawer"', auditoria)
         self.assertIn("data-ai-url", auditoria)
+        self.assertIn("Prueba una de estas opciones para empezar", base)
+        self.assertIn("if (prompts) prompts.hidden = true", base)
 
     def test_nexa_conserva_y_muestra_tres_conversaciones(self):
         base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
@@ -59,9 +69,34 @@ class PruebasNavegacionSesion(unittest.TestCase):
         self.assertIn("Últimas 3 conversaciones", base)
         self.assertIn("conversation_id: currentConversationId", base)
         self.assertIn("loadConversations(true)", base)
+        self.assertIn("cache: 'no-store'", base)
+        self.assertNotIn("renderConversationHistory([])", base)
         self.assertIn("def admin_nexa_conversaciones", app_source)
         self.assertIn(".limit(3)", app_source)
         self.assertIn("class AsistenteIAConversacion", models)
+
+    def test_nexa_oculta_modelo_y_permite_maximizar(self):
+        base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
+        estilos = (ROOT / "static" / "css" / "admin.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="auditAiMaximize"', base)
+        self.assertIn("toggleMaximizeAssistant", base)
+        self.assertIn("is-maximized", base)
+        self.assertNotIn("{{ nexa_estado.provider }} / {{ nexa_estado.model }}", base)
+        self.assertIn(".audit-ai-drawer.is-open.is-maximized", estilos)
+        self.assertIn("body.nexa-is-maximized", estilos)
+
+    def test_cursor_de_texto_solo_aparece_en_campos_editables(self):
+        estilos = (ROOT / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+        admin = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
+        empleado = (ROOT / "templates" / "base.html").read_text(encoding="utf-8")
+
+        self.assertIn(":where(body, body *) { caret-color: transparent; }", estilos)
+        self.assertIn("textarea:not([readonly]):not([disabled])", estilos)
+        self.assertIn('[contenteditable="true"]', estilos)
+        self.assertIn("caret-color: auto;", estilos)
+        self.assertIn("editable-caret-1", admin)
+        self.assertIn("editable-caret-1", empleado)
 
     def test_nexa_es_panel_integrado_y_empuja_el_contenido(self):
         base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
