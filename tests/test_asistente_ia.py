@@ -138,6 +138,32 @@ class PruebasAsistenteIA(unittest.TestCase):
         self.assertIn("8 - 28 = -20", respuesta["answer"])
         self.assertIn("|-20| × 1.000 = 20.000 Gs.", respuesta["answer"])
 
+    @patch("core.ai_assistant._call_provider")
+    def test_agradecimiento_en_producto_no_repite_informe_ni_llama_ia(self, proveedor):
+        contexto = build_product_context(self.periodo, self.resultado)
+        contexto["informe_markdown"] = "# Informe completo"
+
+        respuesta = explain("ok, gracias", contexto, self.config())
+
+        proveedor.assert_not_called()
+        self.assertTrue(respuesta["ok"])
+        self.assertFalse(respuesta["contextual"])
+        self.assertEqual(
+            respuesta["answer"],
+            "De nada. Cuando quieras, seguimos revisando los datos de Netward.",
+        )
+        self.assertNotIn("Fórmula", respuesta["answer"])
+
+    @patch("core.ai_assistant._call_provider", return_value="Revisa primero el conteo físico.")
+    def test_consulta_de_producto_no_duplica_explicacion_antes_de_la_ia(self, proveedor):
+        contexto = build_product_context(self.periodo, self.resultado)
+
+        respuesta = explain("¿Qué debería revisar?", contexto, self.config())
+
+        proveedor.assert_called_once()
+        self.assertEqual(respuesta["answer"], "Revisa primero el conteo físico.")
+        self.assertNotIn("Análisis adicional de Nexa", respuesta["answer"])
+
     def test_contexto_incluye_formulas_y_fuentes_del_resultado(self):
         contexto = build_product_context(self.periodo, self.resultado)
 
@@ -288,6 +314,15 @@ class PruebasAsistenteIA(unittest.TestCase):
         self.assertFalse(payload["store"])
         self.assertEqual(headers["Authorization"], "Bearer secreto")
         self.assertNotIn("secreto", json.dumps(payload))
+
+    @patch("core.ai_assistant._http_json")
+    def test_respuesta_del_proveedor_no_se_corta_por_caracteres(self, http_json):
+        texto_largo = "a" * 25000 + "."
+        http_json.return_value = {"output_text": texto_largo}
+
+        respuesta = _call_provider(self.config("openai"), "Explica", {"alcance": "periodo"})
+
+        self.assertEqual(respuesta, texto_largo)
 
     @patch("core.ai_assistant._http_json")
     def test_adaptadores_soportados_extraen_texto(self, http_json):

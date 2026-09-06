@@ -75,6 +75,22 @@ class PruebasNavegacionSesion(unittest.TestCase):
         self.assertIn(".limit(3)", app_source)
         self.assertIn("class AsistenteIAConversacion", models)
 
+    def test_nexa_actualiza_historial_y_conserva_panel_entre_paginas(self):
+        base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        estilos = (ROOT / "static" / "css" / "admin.css").read_text(encoding="utf-8")
+
+        self.assertIn("netward:nexa:panel:v1", base)
+        self.assertIn("sessionStorage.setItem", base)
+        self.assertIn("restorePanelState()", base)
+        self.assertIn("upsertConversation(data.conversation)", base)
+        self.assertIn("conversation=_nexa_serializar_conversacion(conversacion)", app_source)
+        self.assertIn("audit-ai-chat-surface", base)
+        self.assertNotIn("Nexa explica y orienta con los datos de este apartado", base)
+        self.assertIn("min-height: 120px", estilos)
+        self.assertIn("flex: 0 0 auto; grid-template-columns", estilos)
+        self.assertIn("startNewConversation();", base)
+
     def test_nexa_oculta_modelo_y_permite_maximizar(self):
         base = (ROOT / "templates" / "admin_base.html").read_text(encoding="utf-8")
         estilos = (ROOT / "static" / "css" / "admin.css").read_text(encoding="utf-8")

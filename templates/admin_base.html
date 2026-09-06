@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=asset_v ~ '-editable-caret-1') }}" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=asset_v ~ '-catalog-name-soft-1') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=asset_v ~ '-nexa-surface-2') }}" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body class="admin-body {% block body_class %}{% endblock %}">
@@ -154,22 +154,23 @@
       <div id="auditAiHistoryList"></div>
     </div>
     <div class="audit-ai-context" id="auditAiContext">{{ nexa_contexto }}</div>
-    <div class="audit-ai-notice">Nexa explica y orienta con los datos de este apartado. No modifica registros ni cálculos.</div>
-    <div class="audit-ai-messages" id="auditAiMessages" aria-live="polite"></div>
-    <div class="audit-ai-prompts" id="auditAiPrompts">
-      <strong class="audit-ai-prompts__title">Prueba una de estas opciones para empezar</strong>
-      {% for pregunta, etiqueta in nexa_preguntas %}
-      <button type="button" data-ai-question="{{ pregunta|e }}">
-        <span class="audit-ai-prompts__icon" aria-hidden="true">{{ ['◇', '▤', '□'][loop.index0] }}</span>
-        <span>{{ etiqueta }}</span>
-      </button>
-      {% endfor %}
+    <div class="audit-ai-chat-surface">
+      <div class="audit-ai-messages" id="auditAiMessages" aria-live="polite"></div>
+      <div class="audit-ai-prompts" id="auditAiPrompts">
+        <strong class="audit-ai-prompts__title">Prueba una de estas opciones para empezar</strong>
+        {% for pregunta, etiqueta in nexa_preguntas %}
+        <button type="button" data-ai-question="{{ pregunta|e }}">
+          <span class="audit-ai-prompts__icon" aria-hidden="true">{{ ['◇', '▤', '□'][loop.index0] }}</span>
+          <span>{{ etiqueta }}</span>
+        </button>
+        {% endfor %}
+      </div>
+      <form class="audit-ai-form" id="auditAiForm">
+        <label class="sr-only" for="auditAiQuestion">Consulta para Nexa</label>
+        <textarea id="auditAiQuestion" maxlength="1000" rows="3" placeholder="Pregunta sobre {{ nexa_contexto|lower }}…"></textarea>
+        <button type="submit" class="btn btn--primary btn--sm" id="auditAiSend" disabled>Consultar</button>
+      </form>
     </div>
-    <form class="audit-ai-form" id="auditAiForm">
-      <label class="sr-only" for="auditAiQuestion">Consulta para Nexa</label>
-      <textarea id="auditAiQuestion" maxlength="1000" rows="3" placeholder="Pregunta sobre {{ nexa_contexto|lower }}…"></textarea>
-      <button type="submit" class="btn btn--primary btn--sm" id="auditAiSend" disabled>Consultar</button>
-    </form>
       </aside>
       </div>
     </div>
@@ -248,6 +249,55 @@
       var requestPending = false;
       var currentConversationId = null;
       var historyLoaded = false;
+      var conversationHistory = [];
+      var resetConversationAfterClose = false;
+      var panelStateKey = 'netward:nexa:panel:v1';
+
+      function readPanelState() {
+        try {
+          return JSON.parse(sessionStorage.getItem(panelStateKey) || '{}') || {};
+        } catch (error) {
+          return {};
+        }
+      }
+
+      function persistPanelState() {
+        try {
+          sessionStorage.setItem(panelStateKey, JSON.stringify({
+            open: drawer.classList.contains('is-open'),
+            maximized: drawer.classList.contains('is-maximized'),
+            historyOpen: Boolean(historyPanel && !historyPanel.hidden),
+            draft: question.value
+          }));
+        } catch (error) {
+          // El panel sigue funcionando aunque el navegador bloquee sessionStorage.
+        }
+      }
+
+      function restorePanelState() {
+        var state = readPanelState();
+        question.value = typeof state.draft === 'string' ? state.draft : '';
+        if (historyPanel && state.historyOpen) {
+          historyPanel.hidden = false;
+          if (historyToggle) historyToggle.setAttribute('aria-expanded', 'true');
+        }
+        if (!state.open) return;
+        drawer.classList.add('is-open');
+        drawer.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('nexa-is-open');
+        if (state.maximized) {
+          drawer.classList.add('is-maximized');
+          document.body.classList.add('nexa-is-maximized');
+          if (maximize) {
+            maximize.setAttribute('aria-pressed', 'true');
+            maximize.setAttribute('aria-label', 'Restaurar tamaño de Nexa');
+            maximize.title = 'Restaurar tamaño';
+          }
+        }
+        document.querySelectorAll('[data-ai-open]').forEach(function (trigger) {
+          trigger.setAttribute('aria-expanded', 'true');
+        });
+      }
 
       function syncSendState() {
         send.disabled = requestPending || !question.value.trim();
@@ -363,16 +413,17 @@
 
       function renderConversationHistory(items) {
         if (!historyList || !historyCount) return;
+        conversationHistory = (items || []).slice(0, 3);
         historyList.textContent = '';
-        historyCount.textContent = String((items || []).length);
-        if (!items || !items.length) {
+        historyCount.textContent = String(conversationHistory.length);
+        if (!conversationHistory.length) {
           var empty = document.createElement('p');
           empty.className = 'audit-ai-history__empty';
           empty.textContent = 'Todavía no hay conversaciones guardadas.';
           historyList.appendChild(empty);
           return;
         }
-        items.forEach(function (conversation) {
+        conversationHistory.forEach(function (conversation) {
           var button = document.createElement('button');
           button.type = 'button';
           button.className = 'audit-ai-history__item' +
@@ -385,6 +436,15 @@
           button.addEventListener('click', function () { selectConversation(conversation.id); });
           historyList.appendChild(button);
         });
+      }
+
+      function upsertConversation(conversation) {
+        if (!conversation || !conversation.id) return;
+        renderConversationHistory(
+          [conversation].concat(conversationHistory.filter(function (item) {
+            return item.id !== conversation.id;
+          }))
+        );
       }
 
       function loadConversations(renderMessages) {
@@ -442,8 +502,10 @@
           .then(function () {
             currentConversationId = null;
             messages.textContent = '';
+            question.value = '';
             if (prompts) prompts.hidden = false;
             appendGreeting();
+            persistPanelState();
             return loadConversations(false);
           })
           .catch(function (error) {
@@ -463,6 +525,7 @@
         document.querySelectorAll('[data-ai-open]').forEach(function (trigger) {
           trigger.setAttribute('aria-expanded', 'true');
         });
+        persistPanelState();
         if (historyLoaded) appendGreeting();
         question.focus();
         if (button.dataset.aiAutoQuestion) askAssistant(button.dataset.aiAutoQuestion);
@@ -482,6 +545,12 @@
         document.querySelectorAll('[data-ai-open]').forEach(function (trigger) {
           trigger.setAttribute('aria-expanded', 'false');
         });
+        persistPanelState();
+        if (requestPending) {
+          resetConversationAfterClose = true;
+        } else {
+          startNewConversation();
+        }
       }
 
       function toggleMaximizeAssistant() {
@@ -494,6 +563,7 @@
           maximize.title = maximized ? 'Restaurar tamaño' : 'Maximizar';
         }
         messages.scrollTop = messages.scrollHeight;
+        persistPanelState();
       }
 
       function askAssistant(value) {
@@ -504,6 +574,7 @@
         appendMessage('user', value);
         requestPending = true;
         question.value = '';
+        persistPanelState();
         syncSendState();
         send.textContent = 'Analizando…';
         var pending = appendMessage('assistant', 'Revisando los datos disponibles…', true);
@@ -531,6 +602,7 @@
           .then(function (data) {
             pending.remove();
             currentConversationId = data.conversation_id || currentConversationId;
+            upsertConversation(data.conversation);
             if (sequence === requestSequence) {
               appendProductTable(data.product_table);
               appendMessage('assistant', data.answer);
@@ -540,6 +612,7 @@
             pending.remove();
             if (error.responseData && error.responseData.conversation_id) {
               currentConversationId = error.responseData.conversation_id;
+              upsertConversation(error.responseData.conversation);
             }
             if (sequence === requestSequence && error.responseData) {
               appendProductTable(error.responseData.product_table);
@@ -550,8 +623,13 @@
             requestPending = false;
             send.textContent = 'Consultar';
             syncSendState();
-            question.focus();
-            loadConversations(false);
+            if (resetConversationAfterClose) {
+              resetConversationAfterClose = false;
+              startNewConversation();
+            } else {
+              if (drawer.classList.contains('is-open')) question.focus();
+              loadConversations(false);
+            }
           });
       }
 
@@ -566,6 +644,7 @@
       if (historyToggle && historyPanel) historyToggle.addEventListener('click', function () {
         historyPanel.hidden = !historyPanel.hidden;
         historyToggle.setAttribute('aria-expanded', historyPanel.hidden ? 'false' : 'true');
+        persistPanelState();
       });
       document.getElementById('auditAiClose').addEventListener('click', closeAssistant);
       document.addEventListener('keydown', function (event) {
@@ -575,7 +654,11 @@
         event.preventDefault();
         askAssistant(question.value);
       });
-      question.addEventListener('input', syncSendState);
+      question.addEventListener('input', function () {
+        syncSendState();
+        persistPanelState();
+      });
+      restorePanelState();
       syncSendState();
       loadConversations(true);
     })();

@@ -4001,6 +4001,18 @@ def _nexa_serializar_mensajes(conversacion, limite=20):
     ]
 
 
+def _nexa_serializar_conversacion(conversacion):
+    return {
+        "id": conversacion.id,
+        "title": conversacion.titulo,
+        "section": conversacion.seccion_inicial,
+        "updated_at": (
+            conversacion.actualizado.isoformat()
+            if conversacion.actualizado else None
+        ),
+    }
+
+
 def _nexa_tabla_producto_desde_json(contexto_json):
     """Extrae solo la tabla segura y estructurada que puede renderizar el cliente."""
     try:
@@ -4025,6 +4037,10 @@ def _nexa_guardar_consulta(
         clave: valor for clave, valor in contexto.items()
         if clave != "informe_markdown"
     }
+    if not respuesta.get("contextual", True):
+        # Una cortesía queda en el hilo, pero al reabrirla no debe volver a
+        # dibujar la tabla del producto como si hubiera sido una consulta.
+        contexto_trazable.pop("tabla_visual", None)
     consulta = AsistenteIAConsulta(
         conversacion_id=conversacion.id,
         cliente_id=cliente_id,
@@ -4075,12 +4091,7 @@ def admin_nexa_conversaciones():
     return jsonify(
         ok=True,
         active_conversation_id=activa.id if activa else None,
-        conversations=[{
-            "id": item.id,
-            "title": item.titulo,
-            "section": item.seccion_inicial,
-            "updated_at": item.actualizado.isoformat() if item.actualizado else None,
-        } for item in conversaciones],
+        conversations=[_nexa_serializar_conversacion(item) for item in conversaciones],
         messages=_nexa_serializar_mensajes(activa) if activa else [],
     )
 
@@ -4179,9 +4190,13 @@ def admin_asistente_consultar(periodo_id):
             error=respuesta["error"],
             provider=respuesta["provider"],
             model=respuesta["model"],
-            product_table=contexto.get("tabla_visual"),
+            product_table=(
+                contexto.get("tabla_visual")
+                if respuesta.get("contextual", True) else None
+            ),
             consultation_id=consulta.id,
             conversation_id=conversacion.id,
+            conversation=_nexa_serializar_conversacion(conversacion),
         ), 503
     return jsonify(
         ok=True,
@@ -4189,9 +4204,13 @@ def admin_asistente_consultar(periodo_id):
         provider=respuesta["provider"],
         model=respuesta["model"],
         fallback=respuesta["fallback"],
-        product_table=contexto.get("tabla_visual"),
+        product_table=(
+            contexto.get("tabla_visual")
+            if respuesta.get("contextual", True) else None
+        ),
         consultation_id=consulta.id,
         conversation_id=conversacion.id,
+        conversation=_nexa_serializar_conversacion(conversacion),
     )
 
 
@@ -4255,6 +4274,7 @@ def admin_nexa_consultar():
             model=respuesta["model"],
             consultation_id=consulta.id,
             conversation_id=conversacion.id,
+            conversation=_nexa_serializar_conversacion(conversacion),
         ), 503
     return jsonify(
         ok=True,
@@ -4264,6 +4284,7 @@ def admin_nexa_consultar():
         fallback=respuesta["fallback"],
         consultation_id=consulta.id,
         conversation_id=conversacion.id,
+        conversation=_nexa_serializar_conversacion(conversacion),
     )
 
 

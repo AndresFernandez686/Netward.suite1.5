@@ -2911,6 +2911,7 @@ body.nexa-is-open .nexa-floating-button {
   display: flex;
   flex: 0 0 0;
   flex-direction: column;
+  min-height: 0;
   width: 0;
   height: calc(100vh - 64px);
   padding: 20px 0;
@@ -2933,7 +2934,7 @@ body.nexa-is-open .nexa-floating-button {
   opacity: 1;
   visibility: visible;
 }
-.audit-ai-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid #e6eaf1; }
+.audit-ai-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid #e6eaf1; }
 .audit-ai-header h2 { margin: 3px 0 0; color: var(--ink); font-size: 1.05rem; }
 .audit-ai-kicker { color: #6256d9; font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .audit-ai-header__actions { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; }
@@ -2973,7 +2974,7 @@ body.nexa-is-open .nexa-floating-button {
   color: #5b54d8;
   font-size: .62rem;
 }
-.audit-ai-history { margin-top: 8px; padding: 9px; border: 1px solid #e0e5ef; border-radius: 10px; background: #f8fafc; }
+.audit-ai-history { flex: 0 1 auto; max-height: min(240px, 30vh); margin-top: 8px; padding: 9px; overflow-y: auto; border: 1px solid #e0e5ef; border-radius: 10px; background: #f8fafc; }
 .audit-ai-history__head { margin-bottom: 6px; color: #34415a; font-size: .67rem; }
 .audit-ai-history__item {
   display: flex;
@@ -3001,8 +3002,8 @@ body.nexa-is-open .nexa-floating-button {
 .audit-ai-history__item small { flex: 0 0 auto; color: #8490a3; font-size: .56rem; }
 .audit-ai-history__empty { margin: 4px; color: #7b8798; font-size: .64rem; }
 .audit-ai-context { margin-top: 12px; color: #34415a; font-size: .8rem; font-weight: 800; }
-.audit-ai-notice { margin-top: 9px; padding: 9px 11px; border-radius: 8px; background: #f4f6ff; color: #59637a; font-size: .68rem; line-height: 1.45; }
-.audit-ai-messages { display: flex; flex: 1 1 auto; flex-direction: column; gap: 10px; min-height: 180px; margin: 15px -4px 12px 0; padding-right: 8px; overflow-y: auto; }
+.audit-ai-chat-surface { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; margin-top: 10px; overflow: hidden; border: 1px solid #dfe5ef; border-radius: 13px; background: #fff; }
+.audit-ai-messages { display: flex; flex: 1 1 180px; flex-direction: column; gap: 10px; min-width: 0; min-height: 120px; margin: 0; padding: 14px; overflow-y: auto; overscroll-behavior: contain; }
 .audit-ai-message { max-width: 91%; padding: 10px 12px; border-radius: 11px; white-space: pre-wrap; overflow-wrap: anywhere; color: #3f4d64; font-size: .76rem; line-height: 1.55; }
 .audit-ai-message--user { align-self: flex-end; border-bottom-right-radius: 3px; background: #5b58d6; color: #fff; }
 .audit-ai-message--assistant { align-self: flex-start; border: 1px solid #e1e6ee; border-bottom-left-radius: 3px; background: #f8fafc; }
@@ -3059,14 +3060,14 @@ body.nexa-is-open .nexa-floating-button {
   font-size: .59rem;
   line-height: 1.4;
 }
-.audit-ai-prompts { display: grid; gap: 8px; margin-bottom: 12px; padding: 12px; border: 1px solid #e1e6ee; border-radius: 12px; background: #fff; }
+.audit-ai-prompts { display: grid; flex: 0 1 auto; gap: 8px; max-height: min(245px, 32vh); margin: 0; padding: 0 12px 12px; overflow-y: auto; background: #fff; }
 .audit-ai-prompts[hidden] { display: none; }
 .audit-ai-prompts__title { margin-bottom: 2px; color: #34415a; font-size: .76rem; line-height: 1.4; }
 .audit-ai-prompts button { display: flex; align-items: center; gap: 9px; width: 100%; border: 1px solid #cfd8e7; border-radius: 7px; background: #fff; padding: 9px 11px; color: #48546a; font: 600 .7rem/1.3 Inter, sans-serif; text-align: left; cursor: pointer; transition: border-color .15s ease, background .15s ease, color .15s ease; }
 .audit-ai-prompts button:hover { border-color: #7d86df; background: #f7f8ff; color: #4f49c8; }
 .audit-ai-prompts__icon { display: inline-flex; flex: 0 0 22px; align-items: center; justify-content: center; color: #5b58d6; font-size: 1rem; }
-.audit-ai-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; padding-top: 12px; border-top: 1px solid #e6eaf1; }
-.audit-ai-form textarea { min-height: 66px; max-height: 140px; resize: vertical; border: 1px solid #d8e0eb; border-radius: 9px; padding: 9px 10px; color: var(--ink-2); font: 500 .75rem/1.4 Inter, sans-serif; }
+.audit-ai-form { display: grid; flex: 0 0 auto; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; padding: 11px 12px 12px; border-top: 1px solid #e6eaf1; background: #fff; }
+.audit-ai-form textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 58px; max-height: 120px; resize: vertical; border: 1px solid #d8e0eb; border-radius: 9px; padding: 9px 10px; color: var(--ink-2); font: 500 .75rem/1.4 Inter, sans-serif; }
 .audit-ai-form textarea:focus { outline: 0; border-color: #6876dd; box-shadow: 0 0 0 3px rgba(79, 94, 214, .1); }
 .audit-ai-form button { height: 36px; }
 
@@ -3099,10 +3100,7 @@ body.nexa-is-maximized { overflow: hidden; }
   will-change: clip-path, transform, opacity;
   animation: nexa-maximize-right-to-left .34s cubic-bezier(.22, 1, .36, 1) both;
 }
-.audit-ai-drawer.is-maximized .audit-ai-messages,
-.audit-ai-drawer.is-maximized .audit-ai-form,
-.audit-ai-drawer.is-maximized .audit-ai-prompts,
-.audit-ai-drawer.is-maximized .audit-ai-notice,
+.audit-ai-drawer.is-maximized .audit-ai-chat-surface,
 .audit-ai-drawer.is-maximized .audit-ai-context,
 .audit-ai-drawer.is-maximized .audit-ai-conversation-toolbar,
 .audit-ai-drawer.is-maximized .audit-ai-history,
@@ -3266,8 +3264,8 @@ body.nexa-is-maximized { overflow: hidden; }
   .audit-ai-drawer.is-open {
     flex-basis: auto;
     width: 100%;
-    height: min(68dvh, 620px);
-    max-height: min(68dvh, 620px);
+    height: min(84dvh, 720px);
+    max-height: min(84dvh, 720px);
     padding: 16px 14px;
     border-bottom-width: 1px;
     box-shadow: 0 8px 20px rgba(15, 23, 42, .06);
@@ -3277,13 +3275,13 @@ body.nexa-is-maximized { overflow: hidden; }
     height: 0;
   }
   .admin-no-page-heading .audit-ai-drawer.is-open {
-    height: min(68dvh, 620px);
+    height: min(84dvh, 720px);
   }
   .audit-ai-header { padding-bottom: 10px; }
   .audit-ai-status { margin-top: 9px; }
   .audit-ai-context { margin-top: 8px; }
-  .audit-ai-notice { margin-top: 7px; }
-  .audit-ai-messages { min-height: 110px; margin-top: 10px; }
+  .audit-ai-chat-surface { margin-top: 8px; }
+  .audit-ai-messages { min-height: 100px; }
 }
 
 @media (max-width: 480px) {

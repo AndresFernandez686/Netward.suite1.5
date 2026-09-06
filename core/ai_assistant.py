@@ -76,7 +76,7 @@ class AIConfig:
             api_key=os.getenv("AI_API_KEY", "").strip(),
             base_url=os.getenv("AI_BASE_URL", "").strip(),
             timeout=_env_float("AI_TIMEOUT_SECONDS", 120, 1, 300),
-            max_output_tokens=_env_int("AI_MAX_OUTPUT_TOKENS", 1200, 100, 65536),
+            max_output_tokens=_env_int("AI_MAX_OUTPUT_TOKENS", 4096, 100, 65536),
             temperature=_env_float("AI_TEMPERATURE", 0.2, 0, 2),
             custom_headers={str(k): str(v) for k, v in headers.items()},
             local_fallback_enabled=os.getenv(
@@ -113,6 +113,10 @@ SYSTEM_INSTRUCTIONS = """Eres Nexa, la asistente inteligente de administración 
 Responde en español claro, directo y profesional. Tu función es ayudar al administrador
 a comprender la pantalla y los datos del módulo actual, detectar pendientes y decidir
 qué debería verificar primero.
+Si el mensaje es un saludo, agradecimiento, despedida, confirmación o comentario casual,
+responde con naturalidad en una o dos frases. En esos casos no repitas cálculos, tablas,
+diagnósticos ni sugieras analizar otro producto salvo que el usuario lo pida expresamente.
+Procura cerrar siempre la respuesta con una frase completa y evita repeticiones.
 Explica únicamente con el informe Markdown y los datos estructurados suministrados. El motor de Netward es
 la fuente oficial: no cambies diferencias, causas, severidad ni estados. Distingue
 hechos de hipótesis, menciona evidencia faltante y sugiere verificaciones concretas.
@@ -137,9 +141,9 @@ Cuando un valor sea un cero técnico por ausencia de fuente, no afirmes que fue 
 cero desde un documento. Explica qué fuente falta y que el valor solo permite conservar
 la trazabilidad matemática. Si la venta teórica es negativa, explica que el conteo final
 supera las existencias y entradas documentadas; no lo presentes como una venta negativa real.
-Para productos, la aplicación antepone el cálculo oficial determinista. En tu análisis
-adicional, empieza con una conclusión específica, usa datos.operaciones y origenes_datos para
-explicar la causa probable sin repetir toda la tabla, y termina con verificaciones priorizadas.
+Para productos, la interfaz ya muestra la tabla oficial. Empieza con una conclusión
+específica, usa datos.operaciones y origenes_datos para explicar la causa probable sin
+repetir toda la tabla ni duplicar bloques completos, y termina con verificaciones priorizadas.
 Usa texto plano legible: no uses tablas Markdown, signos de numeral para títulos ni dobles
 asteriscos, porque la interfaz ya muestra la tabla numérica.
 Usa la conversación anterior para continuar el razonamiento: no repitas la misma
@@ -319,7 +323,9 @@ def _call_provider(
         answer = str(data.get("answer") or data.get("output_text") or data.get("text") or "").strip()
     if not answer:
         raise AIProviderError("El proveedor no devolvió texto explicativo.")
-    return answer[:20_000]
+    # El proveedor ya limita la salida por tokens. Recortar aquí por caracteres podía
+    # dejar la última oración incompleta aunque la respuesta remota fuera válida.
+    return answer
 
 
 def _num(value: Any) -> float:
@@ -898,6 +904,12 @@ def local_smalltalk(question: str, context: dict[str, Any]) -> str | None:
         )
     if palabras & {"gracias", "agradecido", "agradecida"}:
         return "De nada. Cuando quieras, seguimos revisando los datos de Netward."
+    confirmaciones = {
+        "ok", "okay", "vale", "entendido", "entendida", "perfecto", "perfecta",
+        "bien", "listo", "lista", "correcto", "claro",
+    }
+    if palabras & confirmaciones or texto in {"de acuerdo", "esta bien", "todo claro"}:
+        return "Entendido. Cuando necesites otra revisión, aquí estaré."
     if palabras & {"adios", "chau"} or texto in {"hasta luego", "nos vemos"}:
         return "Hasta luego. La conversación quedará disponible para continuar después."
     return None
@@ -942,36 +954,35 @@ def explain(
     history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     config = config or AIConfig.from_env()
-    # Dentro de un período toda consulta debe llegar al proveedor junto con el
-    # informe completo; el enrutador local solo atiende pantallas sin ese informe.
-    social_answer = (
-        None if context.get("informe_markdown")
-        else local_smalltalk(question, context)
-    )
+    # Las cortesías no son consultas de auditoría: se contestan de forma breve aun
+    # dentro de un período, sin repetir el informe ni consumir una llamada externa.
+    social_answer = local_smalltalk(question, context)
     if social_answer:
         return {"ok": True, "answer": social_answer, "provider": "local",
-                "model": "enrutador-nexa", "fallback": False, "error": ""}
+                "model": "enrutador-nexa", "fallback": False, "error": "",
+                "contextual": False}
     status = config.public_status()
     if not status["configured"]:
         error = "Nexa no está configurada. Verifica AI_ENABLED, AI_MODEL y AI_API_KEY."
         if config.local_fallback_enabled:
             return {"ok": True, "answer": local_fallback_answer(question, context, history), "provider": "local",
-                    "model": "reglas-locales", "fallback": True, "error": error}
+                    "model": "reglas-locales", "fallback": True, "error": error,
+                    "contextual": True}
         return {"ok": False, "answer": "", "provider": config.provider,
-                "model": config.model, "fallback": False, "error": error}
+                "model": config.model, "fallback": False, "error": error,
+                "contextual": True}
     try:
         provider_answer = _call_provider(config, question, context, history)
         answer = provider_answer
-        if context.get("alcance") == "producto":
-            answer = local_explanation(context) + "\n\nAnálisis adicional de Nexa\n" + provider_answer
         return {"ok": True, "answer": answer,
                 "provider": config.provider, "model": config.model,
-                "fallback": False, "error": ""}
+                "fallback": False, "error": "", "contextual": True}
     except (AIProviderError, ValueError, TypeError) as exc:
         error = str(exc)[:500]
         if config.local_fallback_enabled:
             return {"ok": True, "answer": local_fallback_answer(question, context, history),
                     "provider": "local", "model": "reglas-locales",
-                    "fallback": True, "error": error}
+                    "fallback": True, "error": error, "contextual": True}
         return {"ok": False, "answer": "", "provider": config.provider,
-                "model": config.model, "fallback": False, "error": error}
+                "model": config.model, "fallback": False, "error": error,
+                "contextual": True}
