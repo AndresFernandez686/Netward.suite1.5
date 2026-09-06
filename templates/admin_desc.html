@@ -588,7 +588,9 @@
         })
         .catch(function() {
           if (requestVersion === analysisRequestVersion) {
-            setAnalysisMessage('No se pudo consultar el análisis.', 'Revisa la conexión e inténtalo nuevamente.', true);
+            var message = 'Revisa la conexión e inténtalo nuevamente.';
+            setAnalysisMessage('No se pudo consultar el análisis.', message, true);
+            if (window.NetwardUI) window.NetwardUI.showError(message, loadStoredAnalysis);
           }
         });
     }
@@ -614,7 +616,13 @@
         })
         .catch(function() {
           if (requestVersion === analysisRequestVersion) {
-            setAnalysisMessage('No se pudo analizar el documento.', 'Revisa la conexión e inténtalo nuevamente.', true);
+            var message = 'Revisa la conexión e inténtalo nuevamente.';
+            setAnalysisMessage('No se pudo analizar el documento.', message, true);
+            if (window.NetwardUI) {
+              window.NetwardUI.showError(message, function () {
+                runAutomaticAnalysis(option, requestVersion);
+              });
+            }
           }
         });
     }
@@ -899,7 +907,12 @@
           editStatus.textContent = data.message; editStatus.classList.add('is-success');
           refreshSyncNotice(data.sincronizacion); refreshEditedState();
         })
-        .catch(function(error) { editStatus.textContent = error.message; editStatus.classList.remove('is-success'); refreshEditedState(); })
+        .catch(function(error) {
+          editStatus.textContent = error.message;
+          editStatus.classList.remove('is-success');
+          refreshEditedState();
+          if (window.NetwardUI) window.NetwardUI.showError(error.message, function () { save.click(); });
+        })
         .finally(function() {
           if (window.NetwardProcessing) window.NetwardProcessing.hide();
           save.textContent = 'Guardar modificaciones';

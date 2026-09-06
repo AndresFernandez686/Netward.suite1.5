@@ -109,6 +109,15 @@ class AIProviderError(RuntimeError):
     pass
 
 
+def public_provider_error(error: Exception) -> str:
+    """Devuelve solo errores controlados; nunca propaga secretos o URLs del proveedor."""
+    if isinstance(error, AIProviderError):
+        message = str(error).strip()
+        if message and len(message) <= 500:
+            return message
+    return "No se pudo completar la consulta con el proveedor de IA."
+
+
 SYSTEM_INSTRUCTIONS = """Eres Nexa, la asistente inteligente de administración de Netward.
 Responde en español claro, directo y profesional. Tu función es ayudar al administrador
 a comprender la pantalla y los datos del módulo actual, detectar pendientes y decidir
@@ -963,7 +972,7 @@ def explain(
                 "contextual": False}
     status = config.public_status()
     if not status["configured"]:
-        error = "Nexa no está configurada. Verifica AI_ENABLED, AI_MODEL y AI_API_KEY."
+        error = "Nexa no está disponible. Verifica la configuración del servidor."
         if config.local_fallback_enabled:
             return {"ok": True, "answer": local_fallback_answer(question, context, history), "provider": "local",
                     "model": "reglas-locales", "fallback": True, "error": error,
@@ -978,7 +987,7 @@ def explain(
                 "provider": config.provider, "model": config.model,
                 "fallback": False, "error": "", "contextual": True}
     except (AIProviderError, ValueError, TypeError) as exc:
-        error = str(exc)[:500]
+        error = public_provider_error(exc)
         if config.local_fallback_enabled:
             return {"ok": True, "answer": local_fallback_answer(question, context, history),
                     "provider": "local", "model": "reglas-locales",

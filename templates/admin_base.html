@@ -464,9 +464,15 @@
             historyLoaded = true;
             return data;
           })
-          .catch(function () {
+          .catch(function (error) {
             historyLoaded = true;
             if (renderMessages) appendGreeting();
+            if (window.NetwardUI) {
+              window.NetwardUI.showError(
+                error.message || 'No se pudo recuperar el historial de Nexa.',
+                function () { loadConversations(renderMessages); }
+              );
+            }
           });
       }
 
@@ -487,6 +493,11 @@
           })
           .catch(function (error) {
             appendMessage('assistant', error.message, true);
+            if (window.NetwardUI) {
+              window.NetwardUI.showError(error.message, function () {
+                selectConversation(conversationId);
+              });
+            }
           });
       }
 
@@ -510,6 +521,9 @@
           })
           .catch(function (error) {
             appendMessage('assistant', error.message, true);
+            if (window.NetwardUI) {
+              window.NetwardUI.showError(error.message, startNewConversation);
+            }
           });
       }
 
@@ -617,7 +631,13 @@
             if (sequence === requestSequence && error.responseData) {
               appendProductTable(error.responseData.product_table);
             }
-            if (sequence === requestSequence) appendMessage('assistant', error.message || 'No fue posible obtener la explicación.');
+            if (sequence === requestSequence) {
+              var safeMessage = error.message || 'No fue posible obtener la explicación.';
+              appendMessage('assistant', safeMessage);
+              if (window.NetwardUI) {
+                window.NetwardUI.showError(safeMessage, function () { askAssistant(value); });
+              }
+            }
           })
           .finally(function () {
             requestPending = false;

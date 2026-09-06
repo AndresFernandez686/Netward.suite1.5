@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}{{ error_status }} · {{ error_title }} · Netward{% endblock %}
+{% block heading %}Estado del sistema{% endblock %}
+{% block subheading %}Una respuesta segura y recuperable{% endblock %}
+
+{% block content %}
+<section class="error-page" aria-labelledby="error-title">
+  <div class="error-page__panel">
+    <span class="error-page__code">ERROR {{ error_status }}</span>
+    <h2 id="error-title">{{ error_title }}</h2>
+    <p>{{ error_message }}</p>
+    <div class="error-page__actions">
+      {% if error_status in [500, 503] %}
+      <button class="btn btn--primary" type="button" data-retry-page>Reintentar</button>
+      {% endif %}
+      <button class="btn btn--secondary" type="button" data-go-back>Volver</button>
+      <a class="btn btn--secondary" href="{{ url_for('admin_inventario') if sesion_rol == 'administrador' else url_for('empleado_periodo_abierto') if sesion_rol == 'empleado' else url_for('login') }}">Ir al inicio</a>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block auth_content %}
+<section class="error-page" aria-labelledby="error-title-auth">
+  <div class="error-page__panel">
+    <span class="error-page__code">ERROR {{ error_status }}</span>
+    <h2 id="error-title-auth">{{ error_title }}</h2>
+    <p>{{ error_message }}</p>
+    <div class="error-page__actions">
+      {% if error_status in [500, 503] %}
+      <button class="btn btn--primary" type="button" data-retry-page>Reintentar</button>
+      {% endif %}
+      <button class="btn btn--secondary" type="button" data-go-back>Volver</button>
+      <a class="btn btn--secondary" href="{{ url_for('login') }}">Ir al acceso</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

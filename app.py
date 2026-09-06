@@ -122,7 +122,7 @@ app.register_blueprint(desc_bp)
 
 @app.after_request
 def evitar_cache_de_sesion(response):
-    """Evita restaurar desde historial una sesión cerrada o un login cargando."""
+    """Evita caché sensible y agrega defensas que no exponen configuración interna."""
     if request.endpoint != "static" and (
         session.get("usuario") or request.endpoint in {"login", "logout"}
     ):
@@ -131,7 +131,57 @@ def evitar_cache_de_sesion(response):
         )
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.is_secure:
+        response.headers["Strict-Transport-Security"] = "max-age=63072000"
     return response
+
+
+def _request_prefiere_json() -> bool:
+    """Negocia JSON para rutas asíncronas sin depender solo de su URL."""
+    return request.is_json or request.accept_mimetypes.best == "application/json"
+
+
+def _respuesta_error_segura(status_code: int, title: str, message: str):
+    if _request_prefiere_json():
+        return jsonify(ok=False, error=message, status=status_code), status_code
+    return render_template(
+        "error.html",
+        error_status=status_code,
+        error_title=title,
+        error_message=message,
+    ), status_code
+
+
+@app.errorhandler(403)
+def forbidden_error(_error):
+    return _respuesta_error_segura(
+        403, "Acceso restringido", "No tienes permisos para realizar esta acción."
+    )
+
+
+@app.errorhandler(404)
+def not_found_error(_error):
+    return _respuesta_error_segura(
+        404, "No encontramos esta página", "El contenido pudo cambiar de ubicación o ya no estar disponible."
+    )
+
+
+@app.errorhandler(500)
+def internal_error(_error):
+    db.session.rollback()
+    return _respuesta_error_segura(
+        500, "Ocurrió un problema inesperado", "Tus datos ingresados no se mostrarán en el error. Inténtalo nuevamente."
+    )
+
+
+@app.errorhandler(503)
+def unavailable_error(_error):
+    return _respuesta_error_segura(
+        503, "Servicio temporalmente no disponible", "Conserva esta pantalla y vuelve a intentarlo en unos instantes."
+    )
 
 # Filtro Jinja2 para parsear JSON en templates
 import json as _json

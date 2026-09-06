@@ -848,3 +848,112 @@
   // Inicializar todos los combos presentes en la página
   document.querySelectorAll('[data-combo]').forEach(initCombo);
 })();
+
+/* Estados asíncronos compartidos. Nunca inserta HTML recibido del servidor. */
+(function () {
+  var toast;
+
+  function stateElement(kind, title, detail, retry) {
+    var region = document.createElement('div');
+    region.className = 'nw-state-region nw-state-region--' + kind;
+    region.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    region.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
+
+    var mark = document.createElement('span');
+    mark.className = 'nw-state-region__mark';
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = kind === 'error' ? '!' : (kind === 'loading' ? '' : '—');
+    if (kind === 'loading') {
+      var spinner = document.createElement('span');
+      spinner.className = 'nw-inline-spinner';
+      mark.appendChild(spinner);
+    }
+
+    var body = document.createElement('div');
+    body.className = 'nw-state-region__body';
+    var heading = document.createElement('strong');
+    heading.textContent = String(title || 'Estado del sistema');
+    body.appendChild(heading);
+    if (detail) {
+      var copy = document.createElement('p');
+      copy.textContent = String(detail);
+      body.appendChild(copy);
+    }
+    if (typeof retry === 'function') {
+      var actions = document.createElement('div');
+      actions.className = 'nw-state-region__actions';
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn--secondary btn--sm';
+      button.textContent = 'Reintentar';
+      button.addEventListener('click', function () {
+        region.remove();
+        retry();
+      });
+      actions.appendChild(button);
+      body.appendChild(actions);
+    }
+    region.append(mark, body);
+    return region;
+  }
+
+  function showError(message, retry) {
+    if (toast) toast.remove();
+    toast = stateElement(
+      'error',
+      'No pudimos completar la operación',
+      message || 'Revisa tu conexión e inténtalo nuevamente.',
+      retry
+    );
+    toast.classList.add('nw-state-toast');
+    document.body.appendChild(toast);
+    return toast;
+  }
+
+  function setRegion(region, kind, title, detail, retry) {
+    if (!region) return null;
+    region.setAttribute('aria-busy', kind === 'loading' ? 'true' : 'false');
+    var state = stateElement(kind, title, detail, retry);
+    region.replaceChildren(state);
+    return state;
+  }
+
+  function enhanceEmptyStates() {
+    var emptyPattern = /^(no hay|sin (datos|registros|resultados|movimientos|productos|notificaciones)|todav[ií]a no hay)/i;
+    document.querySelectorAll('tbody tr, p, .empty-state, [data-empty-state]').forEach(function (candidate) {
+      if (candidate.dataset.nwStateReady === 'true') return;
+      var text = (candidate.textContent || '').trim().replace(/\s+/g, ' ');
+      if (!emptyPattern.test(text)) return;
+      var target = candidate.matches('tr') ? candidate.querySelector('td') : candidate;
+      if (!target) return;
+      candidate.dataset.nwStateReady = 'true';
+      if (candidate.matches('tr')) target.classList.add('nw-state-cell');
+      var state = stateElement('empty', 'Nada para mostrar por ahora', text, null);
+      state.classList.add('nw-state-region--compact');
+      target.replaceChildren(state);
+    });
+  }
+
+  window.NetwardUI = {
+    showError: showError,
+    setRegion: setRegion,
+    stateElement: stateElement,
+    clearError: function () { if (toast) toast.remove(); toast = null; }
+  };
+
+  document.querySelectorAll('[data-retry-page]').forEach(function (button) {
+    button.addEventListener('click', function () { window.location.reload(); });
+  });
+  document.querySelectorAll('[data-go-back]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      if (window.history.length > 1) window.history.back();
+      else window.location.assign('/');
+    });
+  });
+  enhanceEmptyStates();
+  window.addEventListener('offline', function () {
+    showError('Se perdió la conexión. Tus filtros y datos ingresados se conservarán.', function () {
+      window.location.reload();
+    });
+  });
+})();

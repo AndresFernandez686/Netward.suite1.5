@@ -142,7 +142,7 @@ def _send(req: request.Request, timeout: int) -> tuple[dict[str, Any], Any]:
         suffix = f": {detail}" if detail else ""
         raise AzureDocumentError(f"Azure rechazó la solicitud (HTTP {exc.code}){suffix}") from exc
     except (urlerror.URLError, TimeoutError, OSError) as exc:
-        raise AzureDocumentError(f"No se pudo conectar con Azure: {exc}") from exc
+        raise AzureDocumentError("No se pudo conectar con el servicio de análisis de documentos.") from exc
 
 
 def _field_value(field: dict[str, Any]) -> Any:

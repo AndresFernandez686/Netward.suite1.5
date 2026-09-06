@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=asset_v ~ '-editable-caret-1') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=asset_v ~ '-editable-caret-1-system-states-1') }}" />
 </head>
 <body>
   {% if sesion_usuario %}
@@ -142,7 +142,7 @@
     {% block auth_content %}{% endblock %}
   {% endif %}
 
-  <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-sidebar-scroll-fix-1-confirm-no-delay-1-processing-card-1-login-reset-1') }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js', v=asset_v ~ '-sidebar-scroll-fix-1-confirm-no-delay-1-processing-card-1-login-reset-1-system-states-1') }}"></script>
   <script>
     function syncStart(form) {
       var btn = document.getElementById('sync-btn');
