@@ -38,7 +38,8 @@
       </button>
     </div>
 
-    <form method="post" action="{{ url_for('admin_periodo_crear') }}" class="periodos-form">
+    <form method="post" action="{{ url_for('admin_periodo_crear') }}" class="periodos-form" id="periodosCreateForm" data-current-month="{{ mes_actual }}" data-no-loading>
+      <input type="hidden" name="confirmar_retroactivo" id="confirmarRetroactivo" value="0">
       <label class="field field--grow">
         <span class="field__label">Tienda</span>
         <select name="tienda_id" required>
@@ -139,6 +140,20 @@
   </section>
 </div>
 
+<dialog class="periodos-confirm" id="retroactivePeriodDialog" aria-labelledby="retroactivePeriodTitle" aria-describedby="retroactivePeriodDescription">
+  <form method="dialog" class="periodos-confirm__content">
+    <div class="periodos-confirm__icon" aria-hidden="true">!</div>
+    <div>
+      <h3 id="retroactivePeriodTitle">Confirmar período anterior</h3>
+      <p id="retroactivePeriodDescription">La fecha inicial pertenece a un mes anterior al actual. El período se creará vacío y no recuperará cargas históricas.</p>
+    </div>
+    <div class="periodos-confirm__actions">
+      <button type="button" value="cancel" class="btn btn--ghost" id="cancelRetroactivePeriod">Cancelar</button>
+      <button type="button" value="confirm" class="btn btn--primary" id="confirmRetroactivePeriod">Sí, crear período</button>
+    </div>
+  </form>
+</dialog>
+
 <div class="periodos-help" id="periodosHelpPopup" role="dialog" aria-modal="true" aria-labelledby="periodosHelpTitle" hidden>
   <div class="periodos-help__backdrop" data-help-close="true"></div>
   <div class="periodos-help__content">
@@ -148,7 +163,7 @@
     </div>
     <ol>
       <li>Creás un período definiendo tienda, fecha desde y fecha hasta.</li>
-      <li>El sistema usa el stock final del período previo como base del nuevo.</li>
+      <li>Todo período nuevo comienza vacío, con los productos pendientes de una carga propia.</li>
       <li>Al cerrar o auditar un período, podés revisar diferencias y generar reportes.</li>
       <li>Configurá el auto-cierre según tu operación para evitar atrasos.</li>
     </ol>
@@ -162,6 +177,12 @@
   (function () {
     var helpBtn = document.getElementById('periodosHelpBtn');
     var helpPopup = document.getElementById('periodosHelpPopup');
+    var createForm = document.getElementById('periodosCreateForm');
+    var retroactiveDialog = document.getElementById('retroactivePeriodDialog');
+    var retroactiveConfirmation = document.getElementById('confirmarRetroactivo');
+    var cancelRetroactivePeriod = document.getElementById('cancelRetroactivePeriod');
+    var confirmRetroactivePeriod = document.getElementById('confirmRetroactivePeriod');
+    var startDateInput = createForm && createForm.querySelector('[name="fecha_desde"]');
     var searchInput = document.getElementById('periodosSearch');
     var rows = Array.prototype.slice.call(document.querySelectorAll('.periodo-row'));
     var filteredEmpty = document.getElementById('periodosEmptyFiltered');
@@ -171,6 +192,33 @@
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    if (createForm && retroactiveDialog && startDateInput && retroactiveConfirmation) {
+      createForm.addEventListener('submit', function (event) {
+        var currentMonth = createForm.dataset.currentMonth;
+        var selectedMonth = startDateInput.value.slice(0, 7);
+        if (selectedMonth && selectedMonth < currentMonth && retroactiveConfirmation.value !== '1') {
+          event.preventDefault();
+          retroactiveDialog.showModal();
+        }
+      });
+
+      if (cancelRetroactivePeriod) {
+        cancelRetroactivePeriod.addEventListener('click', function () {
+          retroactiveDialog.close('cancel');
+        });
+      }
+      if (confirmRetroactivePeriod) {
+        confirmRetroactivePeriod.addEventListener('click', function () {
+          retroactiveDialog.close('confirm');
+          retroactiveConfirmation.value = '1';
+          createForm.requestSubmit();
+        });
+      }
+      startDateInput.addEventListener('change', function () {
+        retroactiveConfirmation.value = '0';
+      });
     }
 
     function openHelp() {

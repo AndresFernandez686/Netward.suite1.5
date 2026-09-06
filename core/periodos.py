@@ -1,7 +1,7 @@
 """Reglas de negocio para el ciclo de vida de períodos de inventario."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from sqlalchemy import or_
 
 from .models import (
@@ -10,6 +10,35 @@ from .models import (
 )
 from .ajustes import MOTIVOS_BAJA_NO_IMPUTABLE
 from .time_utils import now_local_time_str, today_local_iso
+
+
+ESTADOS_PERIODO_HISTORICO = ("Cerrado", "Conciliado", "Auditado")
+
+
+def periodo_es_retroactivo(fecha_desde: str, hoy_iso: str | None = None) -> bool:
+    """Indica si el período comienza antes del mes local actual."""
+    inicio = date.fromisoformat(fecha_desde)
+    hoy = date.fromisoformat(hoy_iso or today_local_iso())
+    return (inicio.year, inicio.month) < (hoy.year, hoy.month)
+
+
+def buscar_periodo_historico_solapado(
+    *,
+    cliente_id: str,
+    tienda_id: str,
+    fecha_desde: str,
+    fecha_hasta: str,
+) -> InventarioPeriodo | None:
+    """Busca un período histórico cuyo rango se superponga, incluidos los límites."""
+    return (
+        InventarioPeriodo.query
+        .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
+        .filter(InventarioPeriodo.estado.in_(ESTADOS_PERIODO_HISTORICO))
+        .filter(InventarioPeriodo.fecha_desde <= fecha_hasta)
+        .filter(InventarioPeriodo.fecha_hasta >= fecha_desde)
+        .order_by(InventarioPeriodo.numero.desc())
+        .first()
+    )
 
 
 def cerrar_periodo(

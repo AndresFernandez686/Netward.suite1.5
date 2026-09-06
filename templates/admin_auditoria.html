@@ -73,7 +73,7 @@
             <tbody>
               {% for r in resultados %}
               {% set visual_state = 'sin_datos' if r.estado_auditoria == 'Sin datos' else ('critico' if r.severidad == 'Crítico' else ('pendiente' if r.estado_auditoria == 'Pendiente' else r.tipo_diferencia)) %}
-              <tr class="audit-data-row" data-type="{{ r.tipo_diferencia }}" data-critical="{{ '1' if r.severidad == 'Crítico' else '0' }}" data-pending="{{ '1' if r.estado_auditoria == 'Pendiente' else '0' }}" data-no-data="{{ '1' if r.estado_auditoria == 'Sin datos' else '0' }}" data-state="{{ visual_state }}" data-product="{{ r.producto_nombre|lower }}" data-category="{{ r.categoria|lower }}" data-search="{{ (r.producto_nombre ~ ' ' ~ r.articulo_codigo ~ ' ' ~ r.categoria ~ ' ' ~ r.causa_sugerida ~ ' ' ~ r.evidencia)|lower|e }}">
+              <tr class="audit-data-row" data-type="{{ r.tipo_diferencia }}" data-critical="{{ '1' if r.severidad == 'Crítico' else '0' }}" data-pending="{{ '1' if r.estado_auditoria == 'Pendiente' else '0' }}" data-no-data="{{ '1' if r.estado_auditoria == 'Sin datos' else '0' }}" data-compensated="{{ '1' if r.tipo_diferencia == 'compensado' or r.estado_auditoria == 'Sin diferencia real' else '0' }}" data-state="{{ visual_state }}" data-product="{{ r.producto_nombre|lower }}" data-category="{{ r.categoria|lower }}" data-search="{{ (r.producto_nombre ~ ' ' ~ r.articulo_codigo ~ ' ' ~ r.categoria ~ ' ' ~ r.causa_sugerida ~ ' ' ~ r.evidencia)|lower|e }}">
                 <td><span class="audit-status audit-status--{{ visual_state }}">{{ visual_state|capitalize }}</span></td>
                 <td><strong>{{ r.producto_nombre }}</strong></td>
                 <td><span class="audit-code">{{ r.articulo_codigo or '—' }}</span></td>
@@ -144,8 +144,17 @@
   var state = document.getElementById('auditState');
   var pageSize = document.getElementById('auditPageSize');
   function normalize(value) { return (value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
-  function matchesTab(row) { if (activeFilter === 'todos') return true; if (activeFilter === 'critico') return row.dataset.critical === '1'; if (activeFilter === 'pendiente') return row.dataset.pending === '1'; if (activeFilter === 'sin_datos') return row.dataset.noData === '1'; return row.dataset.type === activeFilter; }
-  function filteredRows() { var query = normalize(search.value); return rows.filter(function (row) { return matchesTab(row) && (!query || normalize(row.dataset.search).indexOf(query) !== -1) && (!product.value || row.dataset.product === product.value) && (!category.value || row.dataset.category === category.value) && (!state.value || row.dataset.state === state.value || (state.value === 'critico' && row.dataset.critical === '1')); }); }
+  function matchesState(row, filter) {
+    if (!filter || filter === 'todos') return true;
+    if (filter === 'critico') return row.dataset.critical === '1';
+    if (filter === 'pendiente') return row.dataset.pending === '1';
+    if (filter === 'sin_datos') return row.dataset.noData === '1';
+    if (filter === 'compensado') return row.dataset.compensated === '1';
+    if (filter === 'correcto') return row.dataset.type === 'correcto' && row.dataset.noData !== '1' && row.dataset.compensated !== '1';
+    return row.dataset.type === filter;
+  }
+  function matchesTab(row) { return matchesState(row, activeFilter); }
+  function filteredRows() { var query = normalize(search.value); return rows.filter(function (row) { return matchesTab(row) && (!query || normalize(row.dataset.search).indexOf(query) !== -1) && (!product.value || row.dataset.product === product.value) && (!category.value || row.dataset.category === category.value) && matchesState(row, state.value); }); }
   function render() {
     var filtered = filteredRows(); var size = Number(pageSize.value); var pages = Math.max(1, Math.ceil(filtered.length / size)); currentPage = Math.min(currentPage, pages); var start = (currentPage - 1) * size; var visible = filtered.slice(start, start + size);
     rows.forEach(function (row) { row.hidden = visible.indexOf(row) === -1; var detail = row.nextElementSibling; if (row.hidden && detail && detail.classList.contains('audit-detail-row')) detail.hidden = true; });

@@ -3,8 +3,8 @@ Puente de sincronización: propaga los InventarioItem del empleado a ConteoDetal
 del período activo. Funciona en dos sentidos:
 
 1. Al sincronizar (tiempo real): propaga items pendientes al período activo.
-2. Al crear período (retroactivo): jala items ya sincronizados dentro del rango
-   de fechas, para no perder cargas que ocurrieron antes de que el período existiera.
+2. Al crear un período: inicializa productos visibles como pendientes, sin copiar
+   cargas operativas ni movimientos históricos de otros períodos.
 """
 from __future__ import annotations
 
@@ -172,129 +172,34 @@ def propagar_conteo_a_periodo(
 
 
 def retroalimentar_periodo_desde_items(periodo: InventarioPeriodo) -> int:
-    """
-    Al crear un período:
-    1. Crea un placeholder fue_cargado=False para TODOS los productos visibles.
-    2. Sobreescribe con fue_cargado=True los que tienen historial en el rango.
-    Esto garantiza que la validación de cierre pueda distinguir
-    'cargado con 0' de 'nunca cargado'.
+    """Inicializa un período vacío con un producto pendiente por cada producto visible.
+
+    Los movimientos históricos y el inventario operativo pertenecen a sus cargas de
+    origen y nunca se copian automáticamente a un período recién creado.
     """
     from .models import Producto
 
-    # Paso 1: placeholder fue_cargado=False para todos los productos activos visibles
     productos_visibles = Producto.query.filter_by(visible_empleado=True).all()
-    for p in productos_visibles:
+    for producto in productos_visibles:
         existente = ConteoDetalle.query.filter_by(
-            periodo_id=periodo.id, producto_nombre=p.nombre
+            periodo_id=periodo.id,
+            producto_nombre=producto.nombre,
         ).first()
-        if not existente:
-            db.session.add(ConteoDetalle(
-                periodo_id=periodo.id,
-                cliente_id=periodo.cliente_id,
-                tienda_id=periodo.tienda_id,
-                usuario="sistema",
-                producto_nombre=p.nombre,
-                categoria=p.categoria,
-                cantidad_unidad=0,
-                cantidad_caja=0,
-                cantidad_bulto=0,
-                total_unidad_base=0,
-                fue_cargado=False,   # pendiente de carga real
-            ))
-    db.session.flush()
-
-    # Paso 2: llenar con datos reales del historial dentro del rango
-    movimientos = (
-        HistorialMovimiento.query
-        .filter_by(cliente_id=periodo.cliente_id, tienda_id=periodo.tienda_id)
-        .filter(HistorialMovimiento.fecha >= periodo.fecha_desde)
-        .filter(HistorialMovimiento.fecha <= periodo.fecha_hasta)
-        .all()
-    )
-
-    if not movimientos:
-        # Fallback: InventarioItem sincronizados actuales
-        items = InventarioItem.query.filter_by(
+        if existente:
+            continue
+        db.session.add(ConteoDetalle(
+            periodo_id=periodo.id,
             cliente_id=periodo.cliente_id,
             tienda_id=periodo.tienda_id,
-            sinc_estado="sincronizado",
-        ).all()
-        for item in items:
-            _upsert_conteo(periodo, item.producto, item.categoria,
-                           float(item.cantidad or 0), item.usuario_ultima_carga or "sistema",
-                           fue_sobreescrito=item.fue_sobreescrito,
-                           version_ultima_carga=item.version)
-        importados = len(items)
-    else:
-        from collections import defaultdict
-        # Agrupar por producto tomando el movimiento más reciente (último snapshot gana).
-        # Se prioriza snapshot_id DESC cuando existe; si no, se usa (fecha DESC, creado DESC).
-        por_producto = {}
-        for m in movimientos:
-            k = m.producto
-            if k not in por_producto:
-                por_producto[k] = m
-            else:
-                prev = por_producto[k]
-                # Comparar: snapshot_id más alto > fecha más reciente > creado más reciente
-                m_snap   = m.snapshot_id or 0
-                prev_snap = prev.snapshot_id or 0
-                if m_snap > prev_snap:
-                    por_producto[k] = m
-                elif m_snap == prev_snap and (m.fecha, m.creado) > (prev.fecha, prev.creado):
-                    por_producto[k] = m
+            usuario="sistema",
+            producto_nombre=producto.nombre,
+            categoria=producto.categoria,
+            cantidad_unidad=0,
+            cantidad_caja=0,
+            cantidad_bulto=0,
+            total_unidad_base=0,
+            fue_cargado=False,
+        ))
 
-        for nombre, m in por_producto.items():
-            _upsert_conteo(periodo, nombre, m.categoria,
-                           float(m.cantidad or 0), m.usuario)
-        importados = len(por_producto)
-
-    if importados > 0 and periodo.estado in ("Abierto", "Pendiente"):
-        periodo.estado = "Cargado"
-
-    return importados
-
-    count = 0
-    for item in items:
-        nombre = item.producto
-        total = float(item.cantidad or 0)
-
-        # Intentar desglosar en cajas/bultos usando ProductoPrecio
-        cantidad_unidad = total
-        cantidad_caja = 0.0
-        cantidad_bulto = 0.0
-        pp = (ProductoPrecio.query
-              .filter(db.func.lower(ProductoPrecio.producto_nombre) == _norm(nombre))
-              .first())
-        # El item ya fue convertido a unidades en add_carrito_item, guardamos tal cual
-
-        cd = ConteoDetalle.query.filter_by(
-            periodo_id=periodo.id, producto_nombre=nombre
-        ).first()
-        if cd:
-            cd.total_unidad_base = total
-            cd.cantidad_unidad = total
-            cd.fue_cargado = True
-            cd.fecha_carga = utc_now()
-            cd.usuario = usuario
-        else:
-            cd = ConteoDetalle(
-                periodo_id=periodo.id,
-                cliente_id=cliente_id,
-                tienda_id=tienda_id,
-                usuario=usuario,
-                producto_nombre=nombre,
-                categoria=item.categoria,
-                cantidad_unidad=cantidad_unidad,
-                cantidad_caja=0,
-                cantidad_bulto=0,
-                total_unidad_base=total,
-                fue_cargado=True,
-            )
-            db.session.add(cd)
-        count += 1
-
-    if count > 0 and periodo.estado in ("Abierto", "Pendiente"):
-        periodo.estado = "Cargado"
-
-    return count
+    db.session.flush()
+    return 0

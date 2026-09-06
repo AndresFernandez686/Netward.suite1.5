@@ -163,9 +163,26 @@
       <h3>Conteos registrados</h3>
       <div class="periodo-det-table-tools">
         <label class="periodo-det-search">
-          <input type="text" id="conteosSearch" placeholder="Buscar conteo...">
+          <span class="sr-only">Buscar conteo</span>
+          <input type="search" id="conteosSearch" placeholder="Buscar conteo..." autocomplete="off">
         </label>
-        <span class="badge-soft badge-soft--muted">Total: {{ conteos|length }} producto(s)</span>
+        <label class="periodo-det-filter">
+          <span>Categoría</span>
+          <select id="conteosCategory">
+            <option value="">Todas</option>
+            {% for categoria in categorias %}<option value="{{ categoria|lower }}">{{ categoria }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="periodo-det-filter">
+          <span>Estado</span>
+          <select id="conteosState">
+            <option value="">Todos</option>
+            <option value="cargado">Cargado</option>
+            <option value="sin_stock">0 - Sin stock</option>
+            <option value="sin_cargar">Sin cargar</option>
+          </select>
+        </label>
+        <span class="badge-soft badge-soft--muted" id="conteosLiveCount">Total: {{ conteos|length }} producto(s)</span>
       </div>
     </div>
 
@@ -190,7 +207,8 @@
         <tbody>
           {% for c in conteos %}
           {% set sincs = c.veces_sincronizado or 1 %}
-          <tr class="conteo-row" {% if not c.fue_cargado %}style="background:#fff7ed"{% endif %}>
+          {% set conteo_estado = 'sin_cargar' if not c.fue_cargado else ('sin_stock' if c.total_unidad_base == 0 else 'cargado') %}
+          <tr class="conteo-row {{ 'conteo-row--pending' if not c.fue_cargado }}" data-category="{{ c.categoria|lower }}" data-state="{{ conteo_estado }}">
             <td>
               {% if not c.fue_cargado %}
               <span class="badge-soft badge-soft--warning">Sin cargar</span>
@@ -283,6 +301,9 @@
     }
 
     var searchInput = document.getElementById('conteosSearch');
+    var categoryFilter = document.getElementById('conteosCategory');
+    var stateFilter = document.getElementById('conteosState');
+    var liveCount = document.getElementById('conteosLiveCount');
     var rows = Array.prototype.slice.call(document.querySelectorAll('.conteo-row'));
     var emptyFiltered = document.getElementById('conteosEmptyFiltered');
 
@@ -293,25 +314,33 @@
         .replace(/[\u0300-\u036f]/g, '');
     }
 
-    function applySearch() {
-      if (!searchInput || rows.length === 0) return;
-      var query = normalize(searchInput.value);
+    function applyConteosFilters() {
+      if (rows.length === 0) return;
+      var query = normalize(searchInput && searchInput.value);
+      var category = normalize(categoryFilter && categoryFilter.value);
+      var state = stateFilter ? stateFilter.value : '';
       var visible = 0;
 
       rows.forEach(function (row) {
-        var match = !query || normalize(row.textContent).indexOf(query) !== -1;
-        row.hidden = !match;
-        if (match) visible += 1;
+        var matchesSearch = !query || normalize(row.textContent).indexOf(query) !== -1;
+        var matchesCategory = !category || normalize(row.dataset.category) === category;
+        var matchesState = !state || row.dataset.state === state;
+        var matches = matchesSearch && matchesCategory && matchesState;
+        row.hidden = !matches;
+        if (matches) visible += 1;
       });
 
+      if (liveCount) {
+        liveCount.textContent = 'Total: ' + visible + ' producto(s)';
+      }
       if (emptyFiltered) {
-        emptyFiltered.hidden = !query || visible > 0;
+        emptyFiltered.hidden = visible > 0;
       }
     }
 
-    if (searchInput) {
-      searchInput.addEventListener('input', applySearch);
-    }
+    if (searchInput) searchInput.addEventListener('input', applyConteosFilters);
+    if (categoryFilter) categoryFilter.addEventListener('change', applyConteosFilters);
+    if (stateFilter) stateFilter.addEventListener('change', applyConteosFilters);
 
     function configurarCantidad(categoriaId, cantidadId) {
       var categoria = document.getElementById(categoriaId);

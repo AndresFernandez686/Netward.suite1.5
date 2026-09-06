@@ -21,7 +21,8 @@ from core.models import (
 )
 from core.admin_inventario import _inventario_agregado
 from core.periodos import (
-    asegurar_conteo_admin, cerrar_periodo, registrar_estado_operativo_admin,
+    asegurar_conteo_admin, buscar_periodo_historico_solapado, cerrar_periodo,
+    periodo_es_retroactivo, registrar_estado_operativo_admin,
     total_conteo_con_ajustes,
 )
 from core.scheduler import actualizar_estados_periodos
@@ -213,18 +214,8 @@ class PruebasPeriodos(unittest.TestCase):
 
         self.assertEqual(total_conteo_con_ajustes(periodo.id, PRODUCTO), 5)
 
-    def test_crear_periodo_con_historial_importa_ultima_carga(self):
+    def test_crear_periodo_no_hereda_historial_ni_inventario_actual(self):
         db.session.add_all([
-            HistorialMovimiento(
-                cliente_id=CLIENTE,
-                tienda_id=TIENDA,
-                fecha="2026-08-03",
-                hora="08:00",
-                usuario="empleado",
-                categoria="Pruebas",
-                producto=PRODUCTO,
-                cantidad=7,
-            ),
             HistorialMovimiento(
                 cliente_id=CLIENTE,
                 tienda_id=TIENDA,
@@ -234,6 +225,15 @@ class PruebasPeriodos(unittest.TestCase):
                 categoria="Pruebas",
                 producto=PRODUCTO,
                 cantidad=11,
+            ),
+            InventarioItem(
+                cliente_id=CLIENTE,
+                tienda_id=TIENDA,
+                usuario_ultima_carga="empleado",
+                categoria="Pruebas",
+                producto=PRODUCTO,
+                cantidad=15,
+                sinc_estado="sincronizado",
             ),
         ])
         periodo = self.crear_periodo(1, "2026-08-01", "2026-08-08")
@@ -245,10 +245,57 @@ class PruebasPeriodos(unittest.TestCase):
             producto_nombre=PRODUCTO,
         ).one()
 
-        self.assertEqual(importados, 1)
-        self.assertTrue(conteo.fue_cargado)
-        self.assertEqual(conteo.total_unidad_base, 11)
-        self.assertEqual(periodo.estado, "Cargado")
+        self.assertEqual(importados, 0)
+        self.assertFalse(conteo.fue_cargado)
+        self.assertEqual(conteo.total_unidad_base, 0)
+        self.assertEqual(periodo.estado, "Abierto")
+
+    def test_periodo_retroactivo_se_compara_con_mes_actual(self):
+        self.assertTrue(periodo_es_retroactivo("2026-08-31", "2026-09-01"))
+        self.assertFalse(periodo_es_retroactivo("2026-09-01", "2026-09-30"))
+        self.assertFalse(periodo_es_retroactivo("2026-10-01", "2026-09-30"))
+
+    def test_detecta_cualquier_solapamiento_con_periodo_historico(self):
+        historico = self.crear_periodo(
+            1, "2026-08-01", "2026-08-08", estado="Cerrado"
+        )
+        db.session.flush()
+
+        conflicto = buscar_periodo_historico_solapado(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            fecha_desde="2026-08-08",
+            fecha_hasta="2026-08-15",
+        )
+        sin_conflicto = buscar_periodo_historico_solapado(
+            cliente_id=CLIENTE,
+            tienda_id=TIENDA,
+            fecha_desde="2026-08-09",
+            fecha_hasta="2026-08-15",
+        )
+
+        self.assertEqual(conflicto.id, historico.id)
+        self.assertIsNone(sin_conflicto)
+
+    def test_plantillas_incluyen_filtros_y_confirmacion_retroactiva(self):
+        raiz = Path(__file__).resolve().parents[1]
+        detalle = raiz.joinpath("templates", "admin_periodo_detalle.html").read_text(
+            encoding="utf-8"
+        )
+        auditoria = raiz.joinpath("templates", "admin_auditoria.html").read_text(
+            encoding="utf-8"
+        )
+        periodos = raiz.joinpath("templates", "admin_periodos.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('id="conteosCategory"', detalle)
+        self.assertIn('id="conteosState"', detalle)
+        self.assertIn('data-state="{{ conteo_estado }}"', detalle)
+        self.assertIn("function matchesState(row, filter)", auditoria)
+        self.assertIn("row.dataset.compensated", auditoria)
+        self.assertIn('id="retroactivePeriodDialog"', periodos)
+        self.assertIn('name="confirmar_retroactivo"', periodos)
 
     def test_cierre_falla_con_pendientes_y_pasa_con_todo_cargado(self):
         periodo = self.crear_periodo(1, "2026-08-01", "2026-08-08")

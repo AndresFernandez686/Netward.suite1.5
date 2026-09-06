@@ -64,7 +64,8 @@ from core.admin_feedback import set_view_notice, pop_view_notice
 from core.time_utils import today_local_iso, format_utc_naive_to_local
 from core.security import rol_permitido
 from core.periodos import (
-    asegurar_conteo_admin, registrar_estado_operativo_admin,
+    asegurar_conteo_admin, buscar_periodo_historico_solapado,
+    periodo_es_retroactivo, registrar_estado_operativo_admin,
     total_conteo_con_ajustes,
 )
 from core.ai_assistant import (AIConfig, build_period_context,
@@ -3473,6 +3474,7 @@ def admin_periodos():
         tiendas=tiendas,
         tiendas_map=tiendas_map,
         autoclose_horas=get_autoclose_horas(cliente_id),
+        mes_actual=today_local_iso()[:7],
     )
 
 
@@ -3499,6 +3501,28 @@ def admin_periodo_crear():
         flash("Fechas inválidas.", "error")
         return redirect(url_for("admin_periodos"))
 
+    conflicto = buscar_periodo_historico_solapado(
+        cliente_id=cliente_id,
+        tienda_id=tienda_id,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
+    if conflicto:
+        flash(
+            f"No se creó el período: el rango se superpone con el período histórico "
+            f"#{conflicto.numero} ({conflicto.fecha_desde} al {conflicto.fecha_hasta}).",
+            "warning",
+        )
+        return redirect(url_for("admin_periodos"))
+
+    if periodo_es_retroactivo(fecha_desde) and request.form.get("confirmar_retroactivo") != "1":
+        flash(
+            "La fecha pertenece a un mes anterior. Confirmá expresamente la creación "
+            "del período retroactivo.",
+            "warning",
+        )
+        return redirect(url_for("admin_periodos"))
+
     ultimo = (InventarioPeriodo.query
               .filter_by(cliente_id=cliente_id, tienda_id=tienda_id)
               .order_by(InventarioPeriodo.numero.desc())
@@ -3517,17 +3541,13 @@ def admin_periodo_crear():
         observacion=observacion,
     )
     db.session.add(p)
-    db.session.flush()  # necesitamos p.id antes de retroalimentar
+    db.session.flush()  # necesitamos p.id antes de inicializar sus pendientes
 
     notifs_creadas = _notificar_nuevo_periodo(p)
-
-    # Jalar cargas existentes dentro del rango (por si el empleado ya había cargado)
-    importados = retroalimentar_periodo_desde_items(p)
+    retroalimentar_periodo_desde_items(p)
     db.session.commit()
 
-    msg = f"Período #{numero} creado."
-    if importados:
-        msg += f" Se importaron {importados} producto(s) de cargas previas dentro del rango."
+    msg = f"Período #{numero} creado vacío, con sus productos pendientes de carga."
     if notifs_creadas:
         msg += f" Notificaciones enviadas: {notifs_creadas}."
     flash(msg, "success")
@@ -3859,7 +3879,7 @@ def admin_auditoria(periodo_id):
         abort(404)
 
     filtro = request.args.get("filtro", "todos")
-    if filtro not in {"todos", "faltante", "sobrante", "critico", "pendiente", "sin_datos"}:
+    if filtro not in {"todos", "faltante", "sobrante", "compensado", "critico", "pendiente", "sin_datos"}:
         filtro = "todos"
 
     # Se envía el conjunto completo para combinar filtros en pantalla sin
@@ -3895,6 +3915,10 @@ def admin_auditoria(periodo_id):
         "todos": len(resultados),
         "faltante": sum(1 for r in resultados if r.tipo_diferencia == "faltante"),
         "sobrante": sum(1 for r in resultados if r.tipo_diferencia == "sobrante"),
+        "compensado": sum(
+            1 for r in resultados
+            if r.tipo_diferencia == "compensado" or r.estado_auditoria == "Sin diferencia real"
+        ),
         "critico": sum(1 for r in resultados if r.severidad == "Crítico"),
         "pendiente": sum(1 for r in resultados if r.estado_auditoria == "Pendiente"),
         "sin_datos": sum(1 for r in resultados if r.estado_auditoria == "Sin datos"),
