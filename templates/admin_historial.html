@@ -73,7 +73,7 @@
   <div class="table-wrap">
     <table class="table">
       <thead>
-        <tr><th>Producto</th><th>Categoria</th><th>Cantidad</th><th>Modo</th><th>Detalle</th></tr>
+        <tr><th>Producto</th><th>Categoria</th><th>Cantidad</th><th>Origen</th><th>Modo</th><th>Detalle</th></tr>
       </thead>
       <tbody>
         {% for r in registros %}
@@ -81,6 +81,10 @@
           <td><strong>{{ r.producto }}</strong></td>
           <td><span class="tag">{{ r.categoria }}</span></td>
           <td>{{ '%g'|format(r.cantidad) }}</td>
+          <td>
+            {% if r.origen_carga == 'confirmacion_sin_stock' %}<span class="badge-soft badge-soft--muted">Confirmación sin stock</span>
+            {% else %}<span class="badge-soft badge-soft--success">Carga manual</span>{% endif %}
+          </td>
           <td>{{ r.modo }}</td>
           <td>{{ r.detalle or '—' }}</td>
         </tr>

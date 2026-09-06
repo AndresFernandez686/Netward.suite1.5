@@ -199,7 +199,9 @@
             <th>Producto</th>
             <th>Categoría</th>
             <th>Total (unid.)</th>
-            <th>Sin carga</th>
+            <th>Responsable</th>
+            <th>Origen</th>
+            <th>Sincronizaciones</th>
             <th>Primera carga</th>
             <th>Última carga</th>
           </tr>
@@ -221,6 +223,12 @@
             <td><strong>{{ c.producto_nombre }}</strong></td>
             <td>{{ c.categoria }}</td>
             <td>{% if c.fue_cargado %}{{ c.total_unidad_base }}{% else %}-{% endif %}</td>
+            <td>{% if c.fue_cargado %}<strong>{{ c.usuario }}</strong>{% else %}—{% endif %}</td>
+            <td>
+              {% if not c.fue_cargado %}—
+              {% elif c.origen_carga == 'confirmacion_sin_stock' %}<span class="badge-soft badge-soft--muted">Confirmación sin stock</span>
+              {% else %}<span class="badge-soft badge-soft--success">Carga manual</span>{% endif %}
+            </td>
             <td>{{ sincs }}</td>
             <td>{{ c.primera_carga.strftime('%d/%m %H:%M') if c.primera_carga else '-' }}</td>
             <td>{{ c.fecha_carga.strftime('%d/%m %H:%M') if c.fecha_carga else '-' }}</td>

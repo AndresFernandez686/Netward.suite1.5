@@ -161,6 +161,7 @@ class InventarioItem(BaseModel):
     usuario_ultima_carga = db.Column(db.String(80), default="", nullable=False)
     version = db.Column(db.Integer, default=1, nullable=False)
     fue_sobreescrito = db.Column(db.Boolean, default=False, nullable=False)
+    origen_carga = db.Column(db.String(40), default="carga_manual", nullable=False)
     actualizado = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
@@ -191,6 +192,7 @@ class HistorialMovimiento(BaseModel):
     usuario_anterior = db.Column(db.String(80), nullable=False, default="")
     cantidad_anterior = db.Column(db.Float, nullable=True)
     version = db.Column(db.Integer, default=1, nullable=False)
+    origen_carga = db.Column(db.String(40), default="carga_manual", nullable=False)
     creado = db.Column(db.DateTime, default=utc_now)
 
 
@@ -424,6 +426,7 @@ class ConteoDetalle(BaseModel):
     veces_sincronizado = db.Column(db.Integer, nullable=False, default=1)
     fue_sobreescrito = db.Column(db.Boolean, default=False, nullable=False)
     version_ultima_carga = db.Column(db.Integer, default=1, nullable=False)
+    origen_carga = db.Column(db.String(40), default="carga_manual", nullable=False)
 
     __table_args__ = (
         db.UniqueConstraint("periodo_id", "tienda_id", "producto_nombre",

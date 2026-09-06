@@ -104,6 +104,8 @@ def _inventario_agregado(tienda_id: str, cliente_id: str):
             "cantidad": 0,
             "ume": modos.get((conteo.periodo_id, conteo.producto_nombre), "N/A"),
             "tiendas": set(),
+            "usuarios": set(),
+            "origenes": set(),
             "cargado": True,
         })
         dato["cantidad"] += (
@@ -111,6 +113,17 @@ def _inventario_agregado(tienda_id: str, cliente_id: str):
             + ajustes_por_producto.get((conteo.periodo_id, conteo.producto_nombre), 0)
         )
         dato["tiendas"].add(conteo.tienda_id)
+        dato["usuarios"].add(conteo.usuario or "Sin identificar")
+        dato["origenes"].add(conteo.origen_carga or "carga_manual")
+
+    for dato in inventario.values():
+        dato["responsable"] = ", ".join(sorted(dato["usuarios"]))
+        if dato["origenes"] == {"confirmacion_sin_stock"}:
+            dato["origen_etiqueta"] = "Confirmación sin stock"
+        elif "confirmacion_sin_stock" in dato["origenes"]:
+            dato["origen_etiqueta"] = "Carga mixta"
+        else:
+            dato["origen_etiqueta"] = "Carga manual"
     return inventario
 
 
@@ -190,6 +203,11 @@ def build_admin_inventory_context(
                 "nivel": nivel,
                 "etiqueta": etiqueta,
                 "cargado": cargado,
+                "responsable": item.get("responsable", "—") if item else "—",
+                "origen_etiqueta": item.get("origen_etiqueta", "—") if item else "—",
+                "es_confirmacion_sin_stock": bool(
+                    item and item.get("origenes") == {"confirmacion_sin_stock"}
+                ),
                 "valor": valor,
                 "valor_fmt": _format_es_number(valor),
             }

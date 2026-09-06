@@ -18,7 +18,7 @@
     <h3 class="panel__title">Período #{{ periodo_activo.numero }}</h3>
     <p class="muted">{{ periodo_activo.fecha_desde }} → {{ periodo_activo.fecha_hasta }} · {{ periodo_activo.tienda_id }}</p>
   </div>
-  <span class="badge badge--warning">{{ productos_no_cargados|length }} pendiente(s) de {{ active_tab }}</span>
+  <span class="badge badge--warning">{{ total_productos_no_cargados }} pendiente(s) en total</span>
 </section>
 
 <nav class="tabs pending-category-tabs" aria-label="Categorías de productos pendientes">
@@ -71,10 +71,31 @@
       {% endfor %}
     </div>
   </section>
-{% else %}
+{% elif total_productos_no_cargados > 0 %}
 <section class="card card--skip-collapse empty pending-page-complete">
   <p>Todos los productos de {{ active_tab }} ya fueron cargados.</p>
-  <span class="muted">Selecciona otra categoría o vuelve al inventario para revisar las cargas.</span>
+  <span class="muted">Selecciona otra categoría para revisar los faltantes restantes.</span>
+</section>
+{% endif %}
+
+{% if total_productos_no_cargados > 0 %}
+<section class="card card--skip-collapse pending-confirmation-panel" aria-labelledby="confirmacion-faltantes-title">
+  <div class="pending-confirmation-panel__copy">
+    <span class="pending-confirmation-panel__eyebrow">Confirmación requerida</span>
+    <h3 id="confirmacion-faltantes-title">Guardar todos los faltantes en 0</h3>
+    <p>Se registrarán {{ total_productos_no_cargados }} producto(s) como sin stock, junto con tu usuario, fecha y hora. Las cargas manuales del carrito se guardarán en la misma operación.</p>
+  </div>
+  <form method="post" action="{{ url_for('carrito_confirmar_faltantes_cero') }}"
+        data-confirm-message="¿Confirmas que todos los productos faltantes están sin stock? Se guardarán con cantidad 0."
+        data-loading-text="Confirmando y guardando...">
+    <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}">
+    <button type="submit" class="btn btn--danger">Confirmar todos en 0 y guardar</button>
+  </form>
+</section>
+{% else %}
+<section class="card card--skip-collapse empty pending-page-complete">
+  <p>Inventario completo.</p>
+  <span class="muted">No quedan productos pendientes de confirmación.</span>
 </section>
 {% endif %}
 {% endblock %}

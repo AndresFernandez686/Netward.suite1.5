@@ -137,7 +137,8 @@
 {% endfor %}
 
 {# Los avisos de agregar/eliminar quedan junto al resultado de la acción. #}
-<div class="pending-products-link card card--skip-collapse">
+{% if productos_no_cargados %}
+<div class="pending-products-link pending-products-link--alert card card--skip-collapse" role="status">
   <div>
     <strong>Productos no cargados</strong>
     <span class="muted" id="pendingCategorySummary">
@@ -154,6 +155,7 @@
     Ver y cargar pendientes
   </a>
 </div>
+{% endif %}
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
     <div class="flash-stack inventory-cart-flashes" aria-live="polite">

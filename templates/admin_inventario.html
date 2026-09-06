@@ -139,7 +139,7 @@
       <div class="table-wrap">
         <table class="table inventory-table">
           <thead>
-            <tr><th>Estado Stock</th><th>Producto</th><th>Cantidad</th><th>Valor</th><th>Modo</th><th>Carga</th></tr>
+            <tr><th>Estado Stock</th><th>Producto</th><th>Cantidad</th><th>Valor</th><th>Modo</th><th>Carga</th><th>Responsable</th></tr>
           </thead>
           <tbody>
             {% for f in data[cat] %}
@@ -150,9 +150,12 @@
               <td>Gs. {{ f.valor_fmt }}</td>
               <td class="muted">{{ f.modo }}</td>
               <td>
-                {% if f.cargado %}<span class="dot dot--green"></span> Cargado
+                {% if f.cargado %}
+                  <span class="dot dot--green"></span> Cargado
+                  {% if f.es_confirmacion_sin_stock %}<br><span class="badge-soft badge-soft--muted">Confirmación sin stock</span>{% endif %}
                 {% else %}<span class="dot dot--red"></span> No cargado{% endif %}
               </td>
+              <td>{% if f.cargado %}<strong>{{ f.responsable }}</strong><br><small class="muted">{{ f.origen_etiqueta }}</small>{% else %}—{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>

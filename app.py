@@ -507,6 +507,7 @@ def ensure_multitenant_schema():
                 ("usuario_anterior VARCHAR(80) NOT NULL DEFAULT ''", "usuario_anterior"),
                 ("cantidad_anterior REAL", "cantidad_anterior"),
                 ("version INTEGER NOT NULL DEFAULT 1", "version"),
+                ("origen_carga VARCHAR(40) NOT NULL DEFAULT 'carga_manual'", "origen_carga"),
             ]:
                 _add_column_if_missing(conn, "historial", col_sql, col_name)
             for col_sql, col_name in [
@@ -514,11 +515,13 @@ def ensure_multitenant_schema():
                 ("usuario_ultima_carga VARCHAR(80) NOT NULL DEFAULT ''", "usuario_ultima_carga"),
                 ("version INTEGER NOT NULL DEFAULT 1", "version"),
                 ("fue_sobreescrito BOOLEAN NOT NULL DEFAULT 0", "fue_sobreescrito"),
+                ("origen_carga VARCHAR(40) NOT NULL DEFAULT 'carga_manual'", "origen_carga"),
             ]:
                 _add_column_if_missing(conn, "inventario_items", col_sql, col_name)
             for col_sql, col_name in [
                 ("fue_sobreescrito BOOLEAN NOT NULL DEFAULT 0", "fue_sobreescrito"),
                 ("version_ultima_carga INTEGER NOT NULL DEFAULT 1", "version_ultima_carga"),
+                ("origen_carga VARCHAR(40) NOT NULL DEFAULT 'carga_manual'", "origen_carga"),
             ]:
                 _add_column_if_missing(conn, "conteo_detalle", col_sql, col_name)
             for col_sql, col_name in [
@@ -594,7 +597,7 @@ def init_db():
             )
         with db.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        if version != "20260904_07":
+        if version != "20260906_08":
             raise RuntimeError(
                 f"Esquema PostgreSQL desactualizado ({version or 'sin version'}). "
                 "Ejecuta `alembic upgrade head`."
@@ -1319,6 +1322,7 @@ def empleado_productos_no_cargados():
         )
         for categoria in CATEGORIAS
     }
+    contexto["total_productos_no_cargados"] = len(pendientes_todos)
     contexto["productos_no_cargados"] = [
         item for item in pendientes_todos
         if item["categoria"] == contexto["active_tab"]
@@ -1598,11 +1602,37 @@ def carrito_guardar():
         return _redirect_inventario_context("sec-carrito")
 
     carrito = get_carrito(periodo_activo.id)
+    usuario = session["usuario"]
+    cargas_periodo = empleado_service.listar_cargas_periodo(
+        cliente_id=cliente_id,
+        tienda_id=tienda_id,
+        periodo_id=periodo_activo.id,
+    )
+    productos_cargados = empleado_service.combinar_cargas_para_vista(
+        carrito=carrito,
+        cargas_periodo=cargas_periodo,
+        usuario=usuario,
+    )
+    productos = catalogo_get_productos_db(cliente_id=cliente_id, username=usuario)
+    pendientes = empleado_service.obtener_productos_no_cargados(
+        productos=productos,
+        productos_cargados=productos_cargados,
+    )
+    if pendientes:
+        flash(
+            f"Quedan {len(pendientes)} producto(s) sin cargar. "
+            "Revísalos o confirma todos en 0 antes de guardar.",
+            "warning",
+        )
+        return redirect(url_for(
+            "empleado_productos_no_cargados",
+            periodo_id=periodo_activo.id,
+            tab=pendientes[0]["categoria"],
+        ))
     if not carrito:
         flash("No hay productos en el carrito para guardar.", "warning")
         return _redirect_inventario_context("sec-carrito")
 
-    usuario = session["usuario"]
     try:
         def limpiar_borrador(_guardados):
             set_carrito([], periodo_activo.id, commit=False)
@@ -1669,6 +1699,81 @@ def carrito_guardar():
         return _redirect_inventario_context("sec-carrito")
 
     flash(f"{guardados} producto(s) guardado(s) exitosamente.", "success")
+    return _redirect_inventario_context("sec-carrito")
+
+
+@app.route("/empleado/carrito/confirmar-faltantes-cero", methods=["POST"])
+@login_required(rol="empleado")
+def carrito_confirmar_faltantes_cero():
+    cliente_id = get_cliente_filtro()
+    tienda_id = session["tienda_id"]
+    usuario = session["usuario"]
+    periodo_activo, _ = _resolve_periodo_seleccionado_empleado(cliente_id, tienda_id)
+    if periodo_activo is None:
+        flash("No puedes confirmar productos fuera de un período abierto.", "error")
+        return _redirect_inventario_context("sec-carrito")
+
+    carrito = get_carrito(periodo_activo.id)
+    cargas_periodo = empleado_service.listar_cargas_periodo(
+        cliente_id=cliente_id,
+        tienda_id=tienda_id,
+        periodo_id=periodo_activo.id,
+    )
+    productos_cargados = empleado_service.combinar_cargas_para_vista(
+        carrito=carrito,
+        cargas_periodo=cargas_periodo,
+        usuario=usuario,
+    )
+    productos = catalogo_get_productos_db(cliente_id=cliente_id, username=usuario)
+    entradas_cero = empleado_service.construir_entradas_confirmacion_cero(
+        productos=productos,
+        productos_cargados=productos_cargados,
+        fecha=today_local_iso(),
+    )
+    if not entradas_cero:
+        flash("Ya no quedan productos pendientes. Revisa el inventario antes de guardar.", "info")
+        return _redirect_inventario_context("sec-carrito")
+
+    try:
+        def limpiar_borrador(_guardados):
+            set_carrito([], periodo_activo.id, commit=False)
+
+        guardados = empleado_service.guardar_carrito_transaccional(
+            carrito + entradas_cero,
+            tienda_id,
+            usuario,
+            cliente_id=cliente_id,
+            periodo_id=periodo_activo.id,
+            antes_commit=limpiar_borrador,
+        )
+    except (empleado_service.ConflictoCarga, IntegrityError):
+        db.session.rollback()
+        flash(
+            "Las cargas cambiaron mientras confirmabas. No se guardó ningún cambio; "
+            "revisa nuevamente los productos pendientes.",
+            "warning",
+        )
+        return redirect(url_for(
+            "empleado_productos_no_cargados",
+            periodo_id=periodo_activo.id,
+        ))
+    except Exception:
+        app.logger.exception("Fallo al confirmar faltantes en cero de %s", usuario)
+        flash(
+            "No se pudo guardar la confirmación. El carrito se conserva sin cambios; "
+            "puedes reintentar.",
+            "error",
+        )
+        return redirect(url_for(
+            "empleado_productos_no_cargados",
+            periodo_id=periodo_activo.id,
+        ))
+
+    flash(
+        f"Inventario guardado: {len(entradas_cero)} faltante(s) confirmado(s) sin stock "
+        f"y {guardados - len(entradas_cero)} carga(s) manual(es).",
+        "success",
+    )
     return _redirect_inventario_context("sec-carrito")
 
 

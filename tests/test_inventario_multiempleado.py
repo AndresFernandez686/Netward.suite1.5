@@ -428,6 +428,84 @@ class PruebasInventarioMultiempleado(unittest.TestCase):
         self.assertEqual(next(c for c in cargas_uno if c["producto"] == PRODUCTO)["cantidad"], 5)
         self.assertEqual(next(c for c in cargas_dos if c["producto"] == PRODUCTO)["cantidad"], 9)
 
+    def test_13_confirmar_faltantes_crea_ceros_auditables(self):
+        carrito_manual = self.carrito(PRODUCTO, 5)
+        entradas_cero = empleado_service.construir_entradas_confirmacion_cero(
+            productos={"Impulsivo": [PRODUCTO, OTRO_PRODUCTO]},
+            productos_cargados=carrito_manual,
+            fecha="2026-08-19",
+        )
+        self.assertEqual([e["producto"] for e in entradas_cero], [OTRO_PRODUCTO])
+
+        self.guardar("Empleado A", carrito_manual + entradas_cero)
+
+        cero = ConteoDetalle.query.filter_by(
+            periodo_id=self.periodo.id,
+            producto_nombre=OTRO_PRODUCTO,
+        ).one()
+        item = InventarioItem.query.filter_by(producto=OTRO_PRODUCTO).one()
+        movimiento = HistorialMovimiento.query.filter_by(producto=OTRO_PRODUCTO).one()
+        self.assertTrue(cero.fue_cargado)
+        self.assertEqual(cero.total_unidad_base, 0)
+        self.assertEqual(cero.usuario, "Empleado A")
+        self.assertEqual(cero.origen_carga, "confirmacion_sin_stock")
+        self.assertEqual(item.origen_carga, "confirmacion_sin_stock")
+        self.assertEqual(movimiento.origen_carga, "confirmacion_sin_stock")
+        self.assertIn("Confirmado sin stock", movimiento.detalle)
+
+    def test_14_carga_manual_posterior_actualiza_origen_y_conserva_historial(self):
+        entrada_cero = empleado_service.construir_entradas_confirmacion_cero(
+            productos={"Impulsivo": [PRODUCTO]},
+            productos_cargados=[],
+            fecha="2026-08-19",
+        )
+        self.guardar("Empleado A", entrada_cero)
+        self.guardar("Empleado A", self.carrito(PRODUCTO, 8, version=1))
+
+        item = InventarioItem.query.filter_by(producto=PRODUCTO).one()
+        conteo = ConteoDetalle.query.filter_by(producto_nombre=PRODUCTO).one()
+        movimientos = HistorialMovimiento.query.filter_by(producto=PRODUCTO).order_by(
+            HistorialMovimiento.id
+        ).all()
+        self.assertEqual(item.cantidad, 8)
+        self.assertEqual(item.origen_carga, "carga_manual")
+        self.assertEqual(conteo.origen_carga, "carga_manual")
+        self.assertEqual(
+            [movimiento.origen_carga for movimiento in movimientos],
+            ["confirmacion_sin_stock", "carga_manual"],
+        )
+
+    def test_15_error_antes_del_commit_revierte_ceros_y_carga_manual(self):
+        carrito = self.carrito(PRODUCTO, 3)
+        carrito += empleado_service.construir_entradas_confirmacion_cero(
+            productos={"Impulsivo": [PRODUCTO, OTRO_PRODUCTO]},
+            productos_cargados=carrito,
+            fecha="2026-08-19",
+        )
+
+        with self.app.test_request_context():
+            session.update(
+                cliente_id=CLIENTE,
+                tienda_id=TIENDA,
+                usuario="Empleado A",
+                empleado_periodo_id=self.periodo.id,
+            )
+            with self.assertRaises(RuntimeError):
+                empleado_service.guardar_carrito_transaccional(
+                    carrito,
+                    TIENDA,
+                    "Empleado A",
+                    cliente_id=CLIENTE,
+                    periodo_id=self.periodo.id,
+                    antes_commit=lambda _guardados: (_ for _ in ()).throw(
+                        RuntimeError("fallo controlado")
+                    ),
+                )
+
+        self.assertEqual(InventarioItem.query.count(), 0)
+        self.assertEqual(ConteoDetalle.query.count(), 0)
+        self.assertEqual(HistorialMovimiento.query.count(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

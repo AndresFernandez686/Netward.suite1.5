@@ -168,6 +168,7 @@ def obtener_carga_actual(*, cliente_id, tienda_id, periodo_id, categoria, produc
             "usuario": item.usuario_ultima_carga or "desconocido",
             "version": int(item.version or 1),
             "fue_sobreescrito": bool(item.fue_sobreescrito),
+            "origen_carga": item.origen_carga or "carga_manual",
             "origen": "item",
         }
 
@@ -185,6 +186,7 @@ def obtener_carga_actual(*, cliente_id, tienda_id, periodo_id, categoria, produc
             "usuario": conteo.usuario or "desconocido",
             "version": int(conteo.version_ultima_carga or 1),
             "fue_sobreescrito": bool(conteo.fue_sobreescrito),
+            "origen_carga": conteo.origen_carga or "carga_manual",
             "origen": "conteo",
         }
     return None
@@ -206,6 +208,7 @@ def listar_cargas_periodo(*, cliente_id, tienda_id, periodo_id):
             "usuario": conteo.usuario,
             "version": int(conteo.version_ultima_carga or 1),
             "fue_sobreescrito": bool(conteo.fue_sobreescrito),
+            "origen_carga": conteo.origen_carga or "carga_manual",
             "es_borrador": False,
             "hora": format_utc_naive_to_local(conteo.fecha_carga, "%H:%M:%S") or "—",
         }
@@ -221,6 +224,7 @@ def listar_cargas_periodo(*, cliente_id, tienda_id, periodo_id):
             "usuario": item.usuario_ultima_carga,
             "version": int(item.version or 1),
             "fue_sobreescrito": bool(item.fue_sobreescrito),
+            "origen_carga": item.origen_carga or "carga_manual",
             "es_borrador": False,
             "hora": format_utc_naive_to_local(item.actualizado, "%H:%M:%S") or "—",
         }
@@ -280,6 +284,33 @@ def obtener_productos_no_cargados(*, productos: dict, productos_cargados: list) 
             if clave not in cargados:
                 pendientes.append({"categoria": categoria, "producto": nombre})
     return pendientes
+
+
+def construir_entradas_confirmacion_cero(*, productos: dict, productos_cargados: list,
+                                         fecha: str) -> list:
+    """Construye una entrada auditable por cada producto que sigue sin cargarse."""
+    return [
+        {
+            "categoria": pendiente["categoria"],
+            "producto": pendiente["producto"],
+            "cantidad": 0.0,
+            "cantidad_unidades": 0.0,
+            "ume": "Unidad",
+            "factor": 1.0,
+            "desc_conversion": "",
+            "tipo_inventario": "Diario",
+            "fecha": fecha,
+            "detalle": "Confirmado sin stock al guardar el inventario.",
+            "hora": now_local_time_str(),
+            "version_esperada": 0,
+            "confirmar_sobreescritura": False,
+            "origen_carga": "confirmacion_sin_stock",
+        }
+        for pendiente in obtener_productos_no_cargados(
+            productos=productos,
+            productos_cargados=productos_cargados,
+        )
+    ]
 
 
 def build_empleado_inventario_context(*, active_tab: str, carrito: list, hoy: str,
@@ -482,6 +513,9 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
         primera = grupo["entradas"][0]
         tipo_inv = primera["tipo_inventario"]
         fecha_prod = primera["fecha"]
+        origen_carga = primera.get("origen_carga", "carga_manual")
+        if origen_carga not in ("carga_manual", "confirmacion_sin_stock"):
+            origen_carga = "carga_manual"
         actual = estados[(categoria, producto)]
         item = InventarioItem.query.filter_by(
             cliente_id=cliente_id,
@@ -504,6 +538,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                     "usuario_ultima_carga": usuario,
                     "version": version_nueva,
                     "fue_sobreescrito": True,
+                    "origen_carga": origen_carga,
                 }, synchronize_session=False)
             )
             if actualizados != 1:
@@ -528,6 +563,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 item.usuario_ultima_carga = usuario
                 item.version = version_nueva
                 item.fue_sobreescrito = True
+                item.origen_carga = origen_carga
             else:
                 db.session.add(InventarioItem(
                     cliente_id=cliente_id,
@@ -536,7 +572,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                     tipo_inventario=tipo_inv, fecha=fecha_prod,
                     sinc_estado="pendiente", periodo_id=periodo_id,
                     usuario_ultima_carga=usuario, version=version_nueva,
-                    fue_sobreescrito=True))
+                    fue_sobreescrito=True, origen_carga=origen_carga))
             tipo_movimiento = "sobreescritura"
             usuario_anterior = actual["usuario"]
             cantidad_anterior = actual["cantidad"]
@@ -553,6 +589,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 item.usuario_ultima_carga = usuario
                 item.version = version_nueva
                 item.fue_sobreescrito = False
+                item.origen_carga = origen_carga
             else:
                 db.session.add(InventarioItem(
                     cliente_id=cliente_id,
@@ -561,7 +598,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                     tipo_inventario=tipo_inv, fecha=fecha_prod,
                     sinc_estado="pendiente", periodo_id=periodo_id,
                     usuario_ultima_carga=usuario, version=version_nueva,
-                    fue_sobreescrito=False))
+                    fue_sobreescrito=False, origen_carga=origen_carga))
             tipo_movimiento = "original"
             usuario_anterior = ""
             cantidad_anterior = None
@@ -585,6 +622,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             usuario_anterior=usuario_anterior,
             cantidad_anterior=cantidad_anterior,
             version=version_nueva,
+            origen_carga=origen_carga,
         ))
 
         # Estado por período: InventarioItem representa el stock operativo más
@@ -606,6 +644,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             conteo.fecha_carga = ahora
             conteo.fue_sobreescrito = tipo_movimiento == "sobreescritura"
             conteo.version_ultima_carga = version_nueva
+            conteo.origen_carga = origen_carga
         else:
             db.session.add(ConteoDetalle(
                 periodo_id=periodo_id,
@@ -621,6 +660,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 fecha_carga=ahora,
                 fue_sobreescrito=tipo_movimiento == "sobreescritura",
                 version_ultima_carga=version_nueva,
+                origen_carga=origen_carga,
             ))
         guardados += 1
 

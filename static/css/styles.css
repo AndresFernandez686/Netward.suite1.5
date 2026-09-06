@@ -581,6 +581,16 @@ small { font-size: .78rem; }
   gap: 4px;
 }
 
+.pending-products-link--alert {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.pending-products-link--alert .muted {
+  color: #b91c1c;
+}
+
 .pending-page-actions {
   justify-content: flex-start;
   flex-wrap: wrap;
@@ -643,6 +653,40 @@ small { font-size: .78rem; }
 .pending-direct-form input[name="cantidad"]::placeholder {
   color: #cbd5e1;
   opacity: 1;
+}
+
+.pending-confirmation-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.pending-confirmation-panel__copy {
+  display: flex;
+  max-width: 720px;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pending-confirmation-panel__copy h3,
+.pending-confirmation-panel__copy p {
+  margin: 0;
+}
+
+.pending-confirmation-panel__copy p {
+  color: #7f1d1d;
+  line-height: 1.5;
+}
+
+.pending-confirmation-panel__eyebrow {
+  color: #b91c1c;
+  font-size: .75rem;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
 }
 /* El campo combo dentro del grid debe sobresalir por encima del resto */
 .inv-form__grid .field.combo { position: relative; z-index: 50; overflow: visible; }
@@ -912,8 +956,10 @@ small { font-size: .78rem; }
   .pending-product-form__identity { grid-column: 1 / -1; }
   .pending-product-form .btn { width: 100%; grid-column: 1 / -1; }
   .pending-products-link,
-  .pending-page-summary { align-items: stretch; flex-direction: column; }
-  .pending-products-link .btn { width: 100%; }
+  .pending-page-summary,
+  .pending-confirmation-panel { align-items: stretch; flex-direction: column; }
+  .pending-products-link .btn,
+  .pending-confirmation-panel .btn { width: 100%; }
   .pending-page-summary .badge { align-self: flex-start; }
   .pending-direct-form { grid-template-columns: 1fr; }
   .pending-direct-form .btn { width: 100%; }
