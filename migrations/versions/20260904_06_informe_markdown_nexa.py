@@ -14,13 +14,37 @@ branch_labels = None
 depends_on = None
 
 
+TABLA = "inventario_periodos"
+COLUMNAS = {
+    "informe_ia_markdown": sa.Text(),
+    "informe_ia_generado": sa.DateTime(),
+}
+
+
+def _columnas_existentes(connection) -> set[str]:
+    inspector = sa.inspect(connection)
+    if TABLA not in set(inspector.get_table_names()):
+        return set()
+    return {columna["name"] for columna in inspector.get_columns(TABLA)}
+
+
 def upgrade() -> None:
-    with op.batch_alter_table("inventario_periodos", recreate="auto") as batch:
-        batch.add_column(sa.Column("informe_ia_markdown", sa.Text(), nullable=True))
-        batch.add_column(sa.Column("informe_ia_generado", sa.DateTime(), nullable=True))
+    connection = op.get_bind()
+    existentes = _columnas_existentes(connection)
+    faltantes = [nombre for nombre in COLUMNAS if nombre not in existentes]
+    if not faltantes:
+        return
+    with op.batch_alter_table(TABLA, recreate="auto") as batch:
+        for nombre in faltantes:
+            batch.add_column(sa.Column(nombre, COLUMNAS[nombre], nullable=True))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("inventario_periodos", recreate="auto") as batch:
-        batch.drop_column("informe_ia_generado")
-        batch.drop_column("informe_ia_markdown")
+    connection = op.get_bind()
+    existentes = _columnas_existentes(connection)
+    presentes = [nombre for nombre in reversed(COLUMNAS) if nombre in existentes]
+    if not presentes:
+        return
+    with op.batch_alter_table(TABLA, recreate="auto") as batch:
+        for nombre in presentes:
+            batch.drop_column(nombre)
