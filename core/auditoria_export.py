@@ -15,7 +15,7 @@ from .models import (
 
 HEADERS_AUDITORIA = [
     "Inventario", "Fecha Desde", "Fecha Hasta",
-    "Código Producto", "Producto", "Categoría",
+    "Código Producto", "Producto", "Categoría", "Unidad Base",
     "Stock Inicial Anterior", "Stock Inicial Excel", "Alerta Continuidad",
     "Compras", "Promedio Compras Histórico", "Factor Desvío Compra",
     "Ventas usadas", "Ventas Delivery", "Otros Ingresos", "Otras Salidas", "Stock Final Excel",
@@ -108,6 +108,7 @@ def generar_excel_auditoria(periodo: InventarioPeriodo) -> io.BytesIO:
         hoja.append([_excel_seguro(valor) for valor in [
             periodo.numero, periodo.fecha_desde, periodo.fecha_hasta,
             resultado.articulo_codigo, resultado.producto_nombre, resultado.categoria,
+            "kg" if resultado.categoria == "Por Kilos" else "Unidad",
             resultado.stock_inicial_anterior, resultado.stock_inicial_excel,
             "SÍ" if resultado.alerta_continuidad else "No",
             resultado.compras, resultado.promedio_compras_historico,

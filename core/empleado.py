@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 import json
 from typing import Callable, Optional
 from sqlalchemy import false, or_
@@ -23,6 +24,90 @@ from core.models import (
 )
 from core.seed_data import CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME, ESTADOS_BALDE
 from core.time_utils import today_local_iso, now_local_time_str, format_utc_naive_to_local
+
+
+KG_POR_BALDE_LLENO = Decimal("7.800")
+ESTADOS_BALDE_VALIDOS = {"Lleno", "Medio lleno", "Vacio"}
+
+
+def _decimal_positivo(valor, etiqueta: str) -> Decimal:
+    texto = str(valor or "").strip().replace(",", ".")
+    try:
+        numero = Decimal(texto)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"{etiqueta} debe ser un número válido.") from exc
+    if not numero.is_finite() or numero <= 0:
+        raise ValueError(f"{etiqueta} debe ser mayor que cero.")
+    if abs(numero.as_tuple().exponent) > 3:
+        raise ValueError(f"{etiqueta} admite hasta 3 decimales.")
+    return numero
+
+
+def _entero_positivo(valor, etiqueta: str) -> int:
+    numero = _decimal_positivo(valor, etiqueta)
+    if numero != numero.to_integral_value():
+        raise ValueError(f"{etiqueta} debe ser un número entero.")
+    return int(numero)
+
+
+def _kg_texto(valor: Decimal | float) -> str:
+    return f"{Decimal(str(valor)).quantize(Decimal('0.001')):,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def normalizar_conteo_kilos(*, estado_balde: str, cantidad_baldes=None, peso_kg=None) -> dict:
+    estado = str(estado_balde or "").strip()
+    if estado not in ESTADOS_BALDE_VALIDOS:
+        raise ValueError("Selecciona un estado de balde válido.")
+    if estado == "Medio lleno":
+        peso = _decimal_positivo(peso_kg, "El peso real")
+        if str(cantidad_baldes or "").strip():
+            raise ValueError("Para Medio lleno ingresa solo el peso real en kg.")
+        return {
+            "cantidad": float(peso), "cantidad_unidades": float(peso), "ume": "kg",
+            "estado_balde": estado, "cantidad_baldes": None, "peso_kg": float(peso),
+            "factor": 1.0,
+            "desc_conversion": f"{_kg_texto(peso)} kg · balde medio lleno (peso real)",
+        }
+
+    baldes = _entero_positivo(cantidad_baldes, "La cantidad de baldes")
+    if str(peso_kg or "").strip():
+        raise ValueError(f"Para {estado} ingresa solo la cantidad de baldes.")
+    total = KG_POR_BALDE_LLENO * baldes if estado == "Lleno" else Decimal("0")
+    detalle = (
+        f"{_kg_texto(total)} kg = {baldes} balde{'s' if baldes != 1 else ''} "
+        f"lleno{'s' if baldes != 1 else ''} × {_kg_texto(KG_POR_BALDE_LLENO)} kg"
+        if estado == "Lleno"
+        else f"0,000 kg · {baldes} balde{'s' if baldes != 1 else ''} vacío{'s' if baldes != 1 else ''}"
+    )
+    return {
+        "cantidad": float(total), "cantidad_unidades": float(total), "ume": "kg",
+        "estado_balde": estado, "cantidad_baldes": baldes, "peso_kg": None,
+        "factor": float(KG_POR_BALDE_LLENO) if estado == "Lleno" else 0.0,
+        "desc_conversion": detalle,
+    }
+
+
+def normalizar_cantidad_categoria(categoria: str, cantidad_raw) -> tuple[float, str]:
+    if categoria == "Por Kilos":
+        return float(_decimal_positivo(cantidad_raw, "La cantidad en kg")), "kg"
+    return float(_entero_positivo(cantidad_raw, "La cantidad")), "Unidad"
+
+
+def normalizar_ajuste_categoria(categoria: str, cantidad_raw) -> tuple[float, str]:
+    texto = str(cantidad_raw or "").strip().replace(",", ".")
+    try:
+        numero = Decimal(texto)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("La cantidad del ajuste debe ser un número válido.") from exc
+    if not numero.is_finite():
+        raise ValueError("La cantidad del ajuste debe ser finita.")
+    if categoria == "Por Kilos":
+        if abs(numero.as_tuple().exponent) > 3:
+            raise ValueError("El ajuste en kg admite hasta 3 decimales.")
+        return float(numero), "kg"
+    if numero != numero.to_integral_value():
+        raise ValueError("El ajuste debe ser entero para productos por unidades.")
+    return float(numero), "Unidad"
 
 
 def _safe_inv_tab(tab_value):
@@ -262,7 +347,7 @@ def combinar_cargas_para_vista(*, carrito: list, cargas_periodo: list, usuario: 
         item = dict(carga)
         item.update(
             cantidad_unidades=float(carga.get("cantidad") or 0),
-            ume="Unidad",
+            ume="kg" if carga.get("categoria") == "Por Kilos" else "Unidad",
             detalle="",
             es_propio=False,
             carrito_idx=None,
@@ -295,7 +380,7 @@ def construir_entradas_confirmacion_cero(*, productos: dict, productos_cargados:
             "producto": pendiente["producto"],
             "cantidad": 0.0,
             "cantidad_unidades": 0.0,
-            "ume": "Unidad",
+            "ume": "kg" if pendiente["categoria"] == "Por Kilos" else "Unidad",
             "factor": 1.0,
             "desc_conversion": "",
             "tipo_inventario": "Diario",
@@ -342,11 +427,24 @@ def build_empleado_inventario_context(*, active_tab: str, carrito: list, hoy: st
 def add_carrito_item(*, carrito: list, categoria: str, producto: str, cantidad: float,
                      ume: str, tipo_inventario: str, fecha: str, detalle: str,
                      version_esperada: int = 0,
-                     confirmar_sobreescritura: bool = False):
+                     confirmar_sobreescritura: bool = False,
+                     estado_balde: str = "", cantidad_baldes=None, peso_kg=None,
+                     desc_conversion_inicial: str = ""):
     cantidad_unidades = cantidad
     factor = 1.0
-    desc_conversion = ""
-    if ume in ("Caja", "Bulto"):
+    desc_conversion = desc_conversion_inicial
+    if categoria == "Por Kilos":
+        normalizada = normalizar_conteo_kilos(
+            estado_balde=estado_balde,
+            cantidad_baldes=cantidad_baldes,
+            peso_kg=peso_kg,
+        )
+        cantidad = normalizada["cantidad"]
+        cantidad_unidades = normalizada["cantidad_unidades"]
+        ume = normalizada["ume"]
+        factor = normalizada["factor"]
+        desc_conversion = normalizada["desc_conversion"]
+    elif ume in ("Caja", "Bulto"):
         pp = ProductoPrecio.query.filter(
             db.func.lower(ProductoPrecio.producto_nombre) == producto.lower()
         ).first()
@@ -383,6 +481,9 @@ def add_carrito_item(*, carrito: list, categoria: str, producto: str, cantidad: 
         "hora": now_local_time_str(),
         "version_esperada": int(version_esperada or 0),
         "confirmar_sobreescritura": bool(confirmar_sobreescritura),
+        "estado_balde": estado_balde if categoria == "Por Kilos" else "",
+        "cantidad_baldes": cantidad_baldes if categoria == "Por Kilos" else None,
+        "peso_kg": peso_kg if categoria == "Por Kilos" else None,
     })
     nombre_display = producto if ume == "Unidad" else __import__("re").sub(r"\s+x\s+un(?:idad|\.?|)\s*$", "", producto, flags=__import__("re").IGNORECASE)
     msg = f"{nombre_display} agregado ({cantidad:g} {ume})"
@@ -517,6 +618,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
         if origen_carga not in ("carga_manual", "confirmacion_sin_stock"):
             origen_carga = "carga_manual"
         actual = estados[(categoria, producto)]
+        unidad_base = "kg" if categoria == "Por Kilos" else "Unidad"
         item = InventarioItem.query.filter_by(
             cliente_id=cliente_id,
             tienda_id=tienda_id,
@@ -530,7 +632,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 .filter(InventarioItem.id == item.id, InventarioItem.version == actual["version"])
                 .update({
                     "cantidad": cantidad_total,
-                    "ume": "Unidad",
+                    "ume": unidad_base,
                     "tipo_inventario": tipo_inv,
                     "fecha": fecha_prod,
                     "sinc_estado": "pendiente",
@@ -555,7 +657,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             version_nueva = actual["version"] + 1
             if item:
                 item.cantidad = cantidad_total
-                item.ume = "Unidad"
+                item.ume = unidad_base
                 item.tipo_inventario = tipo_inv
                 item.fecha = fecha_prod
                 item.sinc_estado = "pendiente"
@@ -568,7 +670,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 db.session.add(InventarioItem(
                     cliente_id=cliente_id,
                     tienda_id=tienda_id, categoria=categoria, producto=producto,
-                    cantidad=cantidad_total, ume="Unidad",
+                    cantidad=cantidad_total, ume=unidad_base,
                     tipo_inventario=tipo_inv, fecha=fecha_prod,
                     sinc_estado="pendiente", periodo_id=periodo_id,
                     usuario_ultima_carga=usuario, version=version_nueva,
@@ -581,7 +683,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             if item:  # El mismo stock operativo provenía de otro período.
                 item.cliente_id = cliente_id
                 item.cantidad = cantidad_total
-                item.ume = "Unidad"
+                item.ume = unidad_base
                 item.tipo_inventario = tipo_inv
                 item.fecha = fecha_prod
                 item.sinc_estado = "pendiente"
@@ -594,7 +696,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 db.session.add(InventarioItem(
                     cliente_id=cliente_id,
                     tienda_id=tienda_id, categoria=categoria, producto=producto,
-                    cantidad=cantidad_total, ume="Unidad",
+                    cantidad=cantidad_total, ume=unidad_base,
                     tipo_inventario=tipo_inv, fecha=fecha_prod,
                     sinc_estado="pendiente", periodo_id=periodo_id,
                     usuario_ultima_carga=usuario, version=version_nueva,
@@ -611,7 +713,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             categoria=categoria,
             producto=producto,
             cantidad=cantidad_total,
-            modo="Unidad",
+            modo=unidad_base,
             tipo_inventario=tipo_inv,
             detalle=" | ".join(d for d in detalles if d),
             tienda_id=tienda_id,
@@ -717,7 +819,7 @@ def build_averiado_context(*, cliente_id: str, tienda_id: str, periodo_id: int |
 
 
 def registrar_averiado(*, tienda_id: str, usuario: str, categoria: str, producto: str,
-                       cantidad: int, ume: str, detalle: str, fecha: str,
+                       cantidad: float, ume: str, detalle: str, fecha: str,
                        periodo_id: int):
     cliente_id = session.get("cliente_id", "C001")
     periodo = db.session.get(InventarioPeriodo, periodo_id)
@@ -737,7 +839,11 @@ def registrar_averiado(*, tienda_id: str, usuario: str, categoria: str, producto
             f"La fecha del averiado debe estar entre {periodo.fecha_desde} "
             f"y {periodo.fecha_hasta}."
         )
-    cu, desc = convertir_ume(producto, ume, cantidad)
+    if categoria == "Por Kilos":
+        cantidad, ume = normalizar_cantidad_categoria(categoria, cantidad)
+        cu, desc = cantidad, f"{_kg_texto(cantidad)} kg · peso real averiado"
+    else:
+        cu, desc = convertir_ume(producto, ume, cantidad)
     db.session.add(RegistroAveriado(
         cliente_id=cliente_id,
         tienda_id=tienda_id, periodo_id=periodo.id, fecha=fecha,
@@ -764,9 +870,13 @@ def build_vencimiento_context(*, tienda_id: str):
 
 
 def registrar_vencimiento(*, tienda_id: str, usuario: str, categoria: str, producto: str,
-                          cantidad: int, ume: str, fecha_vencimiento: str,
+                          cantidad: float, ume: str, fecha_vencimiento: str,
                           detalle: str, fecha: str):
-    cu, desc = convertir_ume(producto, ume, cantidad)
+    if categoria == "Por Kilos":
+        cantidad, ume = normalizar_cantidad_categoria(categoria, cantidad)
+        cu, desc = cantidad, f"{_kg_texto(cantidad)} kg · peso real próximo a vencer"
+    else:
+        cu, desc = convertir_ume(producto, ume, cantidad)
     db.session.add(RegistroVencimiento(
         cliente_id=session.get("cliente_id", "C001"),
         tienda_id=tienda_id, fecha=fecha,

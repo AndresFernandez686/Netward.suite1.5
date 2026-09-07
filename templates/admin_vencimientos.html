@@ -84,7 +84,7 @@
             {% if r.desc_conversion %}
               <small class="muted">{{ r.desc_conversion }}</small>
             {% else %}
-              {{ '%g'|format(r.cantidad_unidades) }} Unid.
+              {{ '%g'|format(r.cantidad_unidades) }} {{ 'kg' if r.categoria == 'Por Kilos' else 'Unid.' }}
             {% endif %}
           </td>
           <td><strong style="color:var(--danger);">{{ r.fecha_vencimiento }}</strong></td>
@@ -111,7 +111,7 @@
           <tr>
             <td><strong>{{ r.producto | strip_unidad }}</strong></td>
             <td><span class="badge badge--blue">{{ r.tienda_id }}</span></td>
-            <td>{{ '%g'|format(r.cantidad_unidades) }} Unid.</td>
+            <td>{{ '%g'|format(r.cantidad_unidades) }} {{ 'kg' if r.categoria == 'Por Kilos' else 'Unid.' }}</td>
             <td><strong style="color:var(--danger);">{{ r.fecha_vencimiento }}</strong></td>
           </tr>
           {% endfor %}

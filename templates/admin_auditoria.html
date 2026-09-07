@@ -85,7 +85,7 @@
                 <td><button type="button" class="audit-detail-toggle" aria-expanded="false" aria-controls="audit-detail-{{ r.id }}">{{ r.causa_sugerida or 'Ver detalle' }} <span aria-hidden="true">›</span></button></td>
               </tr>
               <tr class="audit-detail-row" id="audit-detail-{{ r.id }}" hidden><td colspan="9"><div class="audit-detail-grid">
-                <div class="audit-detail-numbers"><h3>Detalle del cálculo</h3><dl>
+                <div class="audit-detail-numbers"><h3>Detalle del cálculo <small>({{ 'kg' if r.categoria == 'Por Kilos' else 'unidades' }})</small></h3><dl>
                   <div><dt>Stock inicial anterior</dt><dd>{{ r.stock_inicial_anterior }}</dd></div><div><dt>Stock inicial Excel</dt><dd>{{ r.stock_inicial_excel }}</dd></div><div><dt>Compras</dt><dd>{{ r.compras }}</dd></div><div><dt>Stock final físico</dt><dd>{{ r.conteo_final }}</dd></div><div><dt>Venta teórica</dt><dd>{{ r.venta_teorica }}</dd></div><div><dt>Venta real</dt><dd>{{ r.ventas }}</dd></div><div><dt>Ajuste administrativo</dt><dd>{{ '%+.1f'|format(r.ajuste_admin) }}</dd></div>
                   <div><dt>Averiados/merma <small>no imputable</small></dt><dd>{{ ('-%g'|format(r.cantidad_merma)) if r.cantidad_merma else '—' }}</dd></div><div><dt>Vencidos <small>no imputable</small></dt><dd>{{ ('-%g'|format(r.cantidad_vencida)) if r.cantidad_vencida else '—' }}</dd></div><div><dt>Diferencia residual</dt><dd>{{ ('%+.1f'|format(r.diferencia)) if r.diferencia else '—' }}</dd></div>
                 </dl></div>

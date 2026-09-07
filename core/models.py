@@ -417,7 +417,7 @@ class ConteoDetalle(BaseModel):
     cantidad_unidad = db.Column(db.Float, default=0)
     cantidad_caja = db.Column(db.Float, default=0)
     cantidad_bulto = db.Column(db.Float, default=0)
-    total_unidad_base = db.Column(db.Float, default=0)  # siempre en unidades
+    total_unidad_base = db.Column(db.Float, default=0)  # unidades o kg según categoría
     fue_cargado = db.Column(db.Boolean, default=True)   # False = NULL/sin cargar
     observacion = db.Column(db.String(255), default="")
     primera_carga = db.Column(db.DateTime, default=utc_now)  # jamás se sobreescribe

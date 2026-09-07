@@ -20,8 +20,8 @@
   </header>
   <dl class="report-product-card__facts">
     <div><dt>Código</dt><dd>{{ r.articulo_codigo or '—' }}</dd></div>
-    <div><dt>Conteo físico</dt><dd>{{ "{:,.1f}".format(r.conteo_final or 0).replace(",", ".") }} unid.</dd></div>
-    <div><dt>Stock esperado</dt><dd>{{ "{:,.1f}".format(r.stock_esperado or 0).replace(",", ".") }} unid.</dd></div>
+    <div><dt>Conteo físico</dt><dd>{{ "{:,.1f}".format(r.conteo_final or 0).replace(",", ".") }} {{ 'kg' if r.categoria == 'Por Kilos' else 'unid.' }}</dd></div>
+    <div><dt>Stock esperado</dt><dd>{{ "{:,.1f}".format(r.stock_esperado or 0).replace(",", ".") }} {{ 'kg' if r.categoria == 'Por Kilos' else 'unid.' }}</dd></div>
     <div><dt>Costo unitario</dt><dd>{% if r.costo_unitario %}Gs. {{ "{:,.0f}".format(r.costo_unitario).replace(",", ".") }}{% else %}—{% endif %}</dd></div>
   </dl>
   <div class="report-product-card__tags">

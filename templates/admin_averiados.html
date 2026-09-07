@@ -75,7 +75,7 @@
             {% if r.desc_conversion %}
               <small class="muted">{{ r.desc_conversion }}</small>
             {% else %}
-              {{ '%g'|format(r.cantidad_unidades) }} Unid.
+              {{ '%g'|format(r.cantidad_unidades) }} {{ 'kg' if r.categoria == 'Por Kilos' else 'Unid.' }}
             {% endif %}
           </td>
           <td class="muted">{{ r.detalle or '—' }}</td>
@@ -98,14 +98,14 @@
           {% for r in registros %}
             {% set k = r.producto %}
             {% if k not in resumen %}
-              {% set _ = resumen.update({k: {'total': 0, 'n': 0}}) %}
+              {% set _ = resumen.update({k: {'total': 0, 'n': 0, 'ume': ('kg' if r.categoria == 'Por Kilos' else 'Unid.')}}) %}
             {% endif %}
             {% set _ = resumen[k].update({'total': resumen[k].total + r.cantidad_unidades, 'n': resumen[k].n + 1}) %}
           {% endfor %}
           {% for prod, data in resumen.items() | sort(attribute='0') %}
           <tr>
             <td><strong>{{ prod | strip_unidad }}</strong></td>
-            <td style="color:var(--danger);font-weight:600;">{{ '%g'|format(data.total) }} Unid.</td>
+            <td style="color:var(--danger);font-weight:600;">{{ '%g'|format(data.total) }} {{ data.ume }}</td>
             <td class="muted">{{ data.n }} registro(s)</td>
           </tr>
           {% endfor %}

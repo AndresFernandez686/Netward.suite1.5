@@ -198,7 +198,7 @@
             <th>Estado</th>
             <th>Producto</th>
             <th>Categoría</th>
-            <th>Total (unid.)</th>
+            <th>Total base</th>
             <th>Responsable</th>
             <th>Origen</th>
             <th>Sincronizaciones</th>
@@ -222,7 +222,7 @@
             </td>
             <td><strong>{{ c.producto_nombre }}</strong></td>
             <td>{{ c.categoria }}</td>
-            <td>{% if c.fue_cargado %}{{ c.total_unidad_base }}{% else %}-{% endif %}</td>
+            <td>{% if c.fue_cargado %}{{ c.total_unidad_base }} {{ 'kg' if c.categoria == 'Por Kilos' else 'unid.' }}{% else %}-{% endif %}</td>
             <td>{% if c.fue_cargado %}<strong>{{ c.usuario }}</strong>{% else %}—{% endif %}</td>
             <td>
               {% if not c.fue_cargado %}—
@@ -357,7 +357,7 @@
 
       function actualizarPaso() {
         var esPorKilos = categoria.value === 'Por Kilos';
-        cantidad.step = esPorKilos ? '0.01' : '1';
+        cantidad.step = esPorKilos ? '0.001' : '1';
         cantidad.inputMode = esPorKilos ? 'decimal' : 'numeric';
         cantidad.title = esPorKilos
           ? 'Para Por Kilos se permiten cantidades decimales.'

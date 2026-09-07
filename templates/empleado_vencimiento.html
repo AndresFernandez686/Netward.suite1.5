@@ -35,17 +35,19 @@
 
       {# Cantidad #}
       <label class="field">
-        <span class="field__label">Cantidad</span>
-        <input type="number" name="cantidad" min="1" step="1" value="1" required />
+        <span class="field__label" data-quantity-label>Cantidad</span>
+        <input type="number" name="cantidad" min="1" step="1" value="1" inputmode="numeric" required />
+        <small class="muted" data-kilo-hint hidden>Ingresa el peso real con hasta 3 decimales.</small>
       </label>
 
       {# UME #}
       <label class="field">
         <span class="field__label">UME</span>
-        <select name="ume">
+        <select name="ume" data-ume-select>
           <option value="Unidad">Unidad</option>
           <option value="Caja">Caja</option>
           <option value="Bulto">Bulto</option>
+          <option value="kg">kg</option>
         </select>
       </label>
 
@@ -98,7 +100,7 @@
             {% if r.desc_conversion %}
               <small class="muted">{{ r.desc_conversion }}</small>
             {% else %}
-              {{ '%g'|format(r.cantidad_unidades) }} Unid.
+              {{ '%g'|format(r.cantidad_unidades) }} {{ 'kg' if r.categoria == 'Por Kilos' else 'Unid.' }}
             {% endif %}
           </td>
           <td>
@@ -143,6 +145,31 @@ document.querySelectorAll('.dias-restantes').forEach(function(el) {
   else if (dias <= 3) { el.textContent = dias + ' día' + (dias > 1 ? 's' : ''); el.style.color = 'var(--warning)'; el.style.fontWeight = '600'; }
   else                { el.textContent = dias + ' días'; }
 });
-// El combobox está inicializado por main.js automáticamente
+var vencForm = document.getElementById('form-venc');
+if (vencForm) {
+  var category = vencForm.querySelector('.combo__cat');
+  var quantity = vencForm.querySelector('input[name="cantidad"]');
+  var quantityLabel = vencForm.querySelector('[data-quantity-label]');
+  var kiloHint = vencForm.querySelector('[data-kilo-hint]');
+  var ume = vencForm.querySelector('[data-ume-select]');
+  var previousUme = 'Unidad';
+  function syncVencUnit() {
+    var kilos = category.value === 'Por Kilos';
+    if (kilos) previousUme = ume.value;
+    quantity.step = kilos ? '0.001' : '1';
+    quantity.min = kilos ? '0.001' : '1';
+    quantity.inputMode = kilos ? 'decimal' : 'numeric';
+    quantityLabel.textContent = kilos ? 'Peso real' : 'Cantidad';
+    kiloHint.hidden = !kilos;
+    ume.disabled = kilos;
+    if (kilos) ume.value = 'kg';
+    else ume.value = previousUme;
+  }
+  vencForm.addEventListener('change', function (event) {
+    if (event.target.classList.contains('combo__value')) setTimeout(syncVencUnit, 0);
+  });
+  vencForm.addEventListener('submit', function () { if (ume.disabled) ume.disabled = false; });
+  syncVencUnit();
+}
 </script>
 {% endblock %}

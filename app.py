@@ -1505,6 +1505,9 @@ def carrito_agregar():
     producto = (request.form.get("producto") or "").strip()
     cantidad_texto = (request.form.get("cantidad") or "").strip()
     ume = request.form.get("ume", "Unidad")
+    estado_balde = (request.form.get("estado_balde") or "").strip()
+    cantidad_baldes = (request.form.get("cantidad_baldes") or "").strip()
+    peso_kg = (request.form.get("peso_kg") or "").strip()
     tipo_inventario = request.form.get("tipo_inventario", "Diario")
     if tipo_inventario not in TIPOS_INVENTARIO:
         tipo_inventario = "Diario"
@@ -1525,17 +1528,30 @@ def carrito_agregar():
         )
         return _redirect_inventario_context("sec-carga")
 
-    if cantidad_texto == "":
-        flash("Ingresa una cantidad antes de agregar.", "warning")
-        return _redirect_inventario_context("sec-carga")
-    try:
-        cantidad = float(cantidad_texto)
-    except ValueError:
-        flash("Ingresa una cantidad válida.", "warning")
-        return _redirect_inventario_context("sec-carga")
-    if cantidad < 0:
-        flash("La cantidad no puede ser negativa.", "warning")
-        return _redirect_inventario_context("sec-carga")
+    if categoria == "Por Kilos":
+        try:
+            conteo_kilos = empleado_service.normalizar_conteo_kilos(
+                estado_balde=estado_balde,
+                cantidad_baldes=cantidad_baldes,
+                peso_kg=peso_kg,
+            )
+            cantidad = conteo_kilos["cantidad"]
+            ume = "kg"
+        except ValueError as exc:
+            flash(str(exc), "warning")
+            return _redirect_inventario_context("sec-carga")
+    else:
+        if cantidad_texto == "":
+            flash("Ingresa una cantidad antes de agregar.", "warning")
+            return _redirect_inventario_context("sec-carga")
+        try:
+            cantidad = float(cantidad_texto)
+        except ValueError:
+            flash("Ingresa una cantidad válida.", "warning")
+            return _redirect_inventario_context("sec-carga")
+        if cantidad < 0:
+            flash("La cantidad no puede ser negativa.", "warning")
+            return _redirect_inventario_context("sec-carga")
 
     confirmar = request.form.get("confirmar_sobreescritura") == "1"
     version_esperada = request.form.get("version_esperada", type=int)
@@ -1565,6 +1581,9 @@ def carrito_agregar():
                 "tipo_inventario": tipo_inventario,
                 "fecha": fecha,
                 "detalle": detalle,
+                "estado_balde": estado_balde,
+                "cantidad_baldes": cantidad_baldes,
+                "peso_kg": peso_kg,
             }
             session.modified = True
             return _redirect_inventario_context("sec-carga", allow_pending=False)
@@ -1608,6 +1627,9 @@ def carrito_agregar():
         detalle=detalle,
         version_esperada=version_esperada,
         confirmar_sobreescritura=confirmar,
+        estado_balde=estado_balde,
+        cantidad_baldes=cantidad_baldes,
+        peso_kg=peso_kg,
     )
     set_carrito(carrito, periodo_activo.id)
     flash(msg, "success")
@@ -1950,14 +1972,17 @@ def empleado_averiado():
         producto  = (request.form.get("producto") or "").strip()
         cantidad_raw = (request.form.get("cantidad") or "").strip()
         cantidad_es_invalida = False
+        error_cantidad = ""
         try:
-            cantidad = int(cantidad_raw)
-            if str(cantidad) != cantidad_raw:
-                cantidad_es_invalida = True
-        except (TypeError, ValueError):
+            cantidad, ume_categoria = empleado_service.normalizar_cantidad_categoria(
+                categoria, cantidad_raw
+            )
+        except ValueError as exc:
             cantidad = 0
             cantidad_es_invalida = True
-        ume       = request.form.get("ume", "Unidad")
+            error_cantidad = str(exc)
+            ume_categoria = "Unidad"
+        ume = "kg" if categoria == "Por Kilos" else request.form.get("ume", ume_categoria)
         detalle   = (request.form.get("detalle") or "").strip()
         fecha     = request.form.get("fecha", today_local_iso())
 
@@ -1978,7 +2003,7 @@ def empleado_averiado():
                 "warning",
             )
         elif cantidad_es_invalida:
-            flash("La cantidad debe ser un número entero.", "warning")
+            flash(error_cantidad or "Ingresa una cantidad válida.", "warning")
         elif cantidad <= 0:
             flash("Ingresa una cantidad válida.", "warning")
         else:
@@ -2041,14 +2066,17 @@ def empleado_vencimiento():
         producto         = (request.form.get("producto") or "").strip()
         cantidad_raw     = (request.form.get("cantidad") or "").strip()
         cantidad_es_invalida = False
+        error_cantidad = ""
         try:
-            cantidad = int(cantidad_raw)
-            if str(cantidad) != cantidad_raw:
-                cantidad_es_invalida = True
-        except (TypeError, ValueError):
+            cantidad, ume_categoria = empleado_service.normalizar_cantidad_categoria(
+                categoria, cantidad_raw
+            )
+        except ValueError as exc:
             cantidad = 0
             cantidad_es_invalida = True
-        ume              = request.form.get("ume", "Unidad")
+            error_cantidad = str(exc)
+            ume_categoria = "Unidad"
+        ume = "kg" if categoria == "Por Kilos" else request.form.get("ume", ume_categoria)
         fecha_venc       = (request.form.get("fecha_vencimiento") or "").strip()
         detalle          = (request.form.get("detalle") or "").strip()
         fecha            = request.form.get("fecha", today_local_iso())
@@ -2064,7 +2092,7 @@ def empleado_vencimiento():
                 "warning",
             )
         elif cantidad_es_invalida:
-            flash("La cantidad debe ser un número entero.", "warning")
+            flash(error_cantidad or "Ingresa una cantidad válida.", "warning")
         elif cantidad <= 0:
             flash("Ingresa una cantidad válida.", "warning")
         elif not fecha_venc:
@@ -3823,9 +3851,11 @@ def admin_periodo_ajuste(periodo_id):
     producto_nombre = (request.form.get("producto_nombre") or "").strip()
     categoria = (request.form.get("categoria") or "").strip()
     try:
-        cantidad = float(request.form.get("cantidad", 0))
-    except (ValueError, TypeError):
-        flash("Cantidad inválida.", "error")
+        cantidad, unidad_ajuste = empleado_service.normalizar_ajuste_categoria(
+            categoria, request.form.get("cantidad", 0)
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
         return redirect(url_for("admin_periodo_detalle", periodo_id=periodo_id))
     motivo = request.form.get("motivo", "Otro")
     observacion = (request.form.get("observacion") or "").strip()
@@ -3878,8 +3908,8 @@ def admin_periodo_ajuste(periodo_id):
         + (" con impacto en stock" if impacta_stock else " sin impacto en stock"),
     )
     db.session.commit()
-    impacto = f" Stock final: {cantidad_final:g} unidades." if impacta_stock else " Sin impacto en stock."
-    flash(f"Ajuste de {cantidad:+.1f} agregado a '{producto_nombre}'.{impacto}", "success")
+    impacto = f" Stock final: {cantidad_final:g} {unidad_ajuste}." if impacta_stock else " Sin impacto en stock."
+    flash(f"Ajuste de {cantidad:+g} {unidad_ajuste} agregado a '{producto_nombre}'.{impacto}", "success")
     if auditoria_pendiente:
         flash(
             "La auditoría quedó desactualizada. Sigue el aviso rojo y pulsa "

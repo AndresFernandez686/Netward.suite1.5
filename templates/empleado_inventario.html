@@ -100,15 +100,27 @@
 
       {% if cat == 'Por Kilos' %}
         <label class="field">
-          <span class="field__label">Cantidad de baldes</span>
-          <input type="number" name="cantidad_baldes" min="0" step="1" placeholder="0" required />
-        </label>
-        <label class="field">
-          <span class="field__label">Estado</span>
-          <select name="estado_balde">
+          <span class="field__label">Estado del balde</span>
+          <select name="estado_balde" data-bucket-state aria-describedby="kilo-help">
             {% for e in estados_balde %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
           </select>
         </label>
+        <label class="field" data-bucket-count-field>
+          <span class="field__label">Cantidad de baldes</span>
+          <input type="number" name="cantidad_baldes" min="1" step="1" inputmode="numeric" placeholder="Ej. 2" required />
+        </label>
+        <label class="field" data-bucket-weight-field hidden>
+          <span class="field__label">Peso real</span>
+          <div class="field-with-unit">
+            <input type="number" name="peso_kg" min="0.001" step="0.001" inputmode="decimal" placeholder="Ej. 3,500" disabled />
+            <span>kg</span>
+          </div>
+        </label>
+        <div class="kilo-preview" id="kilo-help" data-kilo-preview role="status" aria-live="polite">
+          <span class="kilo-preview__eyebrow">Conversión automática</span>
+          <strong data-kilo-total>0,000 kg</strong>
+          <small data-kilo-formula>1 balde lleno = 7,800 kg</small>
+        </div>
       {% else %}
         <label class="field">
           <span class="field__label">Cantidad</span>
@@ -183,7 +195,7 @@
         </thead>
         <tbody>
           {# Calcular totales por producto para mostrar subtotal #}
-          {% set ns = namespace(prev_key='', subtotal=0) %}
+          {% set ns = namespace(prev_key='', prev_cat='', subtotal=0) %}
           {% for item in productos_cargados %}
             {% set key = item.categoria + '||' + item.producto %}
             {% set cu = item.cantidad_unidades if item.cantidad_unidades is defined else item.cantidad %}
@@ -195,7 +207,7 @@
                   ∑ Total guardado en sistema
                 </td>
                 <td style="font-size:.82rem;color:var(--success);padding:6px 14px;">
-                  {{ '%g'|format(ns.subtotal) }} Unid.
+                  {{ '%g'|format(ns.subtotal) }} {{ 'kg' if ns.prev_cat == 'Por Kilos' else 'Unid.' }}
                 </td>
                 <td colspan="2"></td>
               </tr>
@@ -203,6 +215,7 @@
             {% endif %}
 
             {% set ns.prev_key = key %}
+            {% set ns.prev_cat = item.categoria %}
             {% set ns.subtotal = ns.subtotal + cu|float %}
 
             <tr>
@@ -240,7 +253,7 @@
               ∑ Total guardado en sistema
             </td>
             <td style="font-size:.82rem;color:var(--success);padding:6px 14px;">
-              {{ '%g'|format(ns.subtotal) }} Unid.
+              {{ '%g'|format(ns.subtotal) }} {{ 'kg' if ns.prev_cat == 'Por Kilos' else 'Unid.' }}
             </td>
             <td colspan="2"></td>
           </tr>
@@ -279,7 +292,7 @@
 <dialog id="conflictoCarga" class="card" style="max-width:520px;width:calc(100% - 32px);border:0;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.28);">
   <h3>Producto ya cargado</h3>
   <p>{{ conflicto_carga.mensaje }}</p>
-  <p class="muted">Carga vigente: {{ '%g'|format(conflicto_carga.cantidad_actual) }} unidades por {{ conflicto_carga.usuario }}.</p>
+  <p class="muted">Carga vigente: {{ '%g'|format(conflicto_carga.cantidad_actual) }} {{ 'kg' if conflicto_carga.categoria == 'Por Kilos' else 'unidades' }} por {{ conflicto_carga.usuario }}.</p>
   {% if conflicto_carga.accion == 'agregar' %}
   <form method="post" action="{{ url_for('carrito_agregar') }}" class="action-group">
     <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}">
@@ -290,6 +303,9 @@
     <input type="hidden" name="tipo_inventario" value="{{ conflicto_carga.tipo_inventario }}">
     <input type="hidden" name="fecha" value="{{ conflicto_carga.fecha }}">
     <input type="hidden" name="detalle" value="{{ conflicto_carga.detalle }}">
+    <input type="hidden" name="estado_balde" value="{{ conflicto_carga.estado_balde or '' }}">
+    <input type="hidden" name="cantidad_baldes" value="{{ conflicto_carga.cantidad_baldes or '' }}">
+    <input type="hidden" name="peso_kg" value="{{ conflicto_carga.peso_kg or '' }}">
     <input type="hidden" name="version_esperada" value="{{ conflicto_carga.version }}">
     <input type="hidden" name="confirmar_sobreescritura" value="1">
     <button type="submit" class="btn btn--danger">Sí, sobreescribir</button>
@@ -374,35 +390,46 @@
       sync();
     }
 
-    // Normalizar campos de Por Kilos a 'cantidad' y 'ume' antes de enviar
-    document.querySelectorAll('.inv-form').forEach(function (form) {
-      form.addEventListener('submit', function () {
-        var baldes = form.querySelector('input[name="cantidad_baldes"]');
-        var estado = form.querySelector('select[name="estado_balde"]');
-        if (baldes) {
-          var prevCant = form.querySelector('input[name="cantidad"][data-generated="true"]');
-          var prevUme = form.querySelector('input[name="ume"][data-generated="true"]');
-          if (prevCant) prevCant.remove();
-          if (prevUme) prevUme.remove();
+    var kiloForm = document.querySelector('.tab-panel[data-panel="Por Kilos"] .inv-form');
+    if (kiloForm) {
+      var bucketState = kiloForm.querySelector('[data-bucket-state]');
+      var countField = kiloForm.querySelector('[data-bucket-count-field]');
+      var weightField = kiloForm.querySelector('[data-bucket-weight-field]');
+      var bucketCount = kiloForm.querySelector('input[name="cantidad_baldes"]');
+      var realWeight = kiloForm.querySelector('input[name="peso_kg"]');
+      var kiloTotal = kiloForm.querySelector('[data-kilo-total]');
+      var kiloFormula = kiloForm.querySelector('[data-kilo-formula]');
+      var formatKg = new Intl.NumberFormat('es-PY', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 
-          var hidCant = document.createElement('input');
-          hidCant.type = 'hidden';
-          hidCant.name = 'cantidad';
-          hidCant.dataset.generated = 'true';
+      function updateKiloPreview() {
+        var state = bucketState.value;
+        var isHalf = state === 'Medio lleno';
+        countField.hidden = isHalf;
+        weightField.hidden = !isHalf;
+        bucketCount.disabled = isHalf;
+        bucketCount.required = !isHalf;
+        realWeight.disabled = !isHalf;
+        realWeight.required = isHalf;
 
-          var hidUme = document.createElement('input');
-          hidUme.type = 'hidden';
-          hidUme.name = 'ume';
-          hidUme.dataset.generated = 'true';
-
-          hidCant.value = baldes.value;
-          hidUme.value = estado ? estado.value : 'Unidad';
-
-          form.appendChild(hidCant);
-          form.appendChild(hidUme);
+        if (isHalf) {
+          var weight = Number.parseFloat(realWeight.value || '0');
+          kiloTotal.textContent = formatKg.format(Number.isFinite(weight) ? weight : 0) + ' kg';
+          kiloFormula.textContent = 'Peso real ingresado por el empleado';
+          return;
         }
-      });
-    });
+        var buckets = Number.parseInt(bucketCount.value || '0', 10);
+        var total = state === 'Lleno' && Number.isFinite(buckets) ? buckets * 7.8 : 0;
+        kiloTotal.textContent = formatKg.format(total) + ' kg';
+        kiloFormula.textContent = state === 'Lleno'
+          ? (buckets || 0) + ' × 7,800 kg por balde lleno'
+          : (buckets || 0) + ' balde(s) vacío(s) · no suman stock';
+      }
+
+      bucketState.addEventListener('change', updateKiloPreview);
+      bucketCount.addEventListener('input', updateKiloPreview);
+      realWeight.addEventListener('input', updateKiloPreview);
+      updateKiloPreview();
+    }
   })();
 </script>
 {% endblock %}

@@ -30,7 +30,9 @@ class PruebasSeleccionPeriodoEmpleado(unittest.TestCase):
         )
 
         self.assertIn('name="cantidad" min="0" step="1" placeholder="0" required', plantilla)
-        self.assertIn('name="cantidad_baldes" min="0" step="1" placeholder="0" required', plantilla)
+        self.assertIn('name="cantidad_baldes" min="1" step="1" inputmode="numeric" placeholder="Ej. 2" required', plantilla)
+        self.assertIn('name="peso_kg" min="0.001" step="0.001" inputmode="decimal"', plantilla)
+        self.assertIn('data-kilo-preview role="status" aria-live="polite"', plantilla)
         self.assertNotIn('name="cantidad" min="0" step="1" value="0"', plantilla)
         self.assertIn('class="inv-form" novalidate', plantilla)
         pendientes = (ROOT / "templates" / "empleado_productos_no_cargados.html").read_text(

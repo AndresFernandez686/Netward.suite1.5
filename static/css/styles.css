@@ -491,6 +491,59 @@ small { font-size: .78rem; }
 .inv-form__grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1.4fr; gap: 14px; align-items: end; overflow: visible; }
 .inv-form__action { align-self: end; }
 
+.tab-panel[data-panel="Por Kilos"] .inv-form__grid {
+  grid-template-columns: minmax(220px, 1.6fr) repeat(2, minmax(130px, 1fr)) minmax(180px, 1.3fr) minmax(170px, 1.2fr);
+}
+
+.field[hidden] {
+  display: none !important;
+}
+
+.field-with-unit {
+  display: flex;
+  align-items: stretch;
+}
+
+.field-with-unit input {
+  min-width: 0;
+  border-radius: 10px 0 0 10px;
+}
+
+.field-with-unit > span {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+  background: var(--bg);
+  color: var(--ink-2);
+  font-weight: 700;
+}
+
+.kilo-preview {
+  display: flex;
+  min-height: 66px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+}
+
+.kilo-preview__eyebrow {
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.kilo-preview strong { font-size: 1.15rem; }
+.kilo-preview small { color: var(--ink-2); line-height: 1.35; }
+
 .inv-form input[name="cantidad"]::placeholder,
 .inv-form input[name="cantidad_baldes"]::placeholder {
   color: #cbd5e1;
@@ -1351,12 +1404,19 @@ small { font-size: .78rem; }
 }
 
 @media (max-width: 900px) {
-  .inv-form__grid--vencimiento {
-    grid-template-columns: 1fr 1fr 1fr;
+  .inv-form__grid--vencimiento,
+  .inv-form__grid--averiado {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  .inv-form__grid--averiado {
-    grid-template-columns: 1fr 1fr 1fr;
+  .inv-form__grid--vencimiento .combo,
+  .inv-form__grid--averiado .combo {
+    grid-column: 1 / -1;
+  }
+
+  .inv-form__grid--averiado .inv-form__action,
+  .venc-form-submit {
+    grid-column: 1 / -1;
   }
 }
 
