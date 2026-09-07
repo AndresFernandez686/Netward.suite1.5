@@ -38,22 +38,26 @@
       </button>
     </div>
 
-    <form method="post" action="{{ url_for('admin_periodo_crear') }}" class="periodos-form">
-      <label class="field field--grow">
+    <form method="post" action="{{ url_for('admin_periodo_crear') }}" class="periodos-form"
+          data-inline-validation novalidate>
+      <label class="field field--grow" data-validation-field>
         <span class="field__label">Tienda</span>
-        <select name="tienda_id" required>
+        <select name="tienda_id" required
+                data-required-message="Selecciona la tienda del período.">
           {% for t in tiendas %}<option value="{{ t.id }}">{{ t.nombre }}</option>{% endfor %}
         </select>
       </label>
 
-      <label class="field field--grow">
+      <label class="field field--grow" data-validation-field>
         <span class="field__label">Fecha desde</span>
-        <input type="date" name="fecha_desde" required>
+        <input type="date" name="fecha_desde" required
+               data-required-message="Selecciona la fecha de inicio.">
       </label>
 
-      <label class="field field--grow">
+      <label class="field field--grow" data-validation-field>
         <span class="field__label">Fecha hasta</span>
-        <input type="date" name="fecha_hasta" required>
+        <input type="date" name="fecha_hasta" required
+               data-required-message="Selecciona la fecha de finalización.">
       </label>
 
       <label class="field periodos-form__observacion">

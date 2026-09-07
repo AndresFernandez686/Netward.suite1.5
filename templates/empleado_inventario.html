@@ -100,14 +100,20 @@
 
       {% if cat == 'Por Kilos' %}
         <label class="field">
-          <span class="field__label">Cantidad de baldes</span>
-          <input type="number" name="cantidad_baldes" min="0" step="1" placeholder="0" required />
-        </label>
-        <label class="field">
-          <span class="field__label">Estado</span>
-          <select name="estado_balde">
+          <span class="field__label">Estado del balde</span>
+          <select name="estado_balde" class="js-estado-balde">
             {% for e in estados_balde %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
           </select>
+        </label>
+        <label class="field js-carga-balde-lleno">
+          <span class="field__label">Cantidad de baldes llenos</span>
+          <input type="number" name="cantidad_baldes" min="0" step="1" placeholder="0" required />
+          <small class="muted">Cada balde lleno equivale automáticamente a 7,8 kg.</small>
+        </label>
+        <label class="field js-carga-balde-medio" hidden>
+          <span class="field__label">Peso real del balde (kg)</span>
+          <input type="text" name="peso_kg" inputmode="decimal" placeholder="Ej.: 3,500" disabled />
+          <small class="muted">El estado es informativo; se guardará este peso real en kg.</small>
         </label>
       {% else %}
         <label class="field">
@@ -181,7 +187,7 @@
         </thead>
         <tbody>
           {# Calcular totales por producto para mostrar subtotal #}
-          {% set ns = namespace(prev_key='', subtotal=0) %}
+          {% set ns = namespace(prev_key='', prev_category='', subtotal=0) %}
           {% for item in productos_cargados %}
             {% set key = item.categoria + '||' + item.producto %}
             {% set cu = item.cantidad_unidades if item.cantidad_unidades is defined else item.cantidad %}
@@ -193,7 +199,7 @@
                   ∑ Total guardado en sistema
                 </td>
                 <td style="font-size:.82rem;color:var(--success);padding:6px 14px;">
-                  {{ '%g'|format(ns.subtotal) }} Unid.
+                  {{ '%g'|format(ns.subtotal) }} {{ 'kg' if ns.prev_category == 'Por Kilos' else 'Unid.' }}
                 </td>
                 <td colspan="2"></td>
               </tr>
@@ -201,13 +207,18 @@
             {% endif %}
 
             {% set ns.prev_key = key %}
+            {% set ns.prev_category = item.categoria %}
             {% set ns.subtotal = ns.subtotal + cu|float %}
 
             <tr>
               <td><strong>{% if item.ume == 'Unidad' %}{{ item.producto }}{% else %}{{ item.producto | strip_unidad }}{% endif %}</strong></td>
               <td><span class="tag">{{ item.categoria }}</span></td>
               <td>
-                {{ '%g'|format(item.cantidad) }} {{ item.ume }}
+                {% if item.categoria == 'Por Kilos' %}
+                  {{ '%g'|format(cu) }} kg
+                {% else %}
+                  {{ '%g'|format(item.cantidad) }} {{ item.ume }}
+                {% endif %}
                 {% if item.get('desc_conversion') %}
                   <br><small class="muted">→ {{ item.desc_conversion }}</small>
                 {% endif %}
@@ -238,7 +249,7 @@
               ∑ Total guardado en sistema
             </td>
             <td style="font-size:.82rem;color:var(--success);padding:6px 14px;">
-              {{ '%g'|format(ns.subtotal) }} Unid.
+              {{ '%g'|format(ns.subtotal) }} {{ 'kg' if ns.prev_category == 'Por Kilos' else 'Unid.' }}
             </td>
             <td colspan="2"></td>
           </tr>
@@ -277,7 +288,7 @@
 <dialog id="conflictoCarga" class="card" style="max-width:520px;width:calc(100% - 32px);border:0;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.28);">
   <h3>Producto ya cargado</h3>
   <p>{{ conflicto_carga.mensaje }}</p>
-  <p class="muted">Carga vigente: {{ '%g'|format(conflicto_carga.cantidad_actual) }} unidades por {{ conflicto_carga.usuario }}.</p>
+  <p class="muted">Carga vigente: {{ '%g'|format(conflicto_carga.cantidad_actual) }} {{ 'kg' if conflicto_carga.categoria == 'Por Kilos' else 'unidades' }} por {{ conflicto_carga.usuario }}.</p>
   {% if conflicto_carga.accion == 'agregar' %}
   <form method="post" action="{{ url_for('carrito_agregar') }}" class="action-group">
     <input type="hidden" name="periodo_id" value="{{ periodo_activo.id }}">
@@ -356,8 +367,8 @@
     var tipo = document.getElementById('tipoInventario');
     var hint = document.getElementById('tipoHint');
     var hints = {
-      'Diario': 'Inventario Diario: registra unidades y baldes por estado.',
-      'Semanal': 'Inventario Semanal: usa estados descriptivos (Lleno, Medio lleno, etc.).'
+      'Diario': 'Inventario Diario: registra unidades; en Por Kilos convierte baldes llenos y usa el peso real de los parciales.',
+      'Semanal': 'Inventario Semanal: conserva la misma conversión a kg para los productos Por Kilos.'
     };
 
     function sync() {
@@ -372,34 +383,25 @@
       sync();
     }
 
-    // Normalizar campos de Por Kilos a 'cantidad' y 'ume' antes de enviar
+    // Un balde lleno se carga por cantidad; un balde medio lleno por su peso real.
     document.querySelectorAll('.inv-form').forEach(function (form) {
-      form.addEventListener('submit', function () {
-        var baldes = form.querySelector('input[name="cantidad_baldes"]');
-        var estado = form.querySelector('select[name="estado_balde"]');
-        if (baldes) {
-          var prevCant = form.querySelector('input[name="cantidad"][data-generated="true"]');
-          var prevUme = form.querySelector('input[name="ume"][data-generated="true"]');
-          if (prevCant) prevCant.remove();
-          if (prevUme) prevUme.remove();
-
-          var hidCant = document.createElement('input');
-          hidCant.type = 'hidden';
-          hidCant.name = 'cantidad';
-          hidCant.dataset.generated = 'true';
-
-          var hidUme = document.createElement('input');
-          hidUme.type = 'hidden';
-          hidUme.name = 'ume';
-          hidUme.dataset.generated = 'true';
-
-          hidCant.value = baldes.value;
-          hidUme.value = estado ? estado.value : 'Unidad';
-
-          form.appendChild(hidCant);
-          form.appendChild(hidUme);
-        }
-      });
+      var estado = form.querySelector('.js-estado-balde');
+      if (!estado) return;
+      var campoLleno = form.querySelector('.js-carga-balde-lleno');
+      var campoMedio = form.querySelector('.js-carga-balde-medio');
+      var cantidadBaldes = campoLleno.querySelector('input');
+      var pesoKg = campoMedio.querySelector('input');
+      function actualizarCargaKilos() {
+        var medio = estado.value === 'Medio lleno';
+        campoLleno.hidden = medio;
+        campoMedio.hidden = !medio;
+        cantidadBaldes.disabled = medio;
+        cantidadBaldes.required = !medio;
+        pesoKg.disabled = !medio;
+        pesoKg.required = medio;
+      }
+      estado.addEventListener('change', actualizarCargaKilos);
+      actualizarCargaKilos();
     });
   })();
 </script>

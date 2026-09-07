@@ -23,6 +23,7 @@ CLIENTE = "TEST"
 TIENDA = "TTEST"
 PRODUCTO = "Alfajor Almendrado"
 OTRO_PRODUCTO = "Chocolate Blanco"
+PRODUCTO_KILOS = "Vainilla"
 
 
 class PruebasInventarioMultiempleado(unittest.TestCase):
@@ -51,6 +52,7 @@ class PruebasInventarioMultiempleado(unittest.TestCase):
         db.session.add_all([
             Producto(nombre=PRODUCTO, categoria="Impulsivo", visible_empleado=True),
             Producto(nombre=OTRO_PRODUCTO, categoria="Impulsivo", visible_empleado=True),
+            Producto(nombre=PRODUCTO_KILOS, categoria="Por Kilos", visible_empleado=True),
         ])
         self.periodo = InventarioPeriodo(
             cliente_id=CLIENTE,
@@ -427,6 +429,64 @@ class PruebasInventarioMultiempleado(unittest.TestCase):
         self.assertEqual(conteo_dos.total_unidad_base, 9)
         self.assertEqual(next(c for c in cargas_uno if c["producto"] == PRODUCTO)["cantidad"], 5)
         self.assertEqual(next(c for c in cargas_dos if c["producto"] == PRODUCTO)["cantidad"], 9)
+
+    def test_13_kilos_suma_baldes_llenos_y_peso_real_del_balde_medio(self):
+        carrito, _ = empleado_service.add_carrito_item(
+            carrito=[],
+            categoria="Por Kilos",
+            producto=PRODUCTO_KILOS,
+            cantidad=2,
+            ume="Lleno",
+            tipo_inventario="Diario",
+            fecha="2026-08-19",
+            detalle="",
+        )
+        carrito, _ = empleado_service.add_carrito_item(
+            carrito=carrito,
+            categoria="Por Kilos",
+            producto=PRODUCTO_KILOS,
+            cantidad=3.5,
+            ume="Medio lleno",
+            tipo_inventario="Diario",
+            fecha="2026-08-19",
+            detalle="",
+        )
+
+        self.assertAlmostEqual(
+            sum(entrada["cantidad_unidades"] for entrada in carrito),
+            19.1,
+        )
+        lleno = next(entrada for entrada in carrito if entrada["ume"] == "Lleno")
+        medio = next(entrada for entrada in carrito if entrada["ume"] == "Medio lleno")
+        self.assertEqual(lleno["factor"], 7.8)
+        self.assertEqual(lleno["cantidad_unidades"], 15.6)
+        self.assertEqual(medio["cantidad_unidades"], 3.5)
+
+        self.guardar("Empleado A", carrito)
+
+        item = InventarioItem.query.filter_by(producto=PRODUCTO_KILOS).one()
+        conteo = ConteoDetalle.query.filter_by(producto_nombre=PRODUCTO_KILOS).one()
+        movimiento = HistorialMovimiento.query.filter_by(producto=PRODUCTO_KILOS).one()
+        self.assertAlmostEqual(item.cantidad, 19.1)
+        self.assertEqual(item.ume, "kg")
+        self.assertAlmostEqual(conteo.total_unidad_base, 19.1)
+        self.assertIn("2 baldes llenos", conteo.observacion)
+        self.assertEqual(movimiento.modo, "kg")
+        self.assertIn("2 baldes llenos", movimiento.detalle)
+        self.assertIn("peso real ingresado: 3.5 kg", movimiento.detalle)
+
+        cargas = empleado_service.combinar_cargas_para_vista(
+            carrito=[],
+            cargas_periodo=empleado_service.listar_cargas_periodo(
+                cliente_id=CLIENTE,
+                tienda_id=TIENDA,
+                periodo_id=self.periodo.id,
+            ),
+            usuario="Empleado A",
+        )
+        carga_kilos = next(c for c in cargas if c["producto"] == PRODUCTO_KILOS)
+        self.assertEqual(carga_kilos["ume"], "kg")
+        self.assertIn("peso real ingresado: 3.5 kg", carga_kilos["desc_conversion"])
 
 
 if __name__ == "__main__":

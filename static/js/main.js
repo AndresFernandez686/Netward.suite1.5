@@ -388,6 +388,38 @@
     });
   }
 
+  function showSystemNotification(message, category) {
+    var main = document.querySelector('main.content');
+    if (!main || !message) return;
+
+    var stack = main.querySelector('.flash-stack[data-client-notifications]');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.className = 'flash-stack flash-stack--client';
+      stack.dataset.clientNotifications = 'true';
+      stack.setAttribute('aria-live', 'assertive');
+      main.insertBefore(stack, main.firstChild);
+    }
+
+    stack.replaceChildren();
+    var notice = document.createElement('div');
+    notice.className = 'flash flash--' + (category || 'warning');
+    notice.setAttribute('role', 'alert');
+    notice.textContent = message;
+    stack.appendChild(notice);
+
+    window.setTimeout(function () {
+      notice.style.transition = 'opacity .4s';
+      notice.style.opacity = '0';
+      window.setTimeout(function () {
+        notice.remove();
+        if (!stack.children.length) stack.remove();
+      }, 400);
+    }, 5000);
+  }
+
+  window.NetwardNotify = showSystemNotification;
+
   function initInlineValidation() {
     document.querySelectorAll('form[data-inline-validation]').forEach(function (form) {
       function fieldHost(field) {
@@ -462,6 +494,10 @@
         if (!firstInvalid) return;
         event.preventDefault();
         event.stopImmediatePropagation();
+        showSystemNotification(
+          validationMessage(firstInvalid) || 'Revisa los campos indicados.',
+          'warning'
+        );
         var host = fieldHost(firstInvalid);
         var focusTarget = host && host.querySelector('.combo__input, select, input:not([type="hidden"])');
         if (focusTarget) focusTarget.focus();

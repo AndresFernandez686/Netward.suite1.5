@@ -21,7 +21,13 @@ from core.models import (
     DeliveryProducto, DeliveryVenta, InventarioPeriodo, ConteoDetalle,
     InventarioBorrador, utc_now,
 )
-from core.seed_data import CATEGORIAS, TIPOS_INVENTARIO, OPCIONES_UME, ESTADOS_BALDE
+from core.seed_data import (
+    CATEGORIAS,
+    TIPOS_INVENTARIO,
+    OPCIONES_UME,
+    ESTADOS_BALDE,
+    PESO_BALDE_LLENO_KG,
+)
 from core.time_utils import today_local_iso, now_local_time_str, format_utc_naive_to_local
 
 
@@ -207,6 +213,7 @@ def listar_cargas_periodo(*, cliente_id, tienda_id, periodo_id):
             "version": int(conteo.version_ultima_carga or 1),
             "fue_sobreescrito": bool(conteo.fue_sobreescrito),
             "es_borrador": False,
+            "desc_conversion": conteo.observacion or "",
             "hora": format_utc_naive_to_local(conteo.fecha_carga, "%H:%M:%S") or "—",
         }
     for item in InventarioItem.query.filter_by(
@@ -214,7 +221,9 @@ def listar_cargas_periodo(*, cliente_id, tienda_id, periodo_id):
         tienda_id=tienda_id,
         periodo_id=periodo_id,
     ).all():
-        cargas[(item.categoria, item.producto)] = {
+        clave = (item.categoria, item.producto)
+        detalle_existente = cargas.get(clave, {}).get("desc_conversion", "")
+        cargas[clave] = {
             "producto": item.producto,
             "categoria": item.categoria,
             "cantidad": float(item.cantidad or 0),
@@ -222,6 +231,7 @@ def listar_cargas_periodo(*, cliente_id, tienda_id, periodo_id):
             "version": int(item.version or 1),
             "fue_sobreescrito": bool(item.fue_sobreescrito),
             "es_borrador": False,
+            "desc_conversion": detalle_existente,
             "hora": format_utc_naive_to_local(item.actualizado, "%H:%M:%S") or "—",
         }
     for clave, carga in _cargas_en_borradores(
@@ -258,7 +268,7 @@ def combinar_cargas_para_vista(*, carrito: list, cargas_periodo: list, usuario: 
         item = dict(carga)
         item.update(
             cantidad_unidades=float(carga.get("cantidad") or 0),
-            ume="Unidad",
+            ume="kg" if carga.get("categoria") == "Por Kilos" else "Unidad",
             detalle="",
             es_propio=False,
             carrito_idx=None,
@@ -315,7 +325,26 @@ def add_carrito_item(*, carrito: list, categoria: str, producto: str, cantidad: 
     cantidad_unidades = cantidad
     factor = 1.0
     desc_conversion = ""
-    if ume in ("Caja", "Bulto"):
+    if categoria == "Por Kilos":
+        if ume == "Lleno":
+            factor = PESO_BALDE_LLENO_KG
+            cantidad_unidades = cantidad * factor
+            etiqueta = "balde lleno" if cantidad == 1 else "baldes llenos"
+            desc_conversion = (
+                f"{cantidad:g} {etiqueta} × {factor:g} kg = "
+                f"{cantidad_unidades:g} kg"
+            )
+        elif ume == "Medio lleno":
+            # "Medio lleno" describe el estado del recipiente. La cantidad ya
+            # es el peso real informado por el empleado y no lleva un factor
+            # estimado: un balde parcial puede pesar, por ejemplo, 3,5 o 4 kg.
+            desc_conversion = (
+                f"1 balde medio lleno (peso real ingresado: {cantidad:g} kg)"
+            )
+        elif ume == "Vacio":  # compatibilidad con borradores anteriores
+            cantidad_unidades = 0.0
+            desc_conversion = f"{cantidad:g} balde(s) vacío(s) = 0 kg"
+    elif ume in ("Caja", "Bulto"):
         pp = ProductoPrecio.query.filter(
             db.func.lower(ProductoPrecio.producto_nombre) == producto.lower()
         ).first()
@@ -354,7 +383,10 @@ def add_carrito_item(*, carrito: list, categoria: str, producto: str, cantidad: 
         "confirmar_sobreescritura": bool(confirmar_sobreescritura),
     })
     nombre_display = producto if ume == "Unidad" else __import__("re").sub(r"\s+x\s+un(?:idad|\.?|)\s*$", "", producto, flags=__import__("re").IGNORECASE)
-    msg = f"{nombre_display} agregado ({cantidad:g} {ume})"
+    if categoria == "Por Kilos":
+        msg = f"{nombre_display} agregado ({cantidad_unidades:g} kg)"
+    else:
+        msg = f"{nombre_display} agregado ({cantidad:g} {ume})"
     if desc_conversion:
         msg += f" → {desc_conversion}"
     return carrito, msg
@@ -496,7 +528,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 .filter(InventarioItem.id == item.id, InventarioItem.version == actual["version"])
                 .update({
                     "cantidad": cantidad_total,
-                    "ume": "Unidad",
+                    "ume": "kg" if categoria == "Por Kilos" else "Unidad",
                     "tipo_inventario": tipo_inv,
                     "fecha": fecha_prod,
                     "sinc_estado": "pendiente",
@@ -520,7 +552,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             version_nueva = actual["version"] + 1
             if item:
                 item.cantidad = cantidad_total
-                item.ume = "Unidad"
+                item.ume = "kg" if categoria == "Por Kilos" else "Unidad"
                 item.tipo_inventario = tipo_inv
                 item.fecha = fecha_prod
                 item.sinc_estado = "pendiente"
@@ -532,7 +564,8 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 db.session.add(InventarioItem(
                     cliente_id=cliente_id,
                     tienda_id=tienda_id, categoria=categoria, producto=producto,
-                    cantidad=cantidad_total, ume="Unidad",
+                    cantidad=cantidad_total,
+                    ume="kg" if categoria == "Por Kilos" else "Unidad",
                     tipo_inventario=tipo_inv, fecha=fecha_prod,
                     sinc_estado="pendiente", periodo_id=periodo_id,
                     usuario_ultima_carga=usuario, version=version_nueva,
@@ -545,7 +578,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             if item:  # El mismo stock operativo provenía de otro período.
                 item.cliente_id = cliente_id
                 item.cantidad = cantidad_total
-                item.ume = "Unidad"
+                item.ume = "kg" if categoria == "Por Kilos" else "Unidad"
                 item.tipo_inventario = tipo_inv
                 item.fecha = fecha_prod
                 item.sinc_estado = "pendiente"
@@ -557,7 +590,8 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 db.session.add(InventarioItem(
                     cliente_id=cliente_id,
                     tienda_id=tienda_id, categoria=categoria, producto=producto,
-                    cantidad=cantidad_total, ume="Unidad",
+                    cantidad=cantidad_total,
+                    ume="kg" if categoria == "Por Kilos" else "Unidad",
                     tipo_inventario=tipo_inv, fecha=fecha_prod,
                     sinc_estado="pendiente", periodo_id=periodo_id,
                     usuario_ultima_carga=usuario, version=version_nueva,
@@ -567,6 +601,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             cantidad_anterior = None
 
         detalles = [e.get("desc_conversion") or e.get("detalle", "") for e in grupo["entradas"]]
+        detalle_conversion = " | ".join(d for d in detalles if d)
         db.session.add(HistorialMovimiento(
             fecha=fecha_prod,
             hora=primera["hora"],
@@ -574,9 +609,9 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             categoria=categoria,
             producto=producto,
             cantidad=cantidad_total,
-            modo="Unidad",
+            modo="kg" if categoria == "Por Kilos" else "Unidad",
             tipo_inventario=tipo_inv,
-            detalle=" | ".join(d for d in detalles if d),
+            detalle=detalle_conversion,
             tienda_id=tienda_id,
             cliente_id=cliente_id,
             snapshot_id=snapshot.id,
@@ -602,6 +637,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
             conteo.categoria = categoria
             conteo.cantidad_unidad = cantidad_total
             conteo.total_unidad_base = cantidad_total
+            conteo.observacion = detalle_conversion
             conteo.fue_cargado = True
             conteo.fecha_carga = ahora
             conteo.fue_sobreescrito = tipo_movimiento == "sobreescritura"
@@ -617,6 +653,7 @@ def build_carrito_guardado(carrito: list, tienda_id: str, usuario: str,
                 cantidad_unidad=cantidad_total,
                 total_unidad_base=cantidad_total,
                 fue_cargado=True,
+                observacion=detalle_conversion,
                 primera_carga=ahora,
                 fecha_carga=ahora,
                 fue_sobreescrito=tipo_movimiento == "sobreescritura",

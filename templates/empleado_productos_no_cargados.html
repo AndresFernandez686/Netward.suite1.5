@@ -48,22 +48,36 @@
           <span class="field__label">Producto</span>
           <div class="pending-product-static">{{ pendiente.producto | strip_unidad }}</div>
         </div>
-        <label class="field">
-          <span class="field__label">Cantidad</span>
-          <input type="number" name="cantidad" min="0" step="1" placeholder="0" required>
-        </label>
-        <label class="field">
-          <span class="field__label">{{ 'Estado' if pendiente.categoria == 'Por Kilos' else 'UME' }}</span>
-          <select name="ume">
-            {% if pendiente.categoria == 'Por Kilos' %}
+        {% if pendiente.categoria == 'Por Kilos' %}
+          <label class="field">
+            <span class="field__label">Estado del balde</span>
+            <select name="estado_balde" class="js-estado-balde">
               {% for estado in estados_balde %}<option value="{{ estado }}">{{ estado }}</option>{% endfor %}
-            {% else %}
+            </select>
+          </label>
+          <label class="field js-carga-balde-lleno">
+            <span class="field__label">Cantidad de baldes llenos</span>
+            <input type="number" name="cantidad_baldes" min="0" step="1" placeholder="0" required>
+            <small class="muted">Cada balde lleno equivale a 7,8 kg.</small>
+          </label>
+          <label class="field js-carga-balde-medio" hidden>
+            <span class="field__label">Peso real del balde (kg)</span>
+            <input type="text" name="peso_kg" inputmode="decimal" placeholder="Ej.: 3,500" disabled>
+          </label>
+        {% else %}
+          <label class="field">
+            <span class="field__label">Cantidad</span>
+            <input type="number" name="cantidad" min="0" step="1" placeholder="0" required>
+          </label>
+          <label class="field">
+            <span class="field__label">UME</span>
+            <select name="ume">
               <option value="Unidad">Unidad</option>
               <option value="Caja">Caja</option>
               {% if pendiente.categoria in ('Fanee', 'Extras') %}<option value="Tira">Tira</option>{% else %}<option value="Bulto">Bulto</option>{% endif %}
-            {% endif %}
-          </select>
-        </label>
+            </select>
+          </label>
+        {% endif %}
         <div class="inv-form__action">
           <button type="submit" class="btn btn--primary btn--block">Agregar al carrito</button>
         </div>
@@ -77,4 +91,30 @@
   <span class="muted">Selecciona otra categoría o vuelve al inventario para revisar las cargas.</span>
 </section>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    document.querySelectorAll('.pending-direct-form').forEach(function (form) {
+      var estado = form.querySelector('.js-estado-balde');
+      if (!estado) return;
+      var campoLleno = form.querySelector('.js-carga-balde-lleno');
+      var campoMedio = form.querySelector('.js-carga-balde-medio');
+      var cantidadBaldes = campoLleno.querySelector('input');
+      var pesoKg = campoMedio.querySelector('input');
+      function actualizarCargaKilos() {
+        var medio = estado.value === 'Medio lleno';
+        campoLleno.hidden = medio;
+        campoMedio.hidden = !medio;
+        cantidadBaldes.disabled = medio;
+        cantidadBaldes.required = !medio;
+        pesoKg.disabled = !medio;
+        pesoKg.required = medio;
+      }
+      estado.addEventListener('change', actualizarCargaKilos);
+      actualizarCargaKilos();
+    });
+  })();
+</script>
 {% endblock %}

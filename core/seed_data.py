@@ -51,7 +51,12 @@ CATEGORIAS_FANEE_COMPATIBLES = {CATEGORIA_FANEE, "Extras"}
 CATEGORIAS = ["Impulsivo", "Por Kilos", CATEGORIA_FANEE]
 TIPOS_INVENTARIO = ["Diario", "Semanal"]
 OPCIONES_UME = ["Unidad", "Caja", "Tira"]
-ESTADOS_BALDE = ["Lleno", "Medio lleno", "Vacio"]
+# El kilogramo es la unidad base de la categoría "Por Kilos". Un balde
+# completo no requiere pesaje; los baldes parciales sí se cargan por su peso
+# real. Se conserva la constante en un único lugar para que interfaz, reglas y
+# pruebas utilicen exactamente la misma conversión.
+PESO_BALDE_LLENO_KG = 7.8
+ESTADOS_BALDE = ["Lleno", "Medio lleno"]
 
 # Tiendas iniciales
 TIENDAS_DEFAULT = [

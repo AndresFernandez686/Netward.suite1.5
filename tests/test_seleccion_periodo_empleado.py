@@ -31,6 +31,8 @@ class PruebasSeleccionPeriodoEmpleado(unittest.TestCase):
 
         self.assertIn('name="cantidad" min="0" step="1" placeholder="0" required', plantilla)
         self.assertIn('name="cantidad_baldes" min="0" step="1" placeholder="0" required', plantilla)
+        self.assertIn('name="peso_kg" inputmode="decimal" placeholder="Ej.: 3,500"', plantilla)
+        self.assertIn('name="estado_balde" class="js-estado-balde"', plantilla)
         self.assertNotIn('name="cantidad" min="0" step="1" value="0"', plantilla)
         self.assertIn('class="inv-form" novalidate', plantilla)
         pendientes = (ROOT / "templates" / "empleado_productos_no_cargados.html").read_text(
@@ -44,6 +46,7 @@ class PruebasSeleccionPeriodoEmpleado(unittest.TestCase):
         ruta = app[inicio:fin]
         self.assertIn('if cantidad_texto == "":', ruta)
         self.assertIn("if cantidad < 0:", ruta)
+        self.assertIn('cantidad_texto.replace(",", ".")', ruta)
 
 
 if __name__ == "__main__":

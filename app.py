@@ -10,6 +10,7 @@ Estructura:
   - static/           -> CSS y JS
 """
 import io
+import math
 import os
 import re
 import sqlite3
@@ -1448,8 +1449,18 @@ def carrito_agregar():
 
     categoria = request.form.get("categoria")
     producto = (request.form.get("producto") or "").strip()
-    cantidad_texto = (request.form.get("cantidad") or "").strip()
-    ume = request.form.get("ume", "Unidad")
+    if categoria == "Por Kilos" and request.form.get("estado_balde"):
+        ume = request.form.get("estado_balde", "Lleno")
+        cantidad_texto = (
+            request.form.get("peso_kg")
+            if ume == "Medio lleno"
+            else request.form.get("cantidad_baldes")
+        )
+        cantidad_texto = (cantidad_texto or "").strip()
+    else:
+        # También recibe este formato al confirmar una sobreescritura.
+        cantidad_texto = (request.form.get("cantidad") or "").strip()
+        ume = request.form.get("ume", "Unidad")
     tipo_inventario = request.form.get("tipo_inventario", "Diario")
     if tipo_inventario not in TIPOS_INVENTARIO:
         tipo_inventario = "Diario"
@@ -1474,13 +1485,33 @@ def carrito_agregar():
         flash("Ingresa una cantidad antes de agregar.", "warning")
         return _redirect_inventario_context("sec-carga")
     try:
-        cantidad = float(cantidad_texto)
+        cantidad = float(cantidad_texto.replace(",", "."))
     except ValueError:
+        flash("Ingresa una cantidad válida.", "warning")
+        return _redirect_inventario_context("sec-carga")
+    if not math.isfinite(cantidad):
         flash("Ingresa una cantidad válida.", "warning")
         return _redirect_inventario_context("sec-carga")
     if cantidad < 0:
         flash("La cantidad no puede ser negativa.", "warning")
         return _redirect_inventario_context("sec-carga")
+    if categoria == "Por Kilos":
+        if ume not in ("Lleno", "Medio lleno", "Vacio"):
+            flash("Selecciona un estado de balde válido.", "warning")
+            return _redirect_inventario_context("sec-carga")
+        if ume in ("Lleno", "Vacio") and not cantidad.is_integer():
+            flash("La cantidad de baldes debe ser un número entero.", "warning")
+            return _redirect_inventario_context("sec-carga")
+        if ume == "Medio lleno" and cantidad <= 0:
+            flash("Ingresa el peso real del balde medio lleno en kg.", "warning")
+            return _redirect_inventario_context("sec-carga")
+        if ume == "Medio lleno" and cantidad >= empleado_service.PESO_BALDE_LLENO_KG:
+            flash(
+                "El peso de un balde medio lleno debe ser menor que 7,8 kg; "
+                "si está lleno, registra la cantidad de baldes llenos.",
+                "warning",
+            )
+            return _redirect_inventario_context("sec-carga")
 
     confirmar = request.form.get("confirmar_sobreescritura") == "1"
     version_esperada = request.form.get("version_esperada", type=int)

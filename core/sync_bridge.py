@@ -266,7 +266,8 @@ def retroalimentar_periodo_desde_items(periodo: InventarioPeriodo) -> int:
         pp = (ProductoPrecio.query
               .filter(db.func.lower(ProductoPrecio.producto_nombre) == _norm(nombre))
               .first())
-        # El item ya fue convertido a unidades en add_carrito_item, guardamos tal cual
+        # El item ya fue normalizado en add_carrito_item: kg para Por Kilos y
+        # unidades para las demás categorías. Se guarda el valor tal cual.
 
         cd = ConteoDetalle.query.filter_by(
             periodo_id=periodo.id, producto_nombre=nombre
