@@ -54,6 +54,14 @@ class PruebasMantenimientoBaseDatos(unittest.TestCase):
         self.assertIn('revision = "20260906_08"', head.read_text(encoding="utf-8"))
         self.assertIn('version != "20260906_08"', app_source)
 
+    def test_migracion_informe_nexa_tolera_schema_inicial_completo(self):
+        revision = (
+            ROOT / "migrations" / "versions" / "20260904_06_informe_markdown_nexa.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("_columnas_existentes", revision)
+        self.assertIn("if not faltantes:", revision)
+        self.assertIn("if nombre not in existentes", revision)
+
 
 if __name__ == "__main__":
     unittest.main()
